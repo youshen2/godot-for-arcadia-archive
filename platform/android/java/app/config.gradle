@@ -161,7 +161,7 @@ ext.generateGodotLibraryVersion = { List<String> requiredKeys ->
 
     if (libraryVersionName.isEmpty()) {
         // Fallback value in case we're unable to read the file.
-        libraryVersionName = "custom_build"
+        libraryVersionName = "moye"
     }
 
     if (libraryVersionCode == 0) {

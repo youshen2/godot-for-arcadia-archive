@@ -47,7 +47,6 @@ public:
 		EDITOR_3D,
 		EDITOR_SCRIPT,
 		EDITOR_GAME,
-		EDITOR_ASSETLIB,
 	};
 
 private:

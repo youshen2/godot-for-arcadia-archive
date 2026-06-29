@@ -3593,7 +3593,7 @@
                     "name": "build",
                     "type": "const char*",
                     "description": [
-                        "(e.g. \"custom_build\")"
+                        "(e.g. \"moye\")"
                     ]
                 },
                 {

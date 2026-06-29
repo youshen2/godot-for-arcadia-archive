@@ -70,7 +70,7 @@
 #endif
 
 // Similar to GODOT_VERSION_FULL_CONFIG, but also includes the (potentially custom) GODOT_VERSION_BUILD
-// description (e.g. official, custom_build, etc.).
+// description (e.g. official, moye, etc.).
 // Example: "3.1.4.stable.mono.double.official"
 #define GODOT_VERSION_FULL_BUILD GODOT_VERSION_FULL_CONFIG "." GODOT_VERSION_BUILD
 

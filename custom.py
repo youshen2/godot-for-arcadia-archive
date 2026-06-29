@@ -9,12 +9,13 @@ use_llvm = "yes"
 
 # production = "yes"
 # disable_3d = "yes"
-# optimize = "size"
+# optimize = "size_extra"
 # lto = "full"
 # disable_physics_2d = "yes"
 # disable_physics_3d = "yes"
+# debug_symbols = "no"
 
-optimize = "size_extra"
+optimize = "speed"
 
 module_basis_universal_enabled = "no"
 module_bmp_enabled = "no"

@@ -51,7 +51,6 @@
 #include "editor/editor_node.h"
 #include "editor/file_system/editor_paths.h"
 #include "editor/inspector/editor_property_name_processor.h"
-#include "editor/project_manager/engine_update_label.h"
 #include "editor/themes/editor_theme_manager.h"
 #include "editor/translations/editor_translation.h"
 #include "main/main.h"
@@ -451,14 +450,6 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 		EDITOR_SETTING_USAGE(Variant::STRING, PROPERTY_HINT_ENUM, "interface/editor/localization/editor_language", "auto", lang_hint, PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_RESTART_IF_CHANGED | PROPERTY_USAGE_EDITOR_BASIC_SETTING);
 	}
 
-	/* Asset Store */
-
-	_initial_set("asset_store/use_threads", true);
-
-	Dictionary default_urls;
-	default_urls["godotengine.org (Official)"] = "https://store.godotengine.org/api/v1";
-	_initial_set("asset_store/available_urls", default_urls, true);
-
 	/* Interface */
 
 	// Editor
@@ -497,11 +488,6 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 		project_manager_screen_hints += ",Screen " + itos(i + 1) + ":" + itos(i);
 	}
 	EDITOR_SETTING(Variant::INT, PROPERTY_HINT_ENUM, "interface/editor/appearance/project_manager_screen", EditorSettings::InitialScreen::INITIAL_SCREEN_PRIMARY, project_manager_screen_hints)
-
-	{
-		const String update_hint = vformat("Disable Update Checks,Auto (%s),Check Newest Preview,Check Newest Stable,Check Newest Patch", (str_compare(GODOT_VERSION_STATUS, "stable") == 0) ? "Stable" : "Preview");
-		EDITOR_SETTING_BASIC(Variant::INT, PROPERTY_HINT_ENUM, "network/connection/check_for_updates", EngineUpdateLabel::UpdateMode::AUTO, update_hint);
-	}
 
 	EDITOR_SETTING_USAGE(Variant::BOOL, PROPERTY_HINT_NONE, "interface/editor/appearance/use_embedded_menu", false, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_EDITOR_BASIC_SETTING)
 	EDITOR_SETTING_USAGE(Variant::BOOL, PROPERTY_HINT_NONE, "interface/editor/appearance/use_native_file_dialogs", false, "", PROPERTY_USAGE_DEFAULT)
@@ -1278,7 +1264,6 @@ void EditorSettings::_handle_setting_compatibility() {
 	erase("run/output/always_close_output_on_stop");
 	erase("text_editor/theme/line_spacing"); // See GH-106137.
 	erase("interface/editors/show_scene_tree_root_selection");
-	erase("asset_library/available_urls"); // Workaround bugged settings treating the previous default as a modified value (see GH-118755).
 
 	// Handle renamed settings.
 	_rename_setting("interface/editor/editor_language", "interface/editor/localization/editor_language");
@@ -1325,7 +1310,6 @@ void EditorSettings::_handle_setting_compatibility() {
 	_rename_setting("interface/editor/vsync_mode", "interface/editor/display/vsync_mode");
 	_rename_setting("interface/editor/update_continuously", "interface/editor/display/update_continuously");
 	_rename_setting("interface/editor/collapse_main_menu", "interface/editor/appearance/collapse_main_menu");
-	_rename_setting("asset_library/use_threads", "asset_store/use_threads");
 }
 
 void EditorSettings::_rename_setting(const String &p_old_name, const String &p_new_name) {

@@ -295,7 +295,6 @@ opts.Add(
 )
 opts.Add(BoolVariable("scu_build", "Use single compilation unit build", False))
 opts.Add("scu_limit", "Max includes per SCU file when using scu_build (determines RAM use)", "0")
-opts.Add(BoolVariable("engine_update_check", "Enable engine update checks in the Project Manager", True))
 opts.Add(BoolVariable("steamapi", "Enable minimal SteamAPI integration for usage time tracking (editor only)", False))
 opts.Add("cache_path", "Path to a directory where SCons cache files will be stored. No value disables the cache.", "")
 opts.Add("cache_limit", "Max size (in GiB) for the SCons cache. 0 means no limit.", "0")
@@ -581,9 +580,6 @@ if env["use_precise_math_checks"]:
     env.Append(CPPDEFINES=["PRECISE_MATH_CHECKS"])
 
 if env.editor_build:
-    if env["engine_update_check"]:
-        env.Append(CPPDEFINES=["ENGINE_UPDATE_CHECK_ENABLED"])
-
     if not env.File("#main/splash_editor.png").exists():
         # Force disabling editor splash if missing.
         env["no_editor_splash"] = True
