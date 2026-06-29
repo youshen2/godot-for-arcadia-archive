@@ -1,0 +1,1 @@
+scons platform=macos arch=arm64 generate_bundle=yes target=editor -j 12
