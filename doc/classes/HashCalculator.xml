@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="HashCalculator" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		提供字符串、字节数组和文件的高性能哈希计算工具。
+	</brief_description>
+	<description>
+		[HashCalculator] 是 [HashingContext] 的高层封装，用于一次性计算字符串、[PackedByteArray] 或文件路径的哈希值，也可以在一个任务中并行计算多个文件。支持的算法由 [enum HashingContext.HashType] 定义，包括 MD5、SHA-1 和 SHA-256。
+		计算文件时会按块读取内容，不会把整个文件一次性载入内存。[method start_files] 会使用 [WorkerThreadPool] 在后台并行处理多个文件；可以通过 [method get_progress]、[method get_processed_bytes]、[method get_total_bytes]、[method get_processed_file_count] 和 [method get_total_file_count] 查询进度。结果顺序与输入路径顺序一致。
+		文件结果以 [Dictionary] 表示，包含以下键：[code]path[/code] 为文件路径，[code]hash[/code] 为 [PackedByteArray] 哈希值，[code]hash_hex[/code] 为十六进制字符串，[code]error[/code] 为 [enum Error] 错误码，[code]size[/code] 为启动时或打开文件后获取的文件大小，[code]processed_size[/code] 为实际读取并参与计算的字节数。若某个文件打不开或读取失败，该项的 [code]error[/code] 不为 [constant OK]，其它文件仍会继续计算。
+		[codeblocks]
+		[gdscript]
+		var md5_hex := HashCalculator.hash_string_hex(HashingContext.HASH_MD5, "hello")
+
+		var calculator := HashCalculator.new()
+		var err := calculator.start_files(HashingContext.HASH_SHA256, PackedStringArray(["res://data/a.bin", "user://b.bin"]))
+		if err == OK:
+			while not calculator.is_finished():
+				print(calculator.get_progress())
+				await get_tree().process_frame
+
+			for result in calculator.get_results():
+				if result.error == OK:
+					print(result.path, result.hash_hex)
+		[/gdscript]
+		[csharp]
+		string md5Hex = HashCalculator.HashStringHex(HashingContext.HashType.Md5, "hello");
+
+		var calculator = new HashCalculator();
+		Error err = calculator.StartFiles(HashingContext.HashType.Sha256, new string[] { "res://data/a.bin", "user://b.bin" });
+		if (err == Error.Ok)
+		{
+			while (!calculator.IsFinished())
+			{
+				GD.Print(calculator.GetProgress());
+				await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+			}
+
+			foreach (Godot.Collections.Dictionary result in calculator.GetResults())
+			{
+				if ((Error)(int)result["error"] == Error.Ok)
+				{
+					GD.Print(result["path"], result["hash_hex"]);
+				}
+			}
+		}
+		[/csharp]
+		[/codeblocks]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="clear">
+			<return type="void" />
+			<description>
+				等待当前多文件任务结束，然后清空已保存的路径、进度和结果。调用后可重新使用同一个 [HashCalculator] 实例启动新的任务。若任务正在运行，本方法会阻塞直到后台任务完成。
+			</description>
+		</method>
+		<method name="get_processed_bytes">
+			<return type="int" />
+			<description>
+				返回当前多文件任务已经读取并参与计算的总字节数。该值会随着后台文件读取逐步增加，可用于显示精确的字节级进度。
+			</description>
+		</method>
+		<method name="get_processed_file_count">
+			<return type="int" />
+			<description>
+				返回当前多文件任务中已经结束处理的文件数量。文件计算成功、打开失败或读取失败都会计入该数量。
+			</description>
+		</method>
+		<method name="get_progress">
+			<return type="float" />
+			<description>
+				返回当前多文件任务的总体进度，范围为 [code]0.0[/code] 到 [code]1.0[/code]。当总字节数可用时按字节计算；如果所有文件大小为 0 或无法在启动时获取，则按已完成文件数量估算。任务完成后始终返回 [code]1.0[/code]。
+			</description>
+		</method>
+		<method name="get_result" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="index" type="int" />
+			<description>
+				返回输入路径中第 [param index] 个文件的结果 [Dictionary]。返回值字段与 [method get_results] 中的单项一致。若任务仍在运行，尚未完成的文件会返回 [code]error[/code] 为 [constant ERR_BUSY] 的结果。
+			</description>
+		</method>
+		<method name="get_results" qualifiers="const">
+			<return type="Dictionary[]" />
+			<description>
+				返回当前多文件任务的所有结果。数组顺序与传给 [method start_files] 的路径顺序一致。每个元素都是 [Dictionary]，包含 [code]path[/code]、[code]hash[/code]、[code]hash_hex[/code]、[code]error[/code]、[code]size[/code] 和 [code]processed_size[/code] 字段。
+			</description>
+		</method>
+		<method name="get_total_bytes">
+			<return type="int" />
+			<description>
+				返回当前多文件任务启动时统计到的总字节数。无法获取大小的文件不会计入该值；如果任务包含会动态变化的文件，实际读取字节数可能与该值不同。
+			</description>
+		</method>
+		<method name="get_total_file_count">
+			<return type="int" />
+			<description>
+				返回当前多文件任务的输入文件数量。
+			</description>
+		</method>
+		<method name="hash_bytes" qualifiers="static">
+			<return type="PackedByteArray" />
+			<param index="0" name="type" type="int" enum="HashingContext.HashType" />
+			<param index="1" name="bytes" type="PackedByteArray" />
+			<description>
+				使用 [param type] 指定的算法计算 [param bytes] 的哈希值，并返回原始字节数组。空字节数组会返回对应算法的合法空输入哈希值；若算法不受支持，则返回空数组。
+			</description>
+		</method>
+		<method name="hash_bytes_hex" qualifiers="static">
+			<return type="String" />
+			<param index="0" name="type" type="int" enum="HashingContext.HashType" />
+			<param index="1" name="bytes" type="PackedByteArray" />
+			<description>
+				使用 [param type] 指定的算法计算 [param bytes] 的哈希值，并返回小写十六进制字符串。适合校验和、日志或清单文件等文本场景。
+			</description>
+		</method>
+		<method name="hash_file" qualifiers="static">
+			<return type="PackedByteArray" />
+			<param index="0" name="type" type="int" enum="HashingContext.HashType" />
+			<param index="1" name="path" type="String" />
+			<param index="2" name="chunk_size" type="int" default="1048576" />
+			<description>
+				按块读取 [param path] 指向的文件并计算哈希值，返回原始哈希字节数组。[param chunk_size] 控制单次读取的缓冲区大小，默认 1 MiB。较大的块通常能减少读取调用次数，但会占用更多临时内存。文件无法打开、读取失败或参数无效时返回空数组。
+			</description>
+		</method>
+		<method name="hash_file_hex" qualifiers="static">
+			<return type="String" />
+			<param index="0" name="type" type="int" enum="HashingContext.HashType" />
+			<param index="1" name="path" type="String" />
+			<param index="2" name="chunk_size" type="int" default="1048576" />
+			<description>
+				按块读取 [param path] 指向的文件并计算哈希值，返回小写十六进制字符串。若需要区分具体失败原因，请使用 [method hash_files] 或 [method start_files] 并检查结果中的 [code]error[/code] 字段。
+			</description>
+		</method>
+		<method name="hash_files" qualifiers="static">
+			<return type="Dictionary[]" />
+			<param index="0" name="type" type="int" enum="HashingContext.HashType" />
+			<param index="1" name="paths" type="PackedStringArray" />
+			<param index="2" name="thread_count" type="int" default="-1" />
+			<param index="3" name="chunk_size" type="int" default="1048576" />
+			<param index="4" name="high_priority" type="bool" default="false" />
+			<description>
+				并行计算 [param paths] 中所有文件的哈希值，并在所有文件完成后返回结果数组。该方法会阻塞调用方；需要实时进度时，请创建实例并使用 [method start_files]。当 [param thread_count] 小于或等于 0 时会自动使用 worker 线程池的线程数；[param high_priority] 为 [code]true[/code] 时会以高优先级提交任务。
+			</description>
+		</method>
+		<method name="hash_string" qualifiers="static">
+			<return type="PackedByteArray" />
+			<param index="0" name="type" type="int" enum="HashingContext.HashType" />
+			<param index="1" name="text" type="String" />
+			<description>
+				将 [param text] 编码为 UTF-8 后计算哈希值，并返回原始哈希字节数组。该行为与脚本侧常用的字符串哈希缓冲区方法保持一致。
+			</description>
+		</method>
+		<method name="hash_string_hex" qualifiers="static">
+			<return type="String" />
+			<param index="0" name="type" type="int" enum="HashingContext.HashType" />
+			<param index="1" name="text" type="String" />
+			<description>
+				将 [param text] 编码为 UTF-8 后计算哈希值，并返回小写十六进制字符串。
+			</description>
+		</method>
+		<method name="is_finished">
+			<return type="bool" />
+			<description>
+				返回当前多文件任务是否已经完成。若后台任务已完成但尚未回收，调用本方法会同步完成内部清理。
+			</description>
+		</method>
+		<method name="is_running">
+			<return type="bool" />
+			<description>
+				返回当前是否有多文件任务仍在运行。若后台任务已经完成，调用本方法会同步完成内部清理并返回 [code]false[/code]。
+			</description>
+		</method>
+		<method name="start_files">
+			<return type="int" enum="Error" />
+			<param index="0" name="type" type="int" enum="HashingContext.HashType" />
+			<param index="1" name="paths" type="PackedStringArray" />
+			<param index="2" name="thread_count" type="int" default="-1" />
+			<param index="3" name="chunk_size" type="int" default="1048576" />
+			<param index="4" name="high_priority" type="bool" default="false" />
+			<description>
+				启动一个多文件哈希任务，并立即返回。任务运行期间可轮询 [method get_progress] 等进度方法，完成后通过 [method get_results] 或 [method get_result] 读取结果。若已有任务正在运行，返回 [constant ERR_ALREADY_IN_USE]。当 [param thread_count] 小于或等于 0 时会自动使用 worker 线程池的线程数；如果当前运行环境没有 worker 线程，则会退化为同步逐文件计算。
+			</description>
+		</method>
+		<method name="wait_to_finish">
+			<return type="int" enum="Error" />
+			<description>
+				阻塞等待当前多文件任务完成，并回收内部 worker group。任务完成后可以安全读取完整结果。若没有正在运行的任务，则直接返回 [constant OK]。
+			</description>
+		</method>
+	</methods>
+</class>

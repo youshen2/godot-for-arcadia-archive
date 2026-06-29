@@ -36,6 +36,7 @@
 #include "core/crypto/aes_context.h"
 #include "core/crypto/crypto.h"
 #include "core/crypto/crypto_resource_format.h"
+#include "core/crypto/hash_calculator.h"
 #include "core/crypto/hashing_context.h"
 #include "core/debugger/engine_profiler.h"
 #include "core/extension/gdextension.h"
@@ -231,6 +232,7 @@ void register_core_types() {
 
 	// Crypto
 	GDREGISTER_CLASS(HashingContext);
+	GDREGISTER_CLASS(HashCalculator);
 	GDREGISTER_CLASS(AESContext);
 	ClassDB::register_custom_instance_class<X509Certificate>();
 	ClassDB::register_custom_instance_class<CryptoKey>();
