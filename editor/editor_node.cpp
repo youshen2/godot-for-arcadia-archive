@@ -8065,7 +8065,7 @@ void EditorNode::_build_project_menu() {
 
 	project_menu->add_separator();
 	project_menu->add_shortcut(ED_GET_SHORTCUT("editor/export"), PROJECT_EXPORT);
-	project_menu->add_item(TTRC("AssetBundle 管理器"), PROJECT_ASSET_BUNDLE_MANAGER);
+	project_menu->add_item(TTRC("AssetBundle Manager"), PROJECT_ASSET_BUNDLE_MANAGER);
 	project_menu->add_item(TTRC("Pack Project as ZIP..."), PROJECT_PACK_AS_ZIP);
 	project_menu->add_item(TTRC("Install Android Build Template..."), PROJECT_INSTALL_ANDROID_SOURCE);
 #ifndef ANDROID_ENABLED

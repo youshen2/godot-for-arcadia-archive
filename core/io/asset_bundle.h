@@ -100,6 +100,7 @@ private:
 	static int64_t _get_dictionary_int64(const Dictionary &p_dictionary, const String &p_key, int64_t p_default = 0);
 	static PackedStringArray _get_dictionary_string_array(const Dictionary &p_dictionary, const String &p_key);
 	static Dictionary _read_manifest_dictionary(const String &p_manifest_path, Error &r_error, String &r_error_message);
+	static Variant _canonicalize_manifest_value(const Variant &p_value);
 	static Vector<String> _dictionary_string_keys_sorted(const Dictionary &p_dictionary);
 	static Dictionary _manifest_bundles_to_map(const Dictionary &p_manifest);
 	static Dictionary _bundle_chunks_to_map(const Dictionary &p_bundle);

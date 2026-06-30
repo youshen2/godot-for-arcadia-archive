@@ -36,6 +36,7 @@
 #include "core/io/file_access.h"
 #include "core/io/json.h"
 #include "core/io/resource_loader.h"
+#include "core/math/math_funcs.h"
 #include "core/object/class_db.h"
 
 bool AssetBundle::_variant_is_string_like(const Variant &p_value) {
@@ -130,6 +131,37 @@ Dictionary AssetBundle::_read_manifest_dictionary(const String &p_manifest_path,
 	}
 
 	return parsed;
+}
+
+Variant AssetBundle::_canonicalize_manifest_value(const Variant &p_value) {
+	if (p_value.get_type() == Variant::DICTIONARY) {
+		Dictionary source = p_value;
+		Dictionary result;
+		LocalVector<Variant> keys = source.get_key_list();
+		for (const Variant &key : keys) {
+			result[key] = _canonicalize_manifest_value(source[key]);
+		}
+		return result;
+	}
+
+	if (p_value.get_type() == Variant::ARRAY) {
+		Array source = p_value;
+		Array result;
+		for (int i = 0; i < source.size(); i++) {
+			result.push_back(_canonicalize_manifest_value(source[i]));
+		}
+		return result;
+	}
+
+	if (p_value.get_type() == Variant::FLOAT) {
+		const double value = double(p_value);
+		const double rounded = Math::round(value);
+		if (value == rounded && rounded >= double(INT64_MIN) && rounded <= double(INT64_MAX)) {
+			return int64_t(rounded);
+		}
+	}
+
+	return p_value;
 }
 
 String AssetBundle::_normalize_portable_path(const String &p_path) {
@@ -1137,7 +1169,7 @@ Dictionary AssetBundle::verify_bundle(const String &p_bundle_name, bool p_verify
 		Dictionary bundle_manifest = parsed;
 		bundle_manifest.erase("hash");
 		bundle_manifest.erase("size");
-		const String actual_bundle_hash = HashCalculator::hash_string_hex(HashingContext::HASH_SHA256, JSON::stringify(bundle_manifest, "\t", true));
+		const String actual_bundle_hash = HashCalculator::hash_string_hex(HashingContext::HASH_SHA256, JSON::stringify(_canonicalize_manifest_value(bundle_manifest), "\t", true));
 		result["actual_bundle_hash"] = actual_bundle_hash;
 		bundle_manifest_valid = actual_bundle_hash.to_lower() == bundle->hash.to_lower();
 		result["bundle_hash_valid"] = bundle_manifest_valid;

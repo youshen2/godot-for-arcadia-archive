@@ -42,6 +42,7 @@
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
 #include "editor/file_system/editor_file_system.h"
+#include "editor/gui/editor_file_dialog.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/button.h"
@@ -148,7 +149,10 @@ void AssetBundleManagerDialog::_save_config() {
 		config->set_value(section, "resources", manifest.resources);
 	}
 
-	config->save(CONFIG_PATH);
+	Error err = config->save(CONFIG_PATH);
+	if (err == OK && EditorFileSystem::get_singleton() != nullptr) {
+		EditorFileSystem::get_singleton()->update_file(CONFIG_PATH);
+	}
 }
 
 void AssetBundleManagerDialog::_update_manifest_list() {
@@ -176,7 +180,7 @@ void AssetBundleManagerDialog::_edit_manifest(int p_index) {
 	name_edit->set_text(manifest.name);
 	version_edit->set_text(manifest.version);
 	output_path_edit->set_text(manifest.output_path);
-	info_label->set_text(vformat(TTR("已选择 %d 个资源。"), manifest.resources.size()));
+	info_label->set_text(vformat(TTR("%d resources selected."), manifest.resources.size()));
 	_fill_resource_tree();
 	updating = false;
 }
@@ -355,6 +359,46 @@ void AssetBundleManagerDialog::_manifest_output_changed(const String &p_text) {
 	_save_config();
 }
 
+void AssetBundleManagerDialog::_browse_output_path() {
+	if (output_path_dialog == nullptr) {
+		return;
+	}
+
+	_store_current_manifest();
+
+	String current_path = output_path_edit->get_text().strip_edges();
+	if (current_path.is_empty()) {
+		current_path = "res://asset_bundles";
+	}
+	if (current_path.is_relative_path()) {
+		current_path = ProjectSettings::get_singleton()->globalize_path("res://");
+	} else {
+		current_path = ProjectSettings::get_singleton()->globalize_path(current_path);
+	}
+	while (!DirAccess::dir_exists_absolute(current_path)) {
+		String parent_path = current_path.get_base_dir();
+		if (parent_path.is_empty() || parent_path == current_path) {
+			current_path = ProjectSettings::get_singleton()->globalize_path("res://");
+			break;
+		}
+		current_path = parent_path;
+	}
+	output_path_dialog->set_current_dir(current_path);
+	output_path_dialog->popup_file_dialog();
+}
+
+void AssetBundleManagerDialog::_output_path_selected(const String &p_path) {
+	if (updating) {
+		return;
+	}
+
+	updating = true;
+	output_path_edit->set_text(ProjectSettings::get_singleton()->localize_path(p_path));
+	updating = false;
+	_store_current_manifest();
+	_save_config();
+}
+
 void AssetBundleManagerDialog::_resource_tree_edited() {
 	if (updating || current_manifest < 0 || current_manifest >= manifests.size()) {
 		return;
@@ -368,7 +412,7 @@ void AssetBundleManagerDialog::_resource_tree_edited() {
 	PackedStringArray resources;
 	_collect_checked_resources(resource_tree->get_root(), resources);
 	manifests.write[current_manifest].resources = resources;
-	info_label->set_text(vformat(TTR("已选择 %d 个资源。"), resources.size()));
+	info_label->set_text(vformat(TTR("%d resources selected."), resources.size()));
 	_save_config();
 }
 
@@ -380,7 +424,7 @@ void AssetBundleManagerDialog::_export_current_manifest() {
 	_store_current_manifest();
 	Error err = _export_manifest(manifests[current_manifest]);
 	if (err == OK) {
-		info_label->set_text(TTR("AssetBundle 已导出。"));
+		info_label->set_text(TTR("AssetBundle exported."));
 	}
 }
 
@@ -426,7 +470,7 @@ Error AssetBundleManagerDialog::_export_manifest(const ManifestInfo &p_manifest)
 	err = DirAccess::make_dir_recursive_absolute(bundle_dir);
 	ERR_FAIL_COND_V(err != OK, err);
 
-	EditorProgress progress("asset_bundle_export", TTR("导出 AssetBundle"), resources.size() + 3);
+	EditorProgress progress("asset_bundle_export", TTR("Export AssetBundle"), resources.size() + 3);
 	Array chunks;
 	int64_t total_size = 0;
 
@@ -471,7 +515,7 @@ Error AssetBundleManagerDialog::_export_manifest(const ManifestInfo &p_manifest)
 	bundle_manifest["hash"] = bundle_hash;
 	bundle_manifest["size"] = total_size;
 
-	progress.step(TTR("写入 bundle 清单"), resources.size());
+	progress.step(TTR("Writing bundle manifest"), resources.size());
 	err = _write_text_file(bundle_dir.path_join("bundle.json"), JSON::stringify(bundle_manifest, "\t", true));
 	ERR_FAIL_COND_V(err != OK, err);
 
@@ -492,11 +536,11 @@ Error AssetBundleManagerDialog::_export_manifest(const ManifestInfo &p_manifest)
 	root_manifest["version"] = p_manifest.version;
 	root_manifest["bundles"] = bundles;
 
-	progress.step(TTR("写入 manifest"), resources.size() + 1);
+	progress.step(TTR("Writing manifest"), resources.size() + 1);
 	err = _write_text_file(output_root.path_join("manifest.json"), JSON::stringify(root_manifest, "\t", true));
 	ERR_FAIL_COND_V(err != OK, err);
 
-	progress.step(TTR("完成"), resources.size() + 2);
+	progress.step(TTR("Done"), resources.size() + 2);
 	return OK;
 }
 
@@ -508,6 +552,7 @@ void AssetBundleManagerDialog::_notification(int p_what) {
 		case NOTIFICATION_THEME_CHANGED: {
 			add_button->set_button_icon(get_theme_icon(SNAME("Add"), EditorStringName(EditorIcons)));
 			delete_button->set_button_icon(get_theme_icon(SNAME("Remove"), EditorStringName(EditorIcons)));
+			output_path_browse_button->set_button_icon(get_theme_icon(SNAME("Folder"), EditorStringName(EditorIcons)));
 		} break;
 	}
 }
@@ -516,12 +561,13 @@ void AssetBundleManagerDialog::popup_manager() {
 	_load_config();
 	_update_manifest_list();
 	_edit_manifest(current_manifest);
+	_save_config();
 	popup_centered_clamped(Size2(950, 560) * EDSCALE, 0.8);
 }
 
 AssetBundleManagerDialog::AssetBundleManagerDialog() {
-	set_title(TTR("AssetBundle 管理器"));
-	set_ok_button_text(TTR("关闭"));
+	set_title(TTRC("AssetBundle Manager"));
+	set_ok_button_text(TTRC("Close"));
 
 	HSplitContainer *split = memnew(HSplitContainer);
 	split->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
@@ -535,12 +581,12 @@ AssetBundleManagerDialog::AssetBundleManagerDialog() {
 	left->add_child(manifest_buttons);
 
 	add_button = memnew(Button);
-	add_button->set_tooltip_text(TTR("创建 Manifest"));
+	add_button->set_tooltip_text(TTRC("Create Manifest"));
 	manifest_buttons->add_child(add_button);
 	add_button->connect("pressed", callable_mp(this, &AssetBundleManagerDialog::_add_manifest));
 
 	delete_button = memnew(Button);
-	delete_button->set_tooltip_text(TTR("删除 Manifest"));
+	delete_button->set_tooltip_text(TTRC("Delete Manifest"));
 	manifest_buttons->add_child(delete_button);
 	delete_button->connect("pressed", callable_mp(this, &AssetBundleManagerDialog::_delete_manifest));
 
@@ -553,23 +599,31 @@ AssetBundleManagerDialog::AssetBundleManagerDialog() {
 	right->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	split->add_child(right);
 
-	Label *name_label = memnew(Label(TTR("Manifest 名称")));
+	Label *name_label = memnew(Label(TTRC("Manifest Name")));
 	right->add_child(name_label);
 	name_edit = memnew(LineEdit);
 	right->add_child(name_edit);
 	name_edit->connect("text_changed", callable_mp(this, &AssetBundleManagerDialog::_manifest_name_changed));
 
-	Label *version_label = memnew(Label(TTR("版本")));
+	Label *version_label = memnew(Label(TTRC("Version")));
 	right->add_child(version_label);
 	version_edit = memnew(LineEdit);
 	right->add_child(version_edit);
 	version_edit->connect("text_changed", callable_mp(this, &AssetBundleManagerDialog::_manifest_version_changed));
 
-	Label *output_label = memnew(Label(TTR("输出路径")));
+	Label *output_label = memnew(Label(TTRC("Output Path")));
 	right->add_child(output_label);
+	HBoxContainer *output_path_container = memnew(HBoxContainer);
+	right->add_child(output_path_container);
 	output_path_edit = memnew(LineEdit);
-	right->add_child(output_path_edit);
+	output_path_edit->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	output_path_container->add_child(output_path_edit);
 	output_path_edit->connect("text_changed", callable_mp(this, &AssetBundleManagerDialog::_manifest_output_changed));
+
+	output_path_browse_button = memnew(Button);
+	output_path_browse_button->set_tooltip_text(TTRC("Browse Output Folder"));
+	output_path_container->add_child(output_path_browse_button);
+	output_path_browse_button->connect("pressed", callable_mp(this, &AssetBundleManagerDialog::_browse_output_path));
 
 	info_label = memnew(Label);
 	right->add_child(info_label);
@@ -583,7 +637,14 @@ AssetBundleManagerDialog::AssetBundleManagerDialog() {
 	resource_tree->connect("item_edited", callable_mp(this, &AssetBundleManagerDialog::_resource_tree_edited));
 
 	export_button = memnew(Button);
-	export_button->set_text(TTR("导出 AssetBundle"));
+	export_button->set_text(TTRC("Export AssetBundle"));
 	right->add_child(export_button);
 	export_button->connect("pressed", callable_mp(this, &AssetBundleManagerDialog::_export_current_manifest));
+
+	output_path_dialog = memnew(EditorFileDialog);
+	output_path_dialog->set_access(EditorFileDialog::ACCESS_FILESYSTEM);
+	output_path_dialog->set_file_mode(EditorFileDialog::FILE_MODE_OPEN_DIR);
+	output_path_dialog->set_title(TTRC("Select AssetBundle Output Folder"));
+	add_child(output_path_dialog);
+	output_path_dialog->connect("dir_selected", callable_mp(this, &AssetBundleManagerDialog::_output_path_selected));
 }

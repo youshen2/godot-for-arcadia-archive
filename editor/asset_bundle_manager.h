@@ -36,6 +36,7 @@
 
 class Button;
 class EditorFileSystemDirectory;
+class EditorFileDialog;
 class ItemList;
 class Label;
 class LineEdit;
@@ -60,6 +61,8 @@ class AssetBundleManagerDialog : public ConfirmationDialog {
 	LineEdit *name_edit = nullptr;
 	LineEdit *version_edit = nullptr;
 	LineEdit *output_path_edit = nullptr;
+	Button *output_path_browse_button = nullptr;
+	EditorFileDialog *output_path_dialog = nullptr;
 	Label *info_label = nullptr;
 	Tree *resource_tree = nullptr;
 	Button *export_button = nullptr;
@@ -86,6 +89,8 @@ class AssetBundleManagerDialog : public ConfirmationDialog {
 	void _manifest_name_changed(const String &p_text);
 	void _manifest_version_changed(const String &p_text);
 	void _manifest_output_changed(const String &p_text);
+	void _browse_output_path();
+	void _output_path_selected(const String &p_path);
 	void _resource_tree_edited();
 	void _export_current_manifest();
 	Error _export_manifest(const ManifestInfo &p_manifest);

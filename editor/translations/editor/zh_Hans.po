@@ -6760,6 +6760,45 @@ msgstr ""
 msgid "Export Project..."
 msgstr "导出项目..."
 
+msgid "%d resources selected."
+msgstr "已选择 %d 个资源。"
+
+msgid "AssetBundle exported."
+msgstr "AssetBundle 已导出。"
+
+msgid "Export AssetBundle"
+msgstr "导出 AssetBundle"
+
+msgid "Writing bundle manifest"
+msgstr "正在写入 bundle 清单"
+
+msgid "Writing manifest"
+msgstr "正在写入 manifest"
+
+msgid "Done"
+msgstr "完成"
+
+msgid "AssetBundle Manager"
+msgstr "AssetBundle 管理器"
+
+msgid "Create Manifest"
+msgstr "创建 Manifest"
+
+msgid "Delete Manifest"
+msgstr "删除 Manifest"
+
+msgid "Manifest Name"
+msgstr "Manifest 名称"
+
+msgid "Output Path"
+msgstr "输出路径"
+
+msgid "Browse Output Folder"
+msgstr "浏览输出文件夹"
+
+msgid "Select AssetBundle Output Folder"
+msgstr "选择 AssetBundle 输出文件夹"
+
 msgid ""
 "Export the project as a playable build (Godot executable and project data) "
 "for the selected preset."
