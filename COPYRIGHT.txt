@@ -76,6 +76,21 @@ Comment: Chipmunk2D Joint Constraints
 Copyright: 2007, Scott Lembcke
 License: Expat
 
+Files: modules/godot_sqlite/*
+Comment: godot-sqlite
+Copyright: 2019-2026, Piet Bronders and Jeroen De Geeter
+License: Expat
+
+Files: modules/godot_sqlite/sqlite/*
+Comment: SQLite
+Copyright: SQLite authors
+License: SQLite-PD
+
+Files: modules/gozen/*
+Comment: GDE GoZen
+Copyright: Voylin
+License: LGPL-2.1+
+
 Files: modules/godot_physics_3d/gjk_epa.cpp
  modules/godot_physics_3d/joints/godot_generic_6dof_joint_3d.cpp
  modules/godot_physics_3d/joints/godot_generic_6dof_joint_3d.h
@@ -301,6 +316,11 @@ Files: thirdparty/fonts/Vazirmatn*.woff2
 Comment: Vazirmatn font
 Copyright: 2015, The Vazirmatn Project Authors.
 License: OFL-1.1
+
+Files: thirdparty/ffmpeg/*
+Comment: FFmpeg
+Copyright: FFmpeg developers
+License: FFmpeg
 
 Files: thirdparty/freetype/*
 Comment: The FreeType Project
@@ -1414,6 +1434,31 @@ License: Expat
  CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+License: FFmpeg
+ FFmpeg source files are distributed under a mix of LGPL and GPL licenses.
+ The default Godot GoZen build wrapper does not pass --enable-gpl or
+ --enable-nonfree. See thirdparty/ffmpeg/LICENSE.md and the COPYING files
+ in thirdparty/ffmpeg/ for the full licensing terms.
+
+License: LGPL-2.1+
+ This library is free software; you can redistribute it and/or modify it
+ under the terms of the GNU Lesser General Public License as published by
+ the Free Software Foundation; either version 2.1 of the License, or (at
+ your option) any later version.
+ .
+ The full license text for the vendored copies is included in
+ modules/gozen/LICENSE and thirdparty/ffmpeg/COPYING.LGPLv2.1.
+
+License: SQLite-PD
+ All of the code and documentation in SQLite has been dedicated to the
+ public domain by the authors. Anyone is free to copy, modify, publish,
+ use, compile, sell, or distribute the original SQLite code, either in
+ source code form or as a compiled binary, for any purpose, commercial
+ or non-commercial, and by any means.
+ .
+ The full public domain notice for the vendored SQLite amalgamation is
+ included in modules/godot_sqlite/sqlite/LICENSE.md.
 
 License: glslang
  Here, glslang proper means core GLSL parsing, HLSL parsing, and SPIR-V code

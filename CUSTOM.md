@@ -9,6 +9,7 @@
 - `HTTPFileDownloader`：高性能 HTTP/HTTPS 文件下载节点，支持自适应或固定线程数的 Range 分段下载、批量下载、失败自动单连接回退、实时进度/字节数/总字节数/耗时/预计剩余时间/速度查询，以及 GDScript 和 Mono / C# 绑定可见的信号与状态接口。
 - `MarkdownTextLabel`：独立 Markdown 显示控件，基于 md4c 解析 CommonMark/GFM Markdown，提供 `text`、`parse_markdown`、`append_text`、`clear`、纯文本、内容尺寸、链接点击信号、自动换行和 BiDi 排版接口，GDScript 和 Mono / C# 可用。
 - `FileAccess.humanize_size(size)`：将字节数转换为人类可读的 IEC 存储大小字符串，供 GDScript 和 Mono / C# 调用。
+- `SQLite`：内置的 godot-sqlite SQLite 数据库访问模块，提供数据库打开/关闭、SQL 查询、位置或命名参数绑定、表结构辅助创建、增删改查、备份/恢复、JSON 导入导出、扩展加载和 SQLite 返回码常量；通过 ClassDB 注册并提供中文 doc_class，GDScript 和 Mono / C# 可用。
 
 > 请在doc/classes中寻找对应的接口文档。
 

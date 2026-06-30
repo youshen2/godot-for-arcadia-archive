@@ -1,0 +1,31 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+Import("env_modules")
+
+env_godot_sqlite = env_modules.Clone()
+
+env_godot_sqlite.Prepend(CPPPATH=["#modules/godot_cpp_compat", "#modules/godot_sqlite"])
+
+if env["godot_sqlite_enable_fts5"]:
+    env_godot_sqlite.Append(CPPDEFINES=["SQLITE_ENABLE_FTS5"])
+
+if env["godot_sqlite_enable_math_functions"]:
+    env_godot_sqlite.Append(CPPDEFINES=["SQLITE_ENABLE_MATH_FUNCTIONS"])
+
+if env["godot_sqlite_enable_rtree"]:
+    env_godot_sqlite.Append(CPPDEFINES=["SQLITE_ENABLE_RTREE"])
+
+thirdparty_obj = []
+env_sqlite_thirdparty = env_godot_sqlite.Clone()
+env_sqlite_thirdparty.disable_warnings()
+env_sqlite_thirdparty.add_source_files(thirdparty_obj, "sqlite/sqlite3.c")
+env.modules_sources += thirdparty_obj
+
+module_obj = []
+env_godot_sqlite.add_source_files(module_obj, "*.cpp")
+env_godot_sqlite.add_source_files(module_obj, "vfs/*.cpp")
+env.modules_sources += module_obj
+
+env.Depends(module_obj, thirdparty_obj)
