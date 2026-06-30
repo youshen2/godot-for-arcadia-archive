@@ -19,6 +19,7 @@ while getopts "tj:" opt; do
       echo "  ./build.sh        清理后编译 macOS editor"
       echo "  ./build.sh -t     清理后编译全部 export templates"
       echo "  ./build.sh -j 8   指定并行数量"
+      echo "  ./build.sh -t -j 8"
       exit 1
       ;;
   esac
@@ -66,22 +67,9 @@ clean_editor_targets() {
 }
 
 clean_template_targets() {
-  echo ">>> 清理 template 产物"
+  echo ">>> 清理 export template 产物"
 
-  rm -f bin/godot.windows.template_debug.x86_32.moye.mono.exe
-  rm -f bin/godot.windows.template_release.x86_32.moye.mono.exe
-  rm -f bin/godot.windows.template_debug.x86_64.moye.mono.exe
-  rm -f bin/godot.windows.template_release.x86_64.moye.mono.exe
-  rm -f bin/godot.windows.template_debug.arm64.moye.mono.exe
-  rm -f bin/godot.windows.template_release.arm64.moye.mono.exe
-
-  rm -f bin/godot.macos.template_debug.arm64.moye.mono
-  rm -f bin/godot.macos.template_release.arm64.moye.mono
-  rm -f bin/godot.macos.template_debug.x86_64.moye.mono
-  rm -f bin/godot.macos.template_release.x86_64.moye.mono
-  rm -rf bin/godot_macos_template_debug_moye_mono.app
-  rm -rf bin/godot_macos_template_release_moye_mono.app
-
+  # Android
   rm -f bin/libgodot.android.template_release.arm32.moye.mono.so
   rm -f bin/libgodot.android.template_release.arm64.moye.mono.so
   rm -f bin/libgodot.android.template_release.x86_32.moye.mono.so
@@ -92,7 +80,42 @@ clean_template_targets() {
   rm -f bin/android_release.apk
   rm -f bin/android_template.apk
 
-  echo ">>> template 清理完成"
+  # Windows
+  rm -f bin/godot.windows.template_debug.x86_32.moye.mono.exe
+  rm -f bin/godot.windows.template_release.x86_32.moye.mono.exe
+  rm -f bin/godot.windows.template_debug.x86_64.moye.mono.exe
+  rm -f bin/godot.windows.template_release.x86_64.moye.mono.exe
+  rm -f bin/godot.windows.template_debug.arm64.moye.mono.exe
+  rm -f bin/godot.windows.template_release.arm64.moye.mono.exe
+
+  # macOS
+  rm -f bin/godot.macos.template_debug.arm64.moye.mono
+  rm -f bin/godot.macos.template_release.arm64.moye.mono
+  rm -f bin/godot.macos.template_debug.x86_64.moye.mono
+  rm -f bin/godot.macos.template_release.x86_64.moye.mono
+
+  rm -rf bin/godot_macos_template_debug_moye_mono.app
+  rm -rf bin/godot_macos_template_release_moye_mono.app
+  rm -rf bin/macos_template.app
+  rm -f bin/macos.zip
+  rm -f bin/macos_template.zip
+
+  # iOS
+  rm -f bin/libgodot.ios.template_debug.arm64.moye.mono.a
+  rm -f bin/libgodot.ios.template_release.arm64.moye.mono.a
+
+  rm -rf bin/godot_ios_template_debug_moye_mono
+  rm -rf bin/godot_ios_template_release_moye_mono
+  rm -rf bin/ios_template
+  rm -rf bin/ios_template_debug
+  rm -rf bin/ios_template_release
+
+  rm -f bin/ios.zip
+  rm -f bin/ios_template.zip
+  rm -f bin/ios_template_debug.zip
+  rm -f bin/ios_template_release.zip
+
+  echo ">>> export template 清理完成"
 }
 
 build_macos_editor() {
@@ -130,10 +153,22 @@ build_macos_editor() {
     arch=arm64 \
     target=editor \
     module_mono_enabled=yes \
-    generate_bundle=yes
+    macos_app=yes
 
   check_exists "$MACOS_EDITOR_BIN" "macOS editor binary"
   check_exists "bin/GodotSharp" "GodotSharp"
+
+  if [[ ! -d "$MACOS_EDITOR_APP" ]]; then
+    echo "⚠️ 没找到预期的 macOS editor app:"
+    echo "路径: $MACOS_EDITOR_APP"
+    echo
+    echo "当前 .app 列表："
+    find bin -maxdepth 1 -type d -name "*.app" -print || true
+    echo
+    echo "如果你的分支需要 generate_bundle=yes，请手动把 editor 打包参数从 macos_app=yes 改成 generate_bundle=yes"
+    exit 1
+  fi
+
   check_exists "$MACOS_EDITOR_APP" "macOS editor app"
 
   fix_quarantine "$MACOS_EDITOR_BIN"
@@ -267,6 +302,42 @@ build_macos_templates() {
   fi
 }
 
+build_ios_templates() {
+  echo
+  echo "========== 构建 iOS templates =========="
+
+  run_scons \
+    platform=ios \
+    target=template_debug \
+    module_mono_enabled=yes \
+    generate_bundle=yes
+
+  run_scons \
+    platform=ios \
+    target=template_release \
+    module_mono_enabled=yes \
+    generate_bundle=yes
+
+  check_exists "bin/libgodot.ios.template_debug.arm64.moye.mono.a" "iOS template_debug arm64 static library"
+  check_exists "bin/libgodot.ios.template_release.arm64.moye.mono.a" "iOS template_release arm64 static library"
+
+  if [[ -d "bin/godot_ios_template_debug_moye_mono" ]]; then
+    fix_quarantine "bin/godot_ios_template_debug_moye_mono"
+  fi
+
+  if [[ -d "bin/godot_ios_template_release_moye_mono" ]]; then
+    fix_quarantine "bin/godot_ios_template_release_moye_mono"
+  fi
+
+  if [[ -f "bin/ios.zip" ]]; then
+    echo "✅ iOS bundle zip: bin/ios.zip"
+  fi
+
+  if [[ -f "bin/ios_template.zip" ]]; then
+    echo "✅ iOS template zip: bin/ios_template.zip"
+  fi
+}
+
 build_all_templates() {
   echo
   echo "========== 构建全部 export templates =========="
@@ -276,6 +347,7 @@ build_all_templates() {
   build_android_templates
   build_windows_templates
   build_macos_templates
+  build_ios_templates
 }
 
 if [[ "$BUILD_TEMPLATES" -eq 1 ]]; then
