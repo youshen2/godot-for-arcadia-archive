@@ -1,0 +1,416 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="HTTPFileDownloader" inherits="Node" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		基于 HTTP Range 的高性能文件下载节点。
+	</brief_description>
+	<description>
+		[HTTPFileDownloader] 用于将 HTTP 或 HTTPS URL 下载到本地文件。它会先探测服务器是否支持 [code]Range[/code] 分段请求；当服务器支持、文件大小达到 [member min_parallel_size]，并且有效线程数大于 1 时，会把同一个文件拆分为多个字节区间并行下载。若服务器不支持分段、文件过小、总大小未知或 [member thread_count] 被设为 [code]1[/code]，会自动退回单连接下载。
+		本节点可以一次下载一个文件，也可以通过 [method download_files] 批量下载多个文件。批量任务默认遇到单个文件失败仍会继续处理后续文件；启用 [member stop_on_error] 后会在第一个失败文件处停止。进度既可以通过 [signal download_progressed]、[signal batch_progressed] 接收，也可以随时通过 [method get_progress]、[method get_downloaded_bytes]、[method get_total_bytes]、[method get_elapsed_time]、[method get_estimated_remaining_time] 和 [method get_bytes_per_second] 查询。
+		为了保证分段下载写入的是原始文件字节，本节点会在用户没有提供 [code]Accept-Encoding[/code] 请求头时自动添加 [code]Accept-Encoding: identity[/code]。如果自定义请求头强制启用 gzip、br 等压缩编码，服务器返回的内容可能不适合按字节区间合并。
+		[b]注意：[/b]本节点使用 Godot 内置 [HTTPClient]、[Thread] 和 [FileAccess]，不依赖第三方库。Web 导出中的 [HTTPClient] 受浏览器 Fetch、CORS 和阻塞线程限制，无法使用本节点的高性能下载路径；在 Web 平台调用下载方法会返回 [constant ERR_UNAVAILABLE]。
+		[codeblocks]
+		[gdscript]
+		var downloader := HTTPFileDownloader.new()
+		add_child(downloader)
+		downloader.thread_count = 0 # 0 表示按文件大小和 CPU 数自适应。
+		downloader.max_thread_count = 8
+		downloader.download_progressed.connect(func(id, url, downloaded, total, progress, elapsed, eta, speed):
+			prints(id, downloaded, total, progress, speed)
+		)
+		downloader.batch_completed.connect(func(result):
+			if result == HTTPFileDownloader.RESULT_SUCCESS:
+				print("全部下载完成")
+		)
+
+		var err := downloader.download_file("https://example.com/archive.pck", "user://archive.pck")
+		if err != OK:
+			push_error("启动下载失败: %s" % err)
+		[/gdscript]
+		[csharp]
+		var downloader = new HttpFileDownloader();
+		AddChild(downloader);
+		downloader.ThreadCount = 0;
+		downloader.MaxThreadCount = 8;
+
+		Error err = downloader.DownloadFiles(new Godot.Collections.Array&lt;Godot.Collections.Dictionary&gt;
+		{
+			new Godot.Collections.Dictionary
+			{
+				{ "url", "https://example.com/a.pck" },
+				{ "path", "user://a.pck" }
+			},
+			new Godot.Collections.Dictionary
+			{
+				{ "url", "https://example.com/b.pck" },
+				{ "path", "user://b.pck" }
+			}
+		});
+		if (err == Error.Ok)
+		{
+			while (downloader.IsDownloading())
+			{
+				GD.Print(downloader.GetProgress(), downloader.GetBytesPerSecond());
+				await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+			}
+		}
+		[/csharp]
+		[/codeblocks]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="cancel_downloads">
+			<return type="void" />
+			<description>
+				请求取消当前批量任务，并等待后台线程退出。正在进行的网络读取会在当前数据块结束后响应取消；如果 [member keep_partial_files] 为 [code]false[/code]，未完成的目标文件会被删除。取消后会发送 [signal download_completed] 和 [signal batch_completed]，对应结果为 [constant RESULT_CANCELED]。
+			</description>
+		</method>
+		<method name="download_file">
+			<return type="int" enum="Error" />
+			<param index="0" name="url" type="String" />
+			<param index="1" name="path" type="String" />
+			<param index="2" name="custom_headers" type="PackedStringArray" default="PackedStringArray()" />
+			<description>
+				启动单文件下载，将 [param url] 指向的 HTTP 或 HTTPS 内容保存到 [param path]。调用前实例必须已经进入场景树。返回 [constant OK] 表示任务已启动；如果当前实例已经在下载、URL 或路径为空、请求头格式错误，或当前平台不支持线程下载，则返回对应 [enum Error]。下载完成结果需要通过信号或状态查询获得。
+			</description>
+		</method>
+		<method name="download_files">
+			<return type="int" enum="Error" />
+			<param index="0" name="downloads" type="Dictionary[]" />
+			<param index="1" name="shared_headers" type="PackedStringArray" default="PackedStringArray()" />
+			<description>
+				启动批量下载。调用前实例必须已经进入场景树。[param downloads] 中每个 [Dictionary] 必须包含 [code]url[/code] 和 [code]path[/code] 字段，可选 [code]headers[/code] 字段用于传入该文件独有的请求头。[param shared_headers] 会追加到每个文件请求上。返回 [constant OK] 表示批量任务已启动；单个文件的下载结果通过 [signal download_completed] 或 [method get_download_status] 查询。
+			</description>
+		</method>
+		<method name="get_active_download_index" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回当前正在准备或下载的文件索引。没有活动文件时返回 [code]-1[/code]。该索引对应传入 [method download_files] 的数组顺序；单文件下载时索引固定为 [code]0[/code]。
+			</description>
+		</method>
+		<method name="get_bytes_per_second" qualifiers="const">
+			<return type="float" />
+			<description>
+				返回当前批量任务的平均下载速度，单位为字节每秒。该值按已下载总字节数和已使用时间计算，适合用于进度 UI 或速度显示。
+			</description>
+		</method>
+		<method name="get_download_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回当前实例保存的下载条目数量。任务未启动或已清空时返回 [code]0[/code]；批量任务完成后仍可用它遍历 [method get_download_status]。
+			</description>
+		</method>
+		<method name="get_download_status" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="index" type="int" />
+			<description>
+				返回第 [param index] 个下载条目的状态字典。字典包含 [code]id[/code]、[code]url[/code]、[code]path[/code]、[code]status[/code]、[code]result[/code]、[code]response_code[/code]、[code]downloaded_bytes[/code]、[code]total_bytes[/code]、[code]thread_count[/code]、[code]progress[/code]、[code]elapsed_time[/code]、[code]estimated_remaining_time[/code]、[code]bytes_per_second[/code] 和 [code]headers[/code]。当服务器未提供总大小时，[code]total_bytes[/code] 和剩余时间可能为 [code]-1[/code]。
+			</description>
+		</method>
+		<method name="get_downloaded_bytes" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回当前批量任务已经写入目标文件的总字节数。对于分段下载，该值会汇总所有分段线程的已完成写入量。
+			</description>
+		</method>
+		<method name="get_downloads_status" qualifiers="const">
+			<return type="Dictionary[]" />
+			<description>
+				返回所有下载条目的状态字典数组。数组顺序与 [method download_files] 的输入顺序一致，单项字段与 [method get_download_status] 相同。
+			</description>
+		</method>
+		<method name="get_elapsed_time" qualifiers="const">
+			<return type="float" />
+			<description>
+				返回当前批量任务已经使用的秒数。任务完成后返回从启动到结束的总耗时。
+			</description>
+		</method>
+		<method name="get_estimated_remaining_time" qualifiers="const">
+			<return type="float" />
+			<description>
+				根据当前平均速度和可用总字节数估算剩余秒数。若总大小未知或速度不足以估算，则返回 [code]-1.0[/code]；任务完成或没有剩余字节时返回 [code]0.0[/code]。
+			</description>
+		</method>
+		<method name="get_progress" qualifiers="const">
+			<return type="float" />
+			<description>
+				返回当前批量任务进度，范围为 [code]0.0[/code] 到 [code]1.0[/code]。当所有文件总字节数已知时按字节计算；如果存在未知大小的文件，则按已完成文件数量和当前文件可估算进度计算。
+			</description>
+		</method>
+		<method name="get_total_bytes" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回当前批量任务的总字节数。只有当所有文件都已探测到大小时才返回非负值；若仍有文件大小未知，则返回 [code]-1[/code]。
+			</description>
+		</method>
+		<method name="is_downloading" qualifiers="const">
+			<return type="bool" />
+			<description>
+				返回当前实例是否正在执行下载任务。任务启动后为 [code]true[/code]，完成、失败或取消后变为 [code]false[/code]。
+			</description>
+		</method>
+		<method name="is_finished" qualifiers="const">
+			<return type="bool" />
+			<description>
+				返回最近一次任务是否已经结束。新任务启动时该值会重置为 [code]false[/code]；完成、失败或取消后变为 [code]true[/code]。
+			</description>
+		</method>
+		<method name="is_keep_partial_files_enabled" qualifiers="const">
+			<return type="bool" />
+			<description>
+				返回失败或取消时是否保留未完成的目标文件。
+			</description>
+		</method>
+		<method name="is_stop_on_error_enabled" qualifiers="const">
+			<return type="bool" />
+			<description>
+				返回批量任务是否会在第一个失败文件处停止。
+			</description>
+		</method>
+		<method name="get_download_chunk_size" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回每次从网络响应读取的最大数据块大小，单位为字节。该值会应用到后续创建的内部 [HTTPClient] 实例。
+			</description>
+		</method>
+		<method name="get_max_redirects" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回单次 HTTP 请求允许跟随的最大重定向次数。探测请求、单连接下载和分段下载都会使用该限制。
+			</description>
+		</method>
+		<method name="get_max_thread_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回自适应模式下单个文件允许使用的最大下载线程数。
+			</description>
+		</method>
+		<method name="get_min_parallel_size" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回启用分段并发下载所需的最小文件大小，单位为字节。小于该值的文件会使用单连接下载。
+			</description>
+		</method>
+		<method name="get_progress_update_interval" qualifiers="const">
+			<return type="float" />
+			<description>
+				返回进度信号的最小发送间隔，单位为秒。该值只影响信号频率，不影响状态查询方法返回的实时数据。
+			</description>
+		</method>
+		<method name="get_thread_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回固定线程数设置。[code]0[/code] 表示自适应模式；正数表示请求使用指定数量的线程，但最终数量仍可能因为文件大小、服务器能力或 [member max_thread_count] 而降低。
+			</description>
+		</method>
+		<method name="set_download_chunk_size">
+			<return type="void" />
+			<param index="0" name="bytes" type="int" />
+			<description>
+				设置每次读取网络响应的最大数据块大小。任务运行中不能修改。较大的值通常能降低锁和函数调用开销，但会增加单次临时缓冲区大小。
+			</description>
+		</method>
+		<method name="set_http_proxy">
+			<return type="void" />
+			<param index="0" name="host" type="String" />
+			<param index="1" name="port" type="int" />
+			<description>
+				设置 HTTP 下载使用的代理服务器。传入空主机或 [code]-1[/code] 端口表示取消代理设置。该设置会传给内部创建的 [HTTPClient] 实例。
+			</description>
+		</method>
+		<method name="set_https_proxy">
+			<return type="void" />
+			<param index="0" name="host" type="String" />
+			<param index="1" name="port" type="int" />
+			<description>
+				设置 HTTPS 下载使用的代理服务器。传入空主机或 [code]-1[/code] 端口表示取消代理设置。代理握手和 TLS 行为遵循 [HTTPClient] 的平台实现。
+			</description>
+		</method>
+		<method name="set_keep_partial_files">
+			<return type="void" />
+			<param index="0" name="keep" type="bool" />
+			<description>
+				设置下载失败或取消时是否保留未完成文件。任务运行中不能修改。保留部分文件可以用于外部诊断或自行实现断点续传，但这些文件不能直接当作完整下载结果使用。
+			</description>
+		</method>
+		<method name="set_max_redirects">
+			<return type="void" />
+			<param index="0" name="max_redirects" type="int" />
+			<description>
+				设置单次请求允许跟随的最大重定向次数。任务运行中不能修改；传入负数无效。
+			</description>
+		</method>
+		<method name="set_max_thread_count">
+			<return type="void" />
+			<param index="0" name="max_thread_count" type="int" />
+			<description>
+				设置自适应模式允许的最大线程数。任务运行中不能修改；有效值为 [code]1[/code] 到 [code]64[/code]。
+			</description>
+		</method>
+		<method name="set_min_parallel_size">
+			<return type="void" />
+			<param index="0" name="bytes" type="int" />
+			<description>
+				设置启用分段并发下载的最小文件大小。任务运行中不能修改；设为 [code]0[/code] 表示只要服务器支持 Range 且有效线程数大于 1，就允许分段。
+			</description>
+		</method>
+		<method name="set_progress_update_interval">
+			<return type="void" />
+			<param index="0" name="interval" type="float" />
+			<description>
+				设置进度信号的最小发送间隔，单位为秒。设为 [code]0.0[/code] 时每个处理帧都允许发送进度信号；该设置可在任务运行时调整。
+			</description>
+		</method>
+		<method name="set_stop_on_error">
+			<return type="void" />
+			<param index="0" name="stop" type="bool" />
+			<description>
+				设置批量任务是否在第一个失败文件处停止。任务运行中不能修改。停止时后续未处理条目会标记为 [constant STATUS_CANCELED]。
+			</description>
+		</method>
+		<method name="set_thread_count">
+			<return type="void" />
+			<param index="0" name="thread_count" type="int" />
+			<description>
+				设置单个文件请求使用的线程数。任务运行中不能修改。[code]0[/code] 表示自适应，[code]1[/code] 表示单连接，大于 [code]1[/code] 表示固定线程数。
+			</description>
+		</method>
+		<method name="set_tls_options">
+			<return type="void" />
+			<param index="0" name="client_options" type="TLSOptions" />
+			<description>
+				设置 HTTPS 连接使用的客户端 TLS 选项。必须传入客户端模式的 [TLSOptions]；服务器模式选项无效。未调用时使用默认客户端 TLS 配置。
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="download_chunk_size" type="int" setter="set_download_chunk_size" getter="get_download_chunk_size" default="262144">
+			每次从 [HTTPClient] 读取的最大字节数。较大的块可以减少锁和回调开销，但会增加单次内存占用；有效范围为 [code]256[/code] 到 [code]16777216[/code] 字节。
+		</member>
+		<member name="keep_partial_files" type="bool" setter="set_keep_partial_files" getter="is_keep_partial_files_enabled" default="false">
+			为 [code]true[/code] 时，下载失败或取消后保留已经写入的目标文件；为 [code]false[/code] 时会删除未完成文件，避免后续逻辑误用损坏内容。
+		</member>
+		<member name="max_redirects" type="int" setter="set_max_redirects" getter="get_max_redirects" default="8">
+			单次请求允许跟随的最大 HTTP 重定向次数。超过该次数会返回 [constant RESULT_REDIRECT_LIMIT_REACHED]。
+		</member>
+		<member name="max_thread_count" type="int" setter="set_max_thread_count" getter="get_max_thread_count" default="8">
+			自适应模式下单个文件最多使用的分段线程数。即使 CPU 核心数更多，也不会超过该上限。
+		</member>
+		<member name="min_parallel_size" type="int" setter="set_min_parallel_size" getter="get_min_parallel_size" default="8388608">
+			启用分段并发下载所需的最小文件大小。小于该值的文件会使用单连接下载，以避免连接建立和磁盘寻址开销超过收益。
+		</member>
+		<member name="progress_update_interval" type="float" setter="set_progress_update_interval" getter="get_progress_update_interval" default="0.1">
+			进度信号的最小发送间隔，单位为秒。设为 [code]0.0[/code] 表示每个处理帧都发送进度信号；查询方法不受该间隔影响。
+		</member>
+		<member name="stop_on_error" type="bool" setter="set_stop_on_error" getter="is_stop_on_error_enabled" default="false">
+			控制批量任务遇到单个文件失败时是否立即停止。为 [code]false[/code] 时会继续下载后续文件，但 [signal batch_completed] 的结果仍会报告第一个失败结果。
+		</member>
+		<member name="thread_count" type="int" setter="set_thread_count" getter="get_thread_count" default="0">
+			单个文件使用的下载线程数。[code]0[/code] 表示自适应；[code]1[/code] 表示强制单连接；大于 [code]1[/code] 表示固定分段线程数，但仍会受 [member max_thread_count]、服务器 Range 支持和文件大小限制影响。
+		</member>
+	</members>
+	<signals>
+		<signal name="batch_completed">
+			<param index="0" name="result" type="int" />
+			<description>
+				批量任务结束时发送。[param result] 为 [enum Result]，当所有文件成功时为 [constant RESULT_SUCCESS]；若存在失败文件，则为第一个失败结果；取消任务时为 [constant RESULT_CANCELED]。
+			</description>
+		</signal>
+		<signal name="batch_progressed">
+			<param index="0" name="downloaded_bytes" type="int" />
+			<param index="1" name="total_bytes" type="int" />
+			<param index="2" name="progress" type="float" />
+			<param index="3" name="elapsed_time" type="float" />
+			<param index="4" name="estimated_remaining_time" type="float" />
+			<param index="5" name="bytes_per_second" type="float" />
+			<description>
+				批量任务进度更新时发送。若存在未知大小的文件，[param total_bytes] 或 [param estimated_remaining_time] 可能为 [code]-1[/code]。
+			</description>
+		</signal>
+		<signal name="download_completed">
+			<param index="0" name="id" type="int" />
+			<param index="1" name="url" type="String" />
+			<param index="2" name="path" type="String" />
+			<param index="3" name="result" type="int" />
+			<param index="4" name="response_code" type="int" />
+			<description>
+				单个文件结束时发送。[param id] 对应输入顺序，[param result] 为 [enum Result]，[param response_code] 为最后一次 HTTP 响应码；网络连接阶段失败时响应码可能为 [code]0[/code]。
+			</description>
+		</signal>
+		<signal name="download_progressed">
+			<param index="0" name="id" type="int" />
+			<param index="1" name="url" type="String" />
+			<param index="2" name="downloaded_bytes" type="int" />
+			<param index="3" name="total_bytes" type="int" />
+			<param index="4" name="progress" type="float" />
+			<param index="5" name="elapsed_time" type="float" />
+			<param index="6" name="estimated_remaining_time" type="float" />
+			<param index="7" name="bytes_per_second" type="float" />
+			<description>
+				当前活动文件进度更新时发送。分段下载时 [param downloaded_bytes] 是所有分段已经写入目标文件的总和。
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="RESULT_SUCCESS" value="0" enum="Result">
+			下载成功。
+		</constant>
+		<constant name="RESULT_CANT_CONNECT" value="1" enum="Result">
+			无法连接到服务器或代理。
+		</constant>
+		<constant name="RESULT_CANT_RESOLVE" value="2" enum="Result">
+			无法解析服务器主机名。
+		</constant>
+		<constant name="RESULT_CONNECTION_ERROR" value="3" enum="Result">
+			连接建立后发生网络错误或连接被异常关闭。
+		</constant>
+		<constant name="RESULT_TLS_HANDSHAKE_ERROR" value="4" enum="Result">
+			HTTPS TLS 握手失败。
+		</constant>
+		<constant name="RESULT_NO_RESPONSE" value="5" enum="Result">
+			服务器没有返回可解析的 HTTP 响应。
+		</constant>
+		<constant name="RESULT_HTTP_ERROR" value="6" enum="Result">
+			服务器返回非 2xx HTTP 状态码，或重定向响应缺少目标地址。
+		</constant>
+		<constant name="RESULT_DOWNLOAD_FILE_CANT_OPEN" value="7" enum="Result">
+			无法创建或打开目标文件。请检查路径、目录权限和导出平台的文件系统限制。
+		</constant>
+		<constant name="RESULT_DOWNLOAD_FILE_WRITE_ERROR" value="8" enum="Result">
+			写入目标文件时失败。常见原因包括磁盘空间不足、路径权限受限或底层文件系统错误。
+		</constant>
+		<constant name="RESULT_REDIRECT_LIMIT_REACHED" value="9" enum="Result">
+			HTTP 重定向次数超过 [member max_redirects]。
+		</constant>
+		<constant name="RESULT_CANCELED" value="10" enum="Result">
+			任务被 [method cancel_downloads] 取消。
+		</constant>
+		<constant name="RESULT_INVALID_URL" value="11" enum="Result">
+			URL 解析失败，或 URL 不是 HTTP/HTTPS 协议。
+		</constant>
+		<constant name="RESULT_RANGE_NOT_SUPPORTED" value="12" enum="Result">
+			服务器没有按要求返回分段响应。节点通常会自动退回单连接下载；若退回也失败，可能会保留该结果。
+		</constant>
+		<constant name="RESULT_UNAVAILABLE" value="13" enum="Result">
+			当前平台或构建配置不支持本节点需要的线程下载能力。
+		</constant>
+		<constant name="STATUS_PENDING" value="0" enum="DownloadStatus">
+			下载条目已加入批量任务，但尚未开始处理。
+		</constant>
+		<constant name="STATUS_PREPARING" value="1" enum="DownloadStatus">
+			正在探测 URL、重定向、总大小和 Range 支持。
+		</constant>
+		<constant name="STATUS_DOWNLOADING" value="2" enum="DownloadStatus">
+			正在下载并写入目标文件。
+		</constant>
+		<constant name="STATUS_COMPLETED" value="3" enum="DownloadStatus">
+			下载条目已成功完成。
+		</constant>
+		<constant name="STATUS_FAILED" value="4" enum="DownloadStatus">
+			下载条目失败，具体原因见 [enum Result]。
+		</constant>
+		<constant name="STATUS_CANCELED" value="5" enum="DownloadStatus">
+			下载条目被取消。
+		</constant>
+	</constants>
+</class>
