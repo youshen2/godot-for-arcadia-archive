@@ -174,6 +174,7 @@
 			<description>
 				Loads the contents of the .pck or .zip file specified by [param pack] into the resource filesystem ([code]res://[/code]). Returns [code]true[/code] on success.
 				[b]Note:[/b] If a file from [param pack] shares the same path as a file already in the resource filesystem, any attempts to load that file will use the file from [param pack] unless [param replace_files] is set to [code]false[/code].
+				[b]注意：[/b]运行中的项目以 [param replace_files] 为 [code]true[/code] 动态加载资源包时，如果资源包覆盖了脚本型 Autoload 单例的路径，引擎会重新加载该单例脚本并重建已有单例节点的脚本实例；会尽量恢复脚本存储属性，但不会重新创建节点本身。如果新脚本的原生基类与当前节点类型不兼容，会跳过该单例并保留原状。场景型 Autoload 或已经实例化的 [PackedScene] 节点不会自动重建。
 				[b]Note:[/b] The optional [param offset] parameter can be used to specify the offset in bytes to the start of the resource pack. This is only supported for .pck files.
 				[b]Note:[/b] [DirAccess] will not show changes made to the contents of [code]res://[/code] after calling this function.
 			</description>

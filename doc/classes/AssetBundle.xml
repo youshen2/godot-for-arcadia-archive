@@ -31,10 +31,10 @@
 		}
 		[/codeblock]
 		加载 bundle 时会先挂载请求 bundle 及其 manifest 依赖。批量加载时会先完成所有 bundle 挂载，再统一热替换已缓存资源，因此某个资源引用的依赖不必和它放在同一个 bundle 中；只要依赖已经缓存，或位于基础包、已挂载包、同次批量加载的其它包中，就能被普通 [ResourceLoader] 解析。目录型 AssetBundle 使用自定义 pack source 挂载，不受原始 PCK 打包时“包内必须包含完整依赖链”的导出限制影响。
-		当 [code]hot_replace_cached[/code] 为 [code]true[/code] 时，[AssetBundle] 只会对 manifest [code]chunks[/code] 或 [code]resources[/code] 中已经存在于 [code]ResourceCache[/code] 的路径执行 [constant CACHE_MODE_REPLACE] 重新加载。该模式会保留旧 [Resource] 对象并把新 bundle 中的数据拷贝进去，因此其它资源或节点持有的引用可以继续指向同一个对象并收到资源的 [code]changed[/code] 通知。外部依赖默认使用复用模式，不会强制深度替换依赖链。未缓存的资源不会被提前加载。
+		当 [code]hot_replace_cached[/code] 为 [code]true[/code] 时，[AssetBundle] 只会对 manifest [code]chunks[/code] 或 [code]resources[/code] 中已经存在于 [code]ResourceCache[/code] 的路径执行 [constant CACHE_MODE_REPLACE] 重新加载。该模式会保留旧 [Resource] 对象并把新 bundle 中的数据拷贝进去，因此其它资源或节点持有的引用可以继续指向同一个对象并收到资源的 [code]changed[/code] 通知。外部依赖默认使用复用模式，不会强制深度替换依赖链。未缓存的资源不会被提前加载。若 bundle 以 [code]replace_files[/code] 为 [code]true[/code] 挂载并覆盖了脚本型 Autoload 单例路径，运行中的单例节点会重新加载脚本并重建脚本实例；引擎会尽量恢复脚本存储属性，但不会重新创建节点本身。
 		同一个 manifest 通过编辑器 AssetBundle 管理器重复导出时，资源列表、chunk 文件名和 JSON 字段顺序会保持稳定：同一路径且内容未变化的资源会得到同一个 chunk 路径，内容变化的资源会得到新的 chunk 路径。项目可使用 [method get_manifest_diff] 比较本地 manifest 与云端或其它 manifest，获取需要下载的 bundle 元数据、chunk 列表、移除列表与总下载大小。
 		校验相关方法内部使用 [HashCalculator] 计算 SHA-256 和 MD5。若需要显示字节级校验进度，可以先用 [method get_bundle_chunk_file_paths] 取出实际 chunk 文件路径，再由项目代码调用 [method HashCalculator.start_files] 分帧读取 [method HashCalculator.get_progress]。manifest 和 chunk 路径在读取时会把反斜杠统一为正斜杠，再交给 Godot 的 [FileAccess] 解析，因此 Windows、macOS、Linux 和移动平台可以使用同一份 manifest。建议 manifest 内的相对 chunk 路径始终使用 [code]/[/code]。
-		[b]注意：[/b]Godot 当前没有公开的单个 pack 卸载接口，[method clear] 只清空此 [AssetBundle] 实例的 manifest 和状态，不会卸载已经挂载的 bundle。热替换 [PackedScene] 资源会更新已缓存的 [PackedScene] 对象，但已经实例化到场景树中的节点不会自动重建；后续新的实例化会使用更新后的场景资源。
+		[b]注意：[/b]Godot 当前没有公开的单个 pack 卸载接口，[method clear] 只清空此 [AssetBundle] 实例的 manifest 和状态，不会卸载已经挂载的 bundle。热替换 [PackedScene] 资源会更新已缓存的 [PackedScene] 对象，但已经实例化到场景树中的节点不会自动重建；场景型 Autoload 也不会自动重建。后续新的实例化会使用更新后的场景资源。
 		[codeblocks]
 		[gdscript]
 		var bundles := AssetBundle.new()

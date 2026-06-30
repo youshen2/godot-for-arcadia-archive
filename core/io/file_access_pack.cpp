@@ -38,12 +38,19 @@
 #include "core/version.h"
 
 Error PackedData::add_pack(const String &p_path, bool p_replace_files, uint64_t p_offset, const Vector<uint8_t> &p_decryption_key) {
+	last_added_files.clear();
+	collecting_pack_files = true;
+
 	for (int i = 0; i < sources.size(); i++) {
+		last_added_files.clear();
 		if (sources[i]->try_open_pack(p_path, p_replace_files, p_offset, p_decryption_key)) {
+			collecting_pack_files = false;
 			return OK;
 		}
 	}
 
+	collecting_pack_files = false;
+	last_added_files.clear();
 	return ERR_FILE_UNRECOGNIZED;
 }
 
@@ -66,11 +73,17 @@ void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64
 	}
 	pf.src = p_src;
 
+	const bool added_to_current_files = !p_delta && (!exists || p_replace_files);
+
 	if (p_delta) {
 		delta_patches[pmd5].push_back(pf);
-	} else if (!exists || p_replace_files) {
+	} else if (added_to_current_files) {
 		files[pmd5] = pf;
 		delta_patches[pmd5].clear();
+	}
+
+	if (collecting_pack_files && added_to_current_files) {
+		last_added_files.insert("res://" + simplified_path);
 	}
 
 	if (!exists) {
@@ -185,6 +198,8 @@ void PackedData::_get_file_paths(PackedDir *p_dir, const String &p_parent_dir, H
 void PackedData::clear() {
 	files.clear();
 	delta_patches.clear();
+	last_added_files.clear();
+	collecting_pack_files = false;
 	_free_packed_dirs(root);
 	root = memnew(PackedDir);
 }

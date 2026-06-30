@@ -109,6 +109,8 @@ private:
 
 	HashMap<PathMD5, PackedFile, PathMD5> files;
 	HashMap<PathMD5, Vector<PackedFile>, PathMD5> delta_patches;
+	HashSet<String> last_added_files;
+	bool collecting_pack_files = false;
 
 	Vector<PackSource *> sources;
 
@@ -137,6 +139,7 @@ public:
 	Vector<PackedFile> get_delta_patches(const String &p_path) const;
 	bool has_delta_patches(const String &p_path) const;
 	HashSet<String> get_file_paths() const;
+	const HashSet<String> &get_last_added_files() const { return last_added_files; }
 
 	void set_disabled(bool p_disabled) { disabled = p_disabled; }
 	_FORCE_INLINE_ bool is_disabled() const { return disabled; }

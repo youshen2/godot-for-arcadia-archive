@@ -48,6 +48,7 @@
 #include "core/io/image_loader.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
+#include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/object/message_queue.h"
 #include "core/object/script_language.h"
@@ -328,6 +329,102 @@ static String get_full_version_string() {
 		hash = "." + hash.left(9);
 	}
 	return String(GODOT_VERSION_FULL_BUILD) + hash;
+}
+
+static void reload_autoload_singleton_scripts_after_resource_pack_loaded(const String &p_pack, bool p_replace_files, const PackedStringArray &p_pack_files) {
+	if (!p_replace_files || editor || project_manager) {
+		return;
+	}
+
+	if (!Thread::is_main_thread()) {
+		MessageQueue::get_main_singleton()->push_callable(callable_mp_static(&reload_autoload_singleton_scripts_after_resource_pack_loaded).bind(p_pack, p_replace_files, p_pack_files));
+		return;
+	}
+
+	SceneTree *scene_tree = SceneTree::get_singleton();
+	if (scene_tree == nullptr || scene_tree->get_root() == nullptr) {
+		return;
+	}
+
+	Window *root = scene_tree->get_root();
+	HashSet<String> pack_files;
+	for (int i = 0; i < p_pack_files.size(); i++) {
+		pack_files.insert(p_pack_files[i]);
+	}
+	const HashMap<StringName, ProjectSettings::AutoloadInfo> &autoloads = ProjectSettings::get_singleton()->get_autoload_list();
+	for (const KeyValue<StringName, ProjectSettings::AutoloadInfo> &E : autoloads) {
+		const ProjectSettings::AutoloadInfo &info = E.value;
+		if (!info.is_singleton) {
+			continue;
+		}
+
+		const String path = ResourceUID::ensure_path(info.path);
+		const String remapped_path = ResourceLoader::path_remap(path);
+		if (!pack_files.has(path) && !pack_files.has(path + ".remap") && !pack_files.has(remapped_path)) {
+			continue;
+		}
+
+		const String resource_type = ResourceLoader::get_resource_type(path);
+		if (resource_type.is_empty() || !ClassDB::is_parent_class(resource_type, SNAME("Script"))) {
+			continue;
+		}
+
+		Node *autoload = root->get_node_or_null(NodePath(String(info.name)));
+		if (autoload == nullptr) {
+			continue;
+		}
+
+		Ref<Script> current_script = autoload->get_script();
+		if (current_script.is_valid()) {
+			const String current_path = ResourceUID::ensure_path(current_script->get_path());
+			if (!current_path.is_empty() && current_path != path) {
+				continue;
+			}
+		}
+
+		List<Pair<StringName, Variant>> state;
+		if (autoload->get_script_instance() != nullptr) {
+			autoload->get_script_instance()->get_property_state(state);
+		}
+
+		Error err = OK;
+		Ref<Resource> res = ResourceLoader::load(path, "Script", ResourceLoader::CACHE_MODE_REPLACE, &err);
+		ERR_CONTINUE_MSG(err != OK || res.is_null(), vformat("Failed to reload autoload singleton script '%s' from resource pack '%s'.", path, p_pack));
+
+		Ref<Script> script_res = res;
+		ERR_CONTINUE_MSG(script_res.is_null(), vformat("Failed to reload autoload singleton, path is not pointing to a script: %s.", path));
+		ERR_CONTINUE_MSG(!script_res->is_valid(), vformat("Failed to reload autoload singleton script '%s', script is not compiling.", path));
+		ERR_CONTINUE_MSG(!script_res->can_instantiate(), vformat("Failed to reload autoload singleton script '%s', script cannot be instantiated.", path));
+
+		const StringName ibt = script_res->get_instance_base_type();
+		ERR_CONTINUE_MSG(!ClassDB::is_parent_class(ibt, SNAME("Node")), vformat("Failed to reload autoload singleton script '%s', script does not inherit from 'Node'.", path));
+		ERR_CONTINUE_MSG(!ClassDB::is_parent_class(autoload->get_class_name(), ibt), vformat("Failed to reload autoload singleton script '%s', script base type '%s' is incompatible with existing node type '%s'.", path, ibt, autoload->get_class_name()));
+
+		autoload->set_script(Variant());
+		autoload->set_script(script_res);
+
+		ScriptInstance *script_instance = autoload->get_script_instance();
+		if (script_instance == nullptr) {
+			autoload->set_script(Variant());
+			if (current_script.is_valid()) {
+				autoload->set_script(current_script);
+				if (autoload->get_script_instance() != nullptr) {
+					for (const Pair<StringName, Variant> &state_property : state) {
+						autoload->get_script_instance()->set(state_property.first, state_property.second);
+					}
+				}
+			}
+			ERR_CONTINUE_MSG(true, vformat("Failed to recreate autoload singleton script instance for '%s'.", path));
+		}
+
+		for (const Pair<StringName, Variant> &state_property : state) {
+			script_instance->set(state_property.first, state_property.second);
+		}
+
+		for (int i = 0; i < ScriptServer::get_language_count(); i++) {
+			ScriptServer::get_language(i)->add_global_constant(info.name, autoload);
+		}
+	}
 }
 
 #if defined(TOOLS_ENABLED) && defined(MODULE_GDSCRIPT_ENABLED)
@@ -4433,6 +4530,8 @@ int Main::start() {
 
 	SceneTree *sml = Object::cast_to<SceneTree>(main_loop);
 	if (sml) {
+		ProjectSettings::set_resource_pack_loaded_callback(reload_autoload_singleton_scripts_after_resource_pack_loaded);
+
 #ifdef DEBUG_ENABLED
 		if (debug_collisions) {
 			sml->set_debug_collisions_hint(true);
@@ -5236,6 +5335,8 @@ void Main::cleanup(bool p_force) {
 	}
 
 	ResourceLoader::clear_thread_load_tasks();
+
+	ProjectSettings::set_resource_pack_loaded_callback(nullptr);
 
 	ResourceLoader::remove_custom_loaders();
 	ResourceSaver::remove_custom_savers();

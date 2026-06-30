@@ -54,6 +54,7 @@ class ProjectSettings : public Object {
 
 public:
 	typedef HashMap<String, Variant> CustomMap;
+	typedef void (*ResourcePackLoadedCallback)(const String &p_pack, bool p_replace_files, const PackedStringArray &p_files);
 	// This constant is used to make the ".godot" folder and paths like "res://.godot/editor".
 	static inline const String PROJECT_DATA_DIR_NAME_SUFFIX = "godot";
 	static inline const String EDITOR_SETTING_OVERRIDE_PREFIX = PNAME("editor_overrides") + String("/");
@@ -118,6 +119,7 @@ protected:
 	bool is_global_class_list_loaded = false;
 
 	String project_data_dir_name;
+	static ResourcePackLoadedCallback resource_pack_loaded_callback;
 
 	bool _set(const StringName &p_name, const Variant &p_value);
 	bool _get(const StringName &p_name, Variant &r_ret) const;
@@ -190,6 +192,7 @@ public:
 	String get_imported_files_path() const;
 
 	static ProjectSettings *get_singleton();
+	static void set_resource_pack_loaded_callback(ResourcePackLoadedCallback p_callback);
 
 	void clear(const String &p_name);
 	int get_order(const String &p_name) const;

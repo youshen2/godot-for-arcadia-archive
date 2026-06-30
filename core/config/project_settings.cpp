@@ -54,8 +54,14 @@
 #include "modules/modules_enabled.gen.h" // IWYU pragma: keep. For mono.
 #endif // TOOLS_ENABLED
 
+ProjectSettings::ResourcePackLoadedCallback ProjectSettings::resource_pack_loaded_callback = nullptr;
+
 ProjectSettings *ProjectSettings::get_singleton() {
 	return singleton;
+}
+
+void ProjectSettings::set_resource_pack_loaded_callback(ResourcePackLoadedCallback p_callback) {
+	resource_pack_loaded_callback = p_callback;
 }
 
 String ProjectSettings::get_project_data_dir_name() const {
@@ -612,6 +618,14 @@ bool ProjectSettings::_load_resource_pack(const String &p_pack, bool p_replace_f
 
 		// This pack may have defined new UIDs, make sure they are cached.
 		ResourceUID::get_singleton()->load_from_cache(false);
+
+		if (resource_pack_loaded_callback != nullptr) {
+			PackedStringArray added_files;
+			for (const String &file : PackedData::get_singleton()->get_last_added_files()) {
+				added_files.push_back(file);
+			}
+			resource_pack_loaded_callback(p_pack, p_replace_files, added_files);
+		}
 	}
 
 	// If the data pack was found, all directory access will be from here.
