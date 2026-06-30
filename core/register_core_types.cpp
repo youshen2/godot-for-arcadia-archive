@@ -46,6 +46,7 @@
 #include "core/input/input.h"
 #include "core/input/input_map.h"
 #include "core/input/shortcut.h"
+#include "core/io/asset_bundle.h"
 #include "core/io/config_file.h"
 #include "core/io/dir_access.h"
 #include "core/io/dtls_server.h"
@@ -280,6 +281,7 @@ void register_core_types() {
 
 	GDREGISTER_CLASS(ConfigFile);
 
+	GDREGISTER_CLASS(AssetBundle);
 	GDREGISTER_CLASS(PCKPacker);
 
 	GDREGISTER_CLASS(AStar3D);

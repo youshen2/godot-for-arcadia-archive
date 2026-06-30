@@ -30,6 +30,7 @@
 
 #include "file_access_pack.h"
 
+#include "core/io/asset_bundle_pack_source.h"
 #include "core/io/file_access_encrypted.h"
 #include "core/io/file_access_patched.h"
 #include "core/object/script_language.h"
@@ -193,6 +194,7 @@ PackedData::PackedData() {
 	root = memnew(PackedDir);
 
 	add_pack_source(memnew(PackedSourcePCK));
+	add_pack_source(memnew(PackedSourceAssetBundle));
 }
 
 void PackedData::_free_packed_dirs(PackedDir *p_dir) {

@@ -50,6 +50,7 @@
 #include "core/string/translation_server.h"
 #include "core/version.h"
 #include "editor/animation/animation_player_editor_plugin.h"
+#include "editor/asset_bundle_manager.h"
 #include "editor/audio/audio_stream_preview.h"
 #include "editor/audio/editor_audio_buses.h"
 #include "editor/debugger/debugger_editor_plugin.h"
@@ -3566,6 +3567,10 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 
 		case PROJECT_EXPORT: {
 			project_export->popup_export();
+		} break;
+
+		case PROJECT_ASSET_BUNDLE_MANAGER: {
+			asset_bundle_manager->popup_manager();
 		} break;
 
 		case PROJECT_PACK_AS_ZIP: {
@@ -8060,6 +8065,7 @@ void EditorNode::_build_project_menu() {
 
 	project_menu->add_separator();
 	project_menu->add_shortcut(ED_GET_SHORTCUT("editor/export"), PROJECT_EXPORT);
+	project_menu->add_item(TTRC("AssetBundle 管理器"), PROJECT_ASSET_BUNDLE_MANAGER);
 	project_menu->add_item(TTRC("Pack Project as ZIP..."), PROJECT_PACK_AS_ZIP);
 	project_menu->add_item(TTRC("Install Android Build Template..."), PROJECT_INSTALL_ANDROID_SOURCE);
 #ifndef ANDROID_ENABLED
@@ -8869,6 +8875,9 @@ EditorNode::EditorNode() {
 
 	project_export = memnew(ProjectExportDialog);
 	gui_base->add_child(project_export);
+
+	asset_bundle_manager = memnew(AssetBundleManagerDialog);
+	gui_base->add_child(asset_bundle_manager);
 
 	dependency_error = memnew(DependencyErrorDialog);
 	gui_base->add_child(dependency_error);

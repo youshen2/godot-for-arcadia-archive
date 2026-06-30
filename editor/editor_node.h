@@ -100,6 +100,7 @@ class HistoryDock;
 class OrphanResourcesDialog;
 class ProgressDialog;
 class ProjectExportDialog;
+class AssetBundleManagerDialog;
 class ProjectSettingsEditor;
 class SceneImportSettingsDialog;
 class ProjectUpgradeTool;
@@ -169,6 +170,7 @@ public:
 		PROJECT_FIND_IN_FILES,
 		PROJECT_VERSION_CONTROL,
 		PROJECT_EXPORT,
+		PROJECT_ASSET_BUNDLE_MANAGER,
 		PROJECT_PACK_AS_ZIP,
 		PROJECT_INSTALL_ANDROID_SOURCE,
 		PROJECT_OPEN_USER_DATA_FOLDER,
@@ -275,6 +277,7 @@ private:
 	HistoryDock *history_dock = nullptr;
 
 	ProjectExportDialog *project_export = nullptr;
+	AssetBundleManagerDialog *asset_bundle_manager = nullptr;
 	ProjectSettingsEditor *project_settings_editor = nullptr;
 
 	FBXImporterManager *fbx_importer_manager = nullptr;

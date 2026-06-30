@@ -1,0 +1,436 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="AssetBundle" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		读取资源包清单并按清单挂载、热替换和加载资源。
+	</brief_description>
+	<description>
+		[AssetBundle] 是运行时资源包加载器，用于读取 JSON manifest，查询其中声明的 bundle、版本、依赖和资源路径，并按清单挂载目录型 AssetBundle。AssetBundle 不是 PCK 文件，而是一个包含 [code]bundle.json[/code] 与若干随机名 chunk 文件的目录；每个 chunk 在 [code]bundle.json[/code] 中映射回一个 [code]res://[/code] 资源路径。挂载后资源仍通过普通 [ResourceLoader] 读取。
+		manifest 顶层应包含 [code]version[/code] 以及 [code]bundles[/code] 或 [code]packages[/code]。每个 bundle 至少需要 [code]name[/code] 和 [code]path[/code]，[code]path[/code] 通常指向包含 [code]bundle.json[/code] 的目录；可选字段包括 [code]version[/code]、[code]hash[/code]、[code]size[/code]、[code]dependencies[/code] 和 [code]chunks[/code]。相对 [code]path[/code] 会按 manifest 文件所在目录解析。
+		[codeblock]
+		{
+		    "version": "1",
+		    "bundles": [
+		        {
+		            "name": "hero",
+		            "path": "ab_hero",
+		            "version": "1.0.0",
+		            "hash": "bundle manifest 的 SHA-256",
+		            "size": 4096,
+		            "chunks": [
+		                {
+		                    "path": "res://characters/hero.tscn",
+		                    "type": "PackedScene",
+		                    "chunk": "92/0b/1c2d3e4f5678901234567890abcd.ab",
+		                    "hash": "资源内容的 SHA-256",
+		                    "md5": "资源内容的 MD5",
+		                    "size": 4096
+		                }
+		            ]
+		        }
+		    ]
+		}
+		[/codeblock]
+		加载 bundle 时会先挂载请求 bundle 及其 manifest 依赖。批量加载时会先完成所有 bundle 挂载，再统一热替换已缓存资源，因此某个资源引用的依赖不必和它放在同一个 bundle 中；只要依赖已经缓存，或位于基础包、已挂载包、同次批量加载的其它包中，就能被普通 [ResourceLoader] 解析。目录型 AssetBundle 使用自定义 pack source 挂载，不受原始 PCK 打包时“包内必须包含完整依赖链”的导出限制影响。
+		当 [code]hot_replace_cached[/code] 为 [code]true[/code] 时，[AssetBundle] 只会对 manifest [code]chunks[/code] 或 [code]resources[/code] 中已经存在于 [code]ResourceCache[/code] 的路径执行 [constant CACHE_MODE_REPLACE] 重新加载。该模式会保留旧 [Resource] 对象并把新 bundle 中的数据拷贝进去，因此其它资源或节点持有的引用可以继续指向同一个对象并收到资源的 [code]changed[/code] 通知。外部依赖默认使用复用模式，不会强制深度替换依赖链。未缓存的资源不会被提前加载。
+		同一个 manifest 通过编辑器 AssetBundle 管理器重复导出时，资源列表、chunk 文件名和 JSON 字段顺序会保持稳定：同一路径且内容未变化的资源会得到同一个 chunk 路径，内容变化的资源会得到新的 chunk 路径。项目可使用 [method get_manifest_diff] 比较本地 manifest 与云端或其它 manifest，获取需要下载的 bundle 元数据、chunk 列表、移除列表与总下载大小。
+		校验相关方法内部使用 [HashCalculator] 计算 SHA-256 和 MD5。若需要显示字节级校验进度，可以先用 [method get_bundle_chunk_file_paths] 取出实际 chunk 文件路径，再由项目代码调用 [method HashCalculator.start_files] 分帧读取 [method HashCalculator.get_progress]。manifest 和 chunk 路径在读取时会把反斜杠统一为正斜杠，再交给 Godot 的 [FileAccess] 解析，因此 Windows、macOS、Linux 和移动平台可以使用同一份 manifest。建议 manifest 内的相对 chunk 路径始终使用 [code]/[/code]。
+		[b]注意：[/b]Godot 当前没有公开的单个 pack 卸载接口，[method clear] 只清空此 [AssetBundle] 实例的 manifest 和状态，不会卸载已经挂载的 bundle。热替换 [PackedScene] 资源会更新已缓存的 [PackedScene] 对象，但已经实例化到场景树中的节点不会自动重建；后续新的实例化会使用更新后的场景资源。
+		[codeblocks]
+		[gdscript]
+		var bundles := AssetBundle.new()
+		var err := bundles.load_manifest("user://bundles/manifest.json")
+		if err == OK:
+		    err = bundles.start_load_bundles(PackedStringArray(["hero"]))
+		    while bundles.is_loading():
+		        bundles.poll_load()
+		        print(bundles.get_load_progress())
+		        await get_tree().process_frame
+
+		    var scene := bundles.load_resource("res://characters/hero.tscn", "PackedScene") as PackedScene
+		    var node := scene.instantiate()
+		[/gdscript]
+		[csharp]
+		var bundles = new AssetBundle();
+		Error err = bundles.LoadManifest("user://bundles/manifest.json");
+		if (err == Error.Ok)
+		{
+		    err = bundles.StartLoadBundles(new string[] { "hero" });
+		    while (bundles.IsLoading())
+		    {
+		        bundles.PollLoad();
+		        GD.Print(bundles.GetLoadProgress());
+		        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+		    }
+
+		    var scene = bundles.LoadResource("res://characters/hero.tscn", "PackedScene") as PackedScene;
+		    Node node = scene.Instantiate();
+		}
+		[/csharp]
+		[/codeblocks]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="clear">
+			<return type="void" />
+			<description>
+				清空当前实例读取到的 manifest、加载队列、进度、错误信息和已加载 bundle 记录。已经挂载到引擎中的 bundle 不会被卸载，也不会回滚已热替换的资源。
+			</description>
+		</method>
+		<method name="get_bundle_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回当前 manifest 中声明的 bundle 数量。若尚未成功调用 [method load_manifest]，返回 [code]0[/code]。
+			</description>
+		</method>
+		<method name="get_bundle_dependencies" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回 [param bundle_name] 在 manifest 中声明的直接 bundle 依赖名称列表。不存在该 bundle 时返回空数组。加载时这些依赖会先于目标 bundle 挂载。
+			</description>
+		</method>
+		<method name="get_bundle_info" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回 [param bundle_name] 的完整信息字典，包含 [code]name[/code]、[code]path[/code]、[code]resolved_path[/code]、[code]version[/code]、[code]hash[/code]、[code]size[/code]、[code]dependencies[/code]、[code]resources[/code]、[code]chunks[/code] 和 [code]loaded[/code]。不存在该 bundle 时返回空字典。
+			</description>
+		</method>
+		<method name="get_bundle_hash" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回 [param bundle_name] 在 manifest 中声明的 bundle 哈希。该值通常由编辑器导出器根据 [code]bundle.json[/code] 内容生成，用于快速判断 bundle 元数据是否变化。不存在该 bundle 或未声明哈希时返回空字符串。
+			</description>
+		</method>
+		<method name="get_bundle_manifest_path" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回 [param bundle_name] 对应的 [code]bundle.json[/code] 实际路径。若 manifest 中的 bundle [code]path[/code] 指向目录，则返回该目录下的 [code]bundle.json[/code]；若已经指向 [code]bundle.json[/code]，则直接返回解析后的路径。不存在该 bundle 时返回空字符串。
+			</description>
+		</method>
+		<method name="get_bundle_path" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回 [param bundle_name] 的 bundle 目录或 [code]bundle.json[/code] 路径。若 manifest 中使用相对路径，返回值是按 manifest 所在目录解析后的路径。不存在该 bundle 时返回空字符串。
+			</description>
+		</method>
+		<method name="get_bundle_chunks" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="bundle_name" type="String" />
+			<param index="1" name="include_file_paths" type="bool" default="false" />
+			<description>
+				返回 [param bundle_name] 中声明的 chunk 字典数组。每个字典包含 [code]path[/code]、[code]type[/code]、[code]chunk[/code]、[code]hash[/code]、[code]md5[/code] 和 [code]size[/code]；当 [param include_file_paths] 为 [code]true[/code] 时，还会包含解析后的本地 [code]file_path[/code]。不存在该 bundle 时返回空数组。
+			</description>
+		</method>
+		<method name="get_bundle_chunk_file_paths" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回 [param bundle_name] 所有已声明 chunk 的实际文件路径。该方法适合把结果传给 [HashCalculator] 做带进度的批量校验或下载完成后的文件检查。不存在该 bundle 时返回空数组。
+			</description>
+		</method>
+		<method name="get_bundle_resources" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回 [param bundle_name] 在 manifest [code]chunks[/code] 或 [code]resources[/code] 中声明的资源路径列表。这些路径用于挂载后的热替换扫描；未列入 manifest 的资源仍可在 bundle 挂载后由 [ResourceLoader] 正常加载，但不会被 [AssetBundle] 主动热替换。
+			</description>
+		</method>
+		<method name="get_bundle_size" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回 [param bundle_name] 在 manifest 中声明的总大小，单位为字节。该值由导出器按 chunk 大小汇总，适合显示下载大小；不存在该 bundle 或未声明大小时返回 [code]0[/code]。
+			</description>
+		</method>
+		<method name="get_bundle_version" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回 [param bundle_name] 在 manifest 中声明的版本字符串。不存在该 bundle 或未声明版本时返回空字符串。
+			</description>
+		</method>
+		<method name="get_bundles" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				按 manifest 中的声明顺序返回所有 bundle 名称。该顺序只表示清单顺序；实际加载会先处理依赖关系。
+			</description>
+		</method>
+		<method name="get_last_error" qualifiers="const">
+			<return type="String" />
+			<description>
+				返回最近一次失败操作的错误说明。成功加载 manifest 或完成 bundle 加载后会清空该字符串。
+			</description>
+		</method>
+		<method name="get_chunk_file_path" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="bundle_name" type="String" />
+			<param index="1" name="resource_path" type="String" />
+			<description>
+				返回 [param bundle_name] 中 [param resource_path] 对应 chunk 的实际文件路径。资源不存在、bundle 不存在或该资源没有声明 chunk 时返回空字符串。该路径可用于下载落盘、删除旧 chunk 或交给 [HashCalculator] 校验。
+			</description>
+		</method>
+		<method name="get_chunk_info" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="bundle_name" type="String" />
+			<param index="1" name="resource_path" type="String" />
+			<param index="2" name="include_file_path" type="bool" default="false" />
+			<description>
+				返回 [param bundle_name] 中 [param resource_path] 对应的 chunk 字典，字段与 [method get_bundle_chunks] 相同。当 [param include_file_path] 为 [code]true[/code] 时会额外包含 [code]file_path[/code]。找不到资源时返回空字典。
+			</description>
+		</method>
+		<method name="get_last_error_code" qualifiers="const">
+			<return type="int" enum="Error" />
+			<description>
+				返回最近一次失败操作的 [enum Error] 错误码。没有错误时返回 [constant OK]。
+			</description>
+		</method>
+		<method name="get_load_progress" qualifiers="const">
+			<return type="float" />
+			<description>
+				返回当前或最近一次 bundle 加载请求的进度，范围为 [code]0.0[/code] 到 [code]1.0[/code]。进度按步骤估算：每个 bundle 挂载算一步，开启热替换时每个 manifest 资源扫描算一步。挂载阶段不提供字节级进度。
+			</description>
+		</method>
+		<method name="get_loaded_bundles" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				返回当前实例记录为已成功挂载的 bundle 名称。该记录只属于当前 [AssetBundle] 实例；调用 [method clear] 会清空记录，但不会卸载 bundle。
+			</description>
+		</method>
+		<method name="get_loading_bundle" qualifiers="const">
+			<return type="String" />
+			<description>
+				返回当前 [method poll_load] 正在处理或最近处理的 bundle 名称。热替换资源阶段不对应单个 bundle 时可能返回空字符串。
+			</description>
+		</method>
+		<method name="get_manifest_info" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				返回当前 manifest 的摘要字典，包含 [code]path[/code]、[code]base_dir[/code]、[code]version[/code]、[code]bundle_count[/code]、[code]loaded_bundle_count[/code]、[code]resource_count[/code]、[code]total_size[/code] 和 [code]bundles[/code]。尚未读取 manifest 时返回空路径、空版本和数量为 [code]0[/code] 的摘要。
+			</description>
+		</method>
+		<method name="get_manifest_diff" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="other_manifest_path" type="String" />
+			<description>
+				将当前已读取的 manifest 与 [param other_manifest_path] 指向的另一个 manifest 进行比较，并返回便于下载差分的字典。返回值包含 [code]error[/code]、[code]error_message[/code]、[code]current_manifest_version[/code]、[code]other_manifest_version[/code]、[code]added_bundles[/code]、[code]updated_bundles[/code]、[code]removed_bundles[/code]、[code]unchanged_bundles[/code]、[code]download_bundles[/code]、[code]download_chunks[/code]、[code]removed_chunks[/code] 和 [code]total_download_size[/code]。
+				[code]download_bundles[/code] 保存目标 manifest 中新增或变化的 bundle 元数据；[code]download_chunks[/code] 保存本地缺失或内容变化的 chunk 字典，每项额外包含 [code]bundle[/code] 字段；[code]removed_chunks[/code] 保存目标 manifest 不再需要的本地 chunk。比较 chunk 时会同时考虑资源路径、chunk 文件路径和内容哈希，避免不同 manifest 布局下误判为已存在。该方法只读取 manifest，不会访问网络，也不会自动下载或删除文件。
+			</description>
+		</method>
+		<method name="get_manifest_path" qualifiers="const">
+			<return type="String" />
+			<description>
+				返回最近一次成功读取的 manifest 路径。尚未读取 manifest 时返回空字符串。
+			</description>
+		</method>
+		<method name="get_manifest_version" qualifiers="const">
+			<return type="String" />
+			<description>
+				返回 manifest 顶层 [code]version[/code] 或 [code]manifest_version[/code] 字段。未声明版本或尚未读取 manifest 时返回空字符串。
+			</description>
+		</method>
+		<method name="get_missing_chunks" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回 [param bundle_name] 中当前不存在于本地文件系统的 chunk 文件路径列表。该方法只检查文件是否存在，不计算哈希；需要校验文件内容时请使用 [method verify_bundle] 或 [HashCalculator]。
+			</description>
+		</method>
+		<method name="get_resource_bundles" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="resource_path" type="String" />
+			<description>
+				返回 manifest 中声明了 [param resource_path] 的所有 bundle 名称。该方法可用于根据资源路径反查应该下载或加载哪些 bundle；找不到时返回空数组。
+			</description>
+		</method>
+		<method name="has_bundle" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回当前 manifest 是否声明了名为 [param bundle_name] 的 bundle。
+			</description>
+		</method>
+		<method name="has_bundle_resource" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="bundle_name" type="String" />
+			<param index="1" name="resource_path" type="String" />
+			<description>
+				返回 [param bundle_name] 是否声明了 [param resource_path]。该方法只检查 manifest，不检查对应 chunk 文件是否存在或可读取。
+			</description>
+		</method>
+		<method name="has_manifest" qualifiers="const">
+			<return type="bool" />
+			<description>
+				返回当前实例是否已经成功读取 manifest。
+			</description>
+		</method>
+		<method name="is_bundle_available" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回 [param bundle_name] 的 [code]bundle.json[/code] 和所有已声明 chunk 文件是否都存在于本地。该方法不计算哈希，因此只能判断下载文件是否齐全，不能判断文件内容是否损坏。
+			</description>
+		</method>
+		<method name="is_bundle_loaded" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				返回 [param bundle_name] 是否已由当前实例成功挂载。该方法不检查 bundle 是否仍然存在于底层 [code]PackedData[/code] 中，因为引擎当前没有公开的单包卸载查询接口。
+			</description>
+		</method>
+		<method name="is_loading" qualifiers="const">
+			<return type="bool" />
+			<description>
+				返回当前是否存在通过 [method start_load_bundle]、[method start_load_bundles] 或 [method start_load_all_bundles] 启动且尚未完成的加载请求。
+			</description>
+		</method>
+		<method name="load_all_bundles">
+			<return type="int" enum="Error" />
+			<param index="0" name="hot_replace_cached" type="bool" default="true" />
+			<param index="1" name="replace_files" type="bool" default="true" />
+			<description>
+				同步加载 manifest 中声明的所有 bundle。该方法会循环调用 [method poll_load] 直到完成或失败。[param hot_replace_cached] 为 [code]true[/code] 时会在所有 bundle 挂载后热替换已缓存资源；[param replace_files] 决定同路径文件是否由新挂载的 bundle 覆盖。
+			</description>
+		</method>
+		<method name="load_bundle">
+			<return type="int" enum="Error" />
+			<param index="0" name="bundle_name" type="String" />
+			<param index="1" name="hot_replace_cached" type="bool" default="true" />
+			<param index="2" name="replace_files" type="bool" default="true" />
+			<description>
+				同步加载 [param bundle_name] 及其 manifest 依赖。需要逐帧显示进度时请改用 [method start_load_bundle] 与 [method poll_load]。
+			</description>
+		</method>
+		<method name="load_bundles">
+			<return type="int" enum="Error" />
+			<param index="0" name="bundle_names" type="PackedStringArray" />
+			<param index="1" name="hot_replace_cached" type="bool" default="true" />
+			<param index="2" name="replace_files" type="bool" default="true" />
+			<description>
+				同步加载 [param bundle_names] 指定的多个 bundle 及其 manifest 依赖。该方法会先挂载所有需要的 bundle，再进行热替换，因此一个 bundle 中的资源可以引用同次加载的其它 bundle 中的依赖。
+			</description>
+		</method>
+		<method name="load_manifest">
+			<return type="int" enum="Error" />
+			<param index="0" name="manifest_path" type="String" />
+			<description>
+				读取并解析 [param manifest_path] 指向的 JSON manifest。成功后可通过查询方法获取 bundle、版本、依赖和资源列表。若 manifest 中的 bundle 路径是相对路径，会以 [param manifest_path] 所在目录为基准解析。调用本方法不会自动挂载任何 bundle。
+			</description>
+		</method>
+		<method name="load_resource">
+			<return type="Resource" />
+			<param index="0" name="path" type="String" />
+			<param index="1" name="type_hint" type="String" default="&quot;&quot;" />
+			<param index="2" name="cache_mode" type="int" enum="AssetBundle.CacheMode" default="1" />
+			<description>
+				使用 [ResourceLoader] 加载 [param path] 指向的资源，并传入 [param type_hint] 与 [param cache_mode]。该方法不会自动推断资源所属 bundle；调用前应确保需要的 bundle 已经通过本类加载或已由其它方式挂载。
+			</description>
+		</method>
+		<method name="poll_load">
+			<return type="int" enum="Error" />
+			<description>
+				推进一次由 [method start_load_bundle]、[method start_load_bundles] 或 [method start_load_all_bundles] 启动的加载请求。每次调用最多挂载一个 bundle 或扫描一个待热替换资源。返回非 [constant OK] 表示加载失败，可通过 [method get_last_error] 获取说明。
+			</description>
+		</method>
+		<method name="verify_all_bundles" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="verify_hash" type="bool" default="true" />
+			<param index="1" name="verify_md5" type="bool" default="false" />
+			<description>
+				校验当前 manifest 中声明的所有 bundle，并返回汇总字典。返回值包含 [code]valid[/code]、[code]error[/code]、[code]error_message[/code]、[code]checked_bundles[/code]、[code]valid_bundles[/code]、[code]invalid_bundles[/code]、[code]missing_chunks[/code]、[code]invalid_chunks[/code]、[code]total_size[/code] 和 [code]bundles[/code]。[code]bundles[/code] 数组中的每一项与 [method verify_bundle] 的返回结构相同。
+				当 [param verify_hash] 为 [code]true[/code] 时会使用 [HashCalculator] 计算 SHA-256 并和 manifest 的 [code]hash[/code] 字段比较；当 [param verify_md5] 为 [code]true[/code] 时会额外计算 MD5 并和 [code]md5[/code] 字段比较。MD5 主要用于兼容旧流程或快速辅助检查，完整性校验建议保留 SHA-256。
+			</description>
+		</method>
+		<method name="verify_bundle" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="bundle_name" type="String" />
+			<param index="1" name="verify_hash" type="bool" default="true" />
+			<param index="2" name="verify_md5" type="bool" default="false" />
+			<description>
+				校验 [param bundle_name] 的 [code]bundle.json[/code] 是否存在，并逐个校验 manifest 中声明的 chunk 文件。返回字典包含 [code]bundle[/code]、[code]valid[/code]、[code]error[/code]、[code]error_message[/code]、[code]bundle_manifest_path[/code]、[code]expected_bundle_hash[/code]、[code]actual_bundle_hash[/code]、[code]bundle_hash_valid[/code]、[code]checked_chunks[/code]、[code]valid_chunks[/code]、[code]invalid_chunks[/code]、[code]missing_chunks[/code]、[code]total_size[/code] 和 [code]chunks[/code]。
+				[code]chunks[/code] 数组中的每一项包含原始 chunk 信息、解析后的 [code]file_path[/code]、[code]actual_size[/code]、可选的 [code]actual_hash[/code] 和 [code]actual_md5[/code]，以及该 chunk 自身的 [code]valid[/code]、[code]error[/code] 和 [code]error_message[/code]。该方法会同步读取文件；如果需要在 UI 中显示字节级进度，请使用 [method get_bundle_chunk_file_paths] 配合 [HashCalculator] 的异步接口。
+			</description>
+		</method>
+		<method name="start_load_all_bundles">
+			<return type="int" enum="Error" />
+			<param index="0" name="hot_replace_cached" type="bool" default="true" />
+			<param index="1" name="replace_files" type="bool" default="true" />
+			<description>
+				启动一个增量加载请求，目标为 manifest 中声明的所有 bundle。调用成功后应逐帧调用 [method poll_load] 直到 [method is_loading] 返回 [code]false[/code]。
+			</description>
+		</method>
+		<method name="start_load_bundle">
+			<return type="int" enum="Error" />
+			<param index="0" name="bundle_name" type="String" />
+			<param index="1" name="hot_replace_cached" type="bool" default="true" />
+			<param index="2" name="replace_files" type="bool" default="true" />
+			<description>
+				启动一个增量加载请求，目标为 [param bundle_name] 及其 manifest 依赖。若已有加载请求正在运行，返回 [constant ERR_BUSY]。
+			</description>
+		</method>
+		<method name="start_load_bundles">
+			<return type="int" enum="Error" />
+			<param index="0" name="bundle_names" type="PackedStringArray" />
+			<param index="1" name="hot_replace_cached" type="bool" default="true" />
+			<param index="2" name="replace_files" type="bool" default="true" />
+			<description>
+				启动一个增量加载请求，目标为 [param bundle_names] 指定的多个 bundle 及其 manifest 依赖。加载顺序会保证依赖先挂载；热替换会等所有 bundle 挂载完成后再执行。
+			</description>
+		</method>
+	</methods>
+	<signals>
+		<signal name="bundle_loaded">
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				当 [param bundle_name] 对应的 bundle 已成功挂载时发出。该信号不表示该 bundle 中声明的资源已经全部热替换完成。
+			</description>
+		</signal>
+		<signal name="load_failed">
+			<param index="0" name="bundle_name" type="String" />
+			<param index="1" name="error" type="int" />
+			<param index="2" name="message" type="String" />
+			<description>
+				当加载请求失败时发出。[param bundle_name] 是失败时正在处理的 bundle 名称；若失败发生在资源热替换阶段，可能为空字符串。[param error] 为 [enum Error] 错误码，[param message] 为错误说明。
+			</description>
+		</signal>
+		<signal name="load_finished">
+			<description>
+				当当前加载请求全部完成时发出。此时 [method get_load_progress] 返回 [code]1.0[/code]。
+			</description>
+		</signal>
+		<signal name="load_progressed">
+			<param index="0" name="bundle_name" type="String" />
+			<param index="1" name="progress" type="float" />
+			<description>
+				当加载进度变化时发出。[param progress] 的范围为 [code]0.0[/code] 到 [code]1.0[/code]。[param bundle_name] 表示当前步骤关联的 bundle 名称；热替换资源阶段可能为空字符串。
+			</description>
+		</signal>
+		<signal name="resource_hot_replaced">
+			<param index="0" name="path" type="String" />
+			<description>
+				当已缓存的资源 [param path] 通过 [constant CACHE_MODE_REPLACE] 从新挂载的 bundle 中完成热替换时发出。未缓存资源会被跳过，不会触发该信号。
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="CACHE_MODE_IGNORE" value="0" enum="CacheMode">
+			加载资源时忽略 [code]ResourceCache[/code] 中已有对象，并且不把新对象注册为路径缓存。
+		</constant>
+		<constant name="CACHE_MODE_REUSE" value="1" enum="CacheMode">
+			加载资源时优先复用 [code]ResourceCache[/code] 中已有对象。这是 [method load_resource] 的默认模式。
+		</constant>
+		<constant name="CACHE_MODE_REPLACE" value="2" enum="CacheMode">
+			加载资源时若同路径对象已在 [code]ResourceCache[/code] 中存在，则保留旧对象并把新资源数据复制进去。外部依赖仍按复用模式处理。
+		</constant>
+		<constant name="CACHE_MODE_IGNORE_DEEP" value="3" enum="CacheMode">
+			加载资源及其外部依赖时都忽略缓存。
+		</constant>
+		<constant name="CACHE_MODE_REPLACE_DEEP" value="4" enum="CacheMode">
+			加载资源及其外部依赖时都执行替换模式。该模式会沿依赖链热替换，通常不适合只想更新当前 bundle 资源并复用已有依赖的场景。
+		</constant>
+	</constants>
+</class>

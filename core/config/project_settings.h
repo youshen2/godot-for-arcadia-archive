@@ -40,6 +40,7 @@ class TypedArray;
 class ProjectSettings : public Object {
 	GDCLASS(ProjectSettings, Object);
 	_THREAD_SAFE_CLASS_
+	friend class AssetBundle;
 	friend class TestProjectSettingsInternalsAccessor;
 
 	bool is_changed = false;
