@@ -250,6 +250,13 @@ void ScriptTextEditor::set_edited_resource(const Ref<Resource> &p_res) {
 	code_editor->get_text_editor()->clear_undo_history();
 	code_editor->get_text_editor()->tag_saved_version();
 
+	for (const Ref<EditorSyntaxHighlighter> &highlighter : highlighters) {
+		if (Object::cast_to<EditorStandardSyntaxHighlighter>(highlighter.ptr())) {
+			set_syntax_highlighter(highlighter);
+			break;
+		}
+	}
+
 	emit_signal(SNAME("name_changed"));
 	code_editor->update_line_and_column();
 }

@@ -505,15 +505,16 @@ public:
 	bool is_using_templates() override;
 	virtual Ref<Script> make_template(const String &p_template, const String &p_class_name, const String &p_base_class_name) const override;
 	virtual Vector<ScriptTemplate> get_built_in_templates(const StringName &p_object) override;
-	/* TODO */ bool validate(const String &p_script, const String &p_path, List<String> *r_functions,
-			List<ScriptLanguage::ScriptError> *r_errors = nullptr, List<ScriptLanguage::Warning> *r_warnings = nullptr, HashSet<int> *r_safe_lines = nullptr) const override {
-		return true;
-	}
+	bool validate(const String &p_script, const String &p_path, List<String> *r_functions,
+			List<ScriptLanguage::ScriptError> *r_errors = nullptr, List<ScriptLanguage::Warning> *r_warnings = nullptr, HashSet<int> *r_safe_lines = nullptr) const override;
 	String validate_path(const String &p_path) const override;
 	bool supports_builtin_mode() const override;
 	/* TODO? */ int find_function(const String &p_function, const String &p_code) const override {
 		return -1;
 	}
+	Error complete_code(const String &p_code, const String &p_path, Object *p_owner, List<ScriptLanguage::CodeCompletionOption> *r_options,
+			bool &r_force, String &r_call_hint) override;
+	Error lookup_code(const String &p_code, const String &p_symbol, const String &p_path, Object *p_owner, LookupResult &r_result) override;
 	String make_function(const String &p_class, const String &p_name, const PackedStringArray &p_args) const override;
 	virtual bool can_make_function() const override { return false; }
 	virtual String _get_indentation() const;

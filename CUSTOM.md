@@ -15,6 +15,8 @@
 - `VideoStreamFFmpeg`：新增基于 FFmpeg 的视频资源，负责视频文件/URI、请求头、视频/音频/字幕流列表、流元数据、章节信息和时长探测，并为 `VideoStreamPlayer` 创建 FFmpeg 播放实例。GDScript 和 Mono / C# 可用。
 - `AudioStreamFFmpeg`：新增基于 FFmpeg 的音频资源，供 `AudioStreamPlayer`、`AudioStreamPlayer2D`、`AudioStreamPlayer3D` 播放 FFmpeg 支持的音频文件或媒体容器音频流。支持请求头、指定流索引、ICY 元数据读取、标签和时长探测，并在播放器上提供 `parameters/loop`、`parameters/loop_start`、`parameters/loop_end`、`parameters/end_time`、`parameters/downmix_to_mono` 播放参数。GDScript 和 Mono / C# 可用。
 
+使用时不需要ClassDB.class_exists和ClassDB.instantiate，直接当现有存在的类就行。
+
 > 请在doc/classes中寻找对应的接口文档。
 
 删除的接口：

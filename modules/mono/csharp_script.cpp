@@ -61,6 +61,7 @@
 #include "core/os/mutex.h"
 #include "core/os/os.h"
 #include "core/os/thread.h"
+#include "core/string/char_utils.h"
 #include "servers/text/text_server.h"
 
 #ifdef TOOLS_ENABLED
@@ -408,6 +409,1401 @@ bool CSharpLanguage::supports_builtin_mode() const {
 
 ScriptLanguage::ScriptNameCasing CSharpLanguage::preferred_file_name_casing() const {
 	return SCRIPT_NAME_CASING_PASCAL_CASE;
+}
+
+static String _get_csharp_name_for_engine_class(const String &p_class) {
+	return pascal_to_pascal_case(p_class);
+}
+
+static String _get_csharp_name_for_member(const String &p_member) {
+	return snake_to_pascal_case(p_member);
+}
+
+static String _get_csharp_name_for_constant(const String &p_constant) {
+	return snake_to_pascal_case(p_constant, true);
+}
+
+static void _add_csharp_completion_option(HashMap<String, ScriptLanguage::CodeCompletionOption> &r_options, const String &p_display, const String &p_insert_text,
+		ScriptLanguage::CodeCompletionKind p_kind, int p_location = ScriptLanguage::LOCATION_OTHER) {
+	if (p_display.is_empty() || r_options.has(p_display)) {
+		return;
+	}
+
+	ScriptLanguage::CodeCompletionOption option;
+	option.kind = p_kind;
+	option.display = p_display;
+	option.insert_text = p_insert_text.is_empty() ? p_display : p_insert_text;
+	option.location = p_location;
+	r_options.insert(p_display, option);
+}
+
+static void _add_csharp_method_completion(HashMap<String, ScriptLanguage::CodeCompletionOption> &r_options, const String &p_method, int p_argument_count,
+		bool p_is_vararg = false, int p_location = ScriptLanguage::LOCATION_OTHER) {
+	const String method_name = _get_csharp_name_for_member(p_method);
+	const bool has_arguments = p_argument_count > 0 || p_is_vararg;
+	const String display = method_name + (has_arguments ? "(...)" : "()");
+	const String insert_text = method_name + (has_arguments ? "(" : "()");
+	_add_csharp_completion_option(r_options, display, insert_text, ScriptLanguage::CODE_COMPLETION_KIND_FUNCTION, p_location);
+}
+
+static String _strip_csharp_type_name(const String &p_identifier) {
+	String identifier = p_identifier.strip_edges();
+	if (identifier.begins_with("global::")) {
+		identifier = identifier.substr(8);
+	}
+
+	const int generic_pos = identifier.find_char('<');
+	if (generic_pos >= 0) {
+		identifier = identifier.substr(0, generic_pos);
+	}
+
+	const int namespace_pos = identifier.rfind_char('.');
+	if (namespace_pos >= 0) {
+		identifier = identifier.substr(namespace_pos + 1);
+	}
+
+	return identifier;
+}
+
+static StringName _find_engine_class_from_csharp_name(const String &p_identifier) {
+	const String identifier = _strip_csharp_type_name(p_identifier);
+	if (identifier.is_empty()) {
+		return StringName();
+	}
+
+	if (ClassDB::class_exists(identifier)) {
+		return StringName(identifier);
+	}
+
+	LocalVector<StringName> classes;
+	ClassDB::get_class_list(classes);
+	for (const StringName &class_name : classes) {
+		if (_get_csharp_name_for_engine_class(String(class_name)) == identifier) {
+			return class_name;
+		}
+	}
+
+	if (ScriptServer::is_global_class(identifier)) {
+		return ScriptServer::get_global_class_native_base(identifier);
+	}
+
+	return StringName();
+}
+
+static bool _find_variant_type_from_csharp_name(const String &p_identifier, Variant::Type &r_type) {
+	const String identifier = _strip_csharp_type_name(p_identifier);
+	if (identifier == "bool") {
+		r_type = Variant::BOOL;
+		return true;
+	}
+	if (identifier == "int" || identifier == "long") {
+		r_type = Variant::INT;
+		return true;
+	}
+	if (identifier == "float" || identifier == "double") {
+		r_type = Variant::FLOAT;
+		return true;
+	}
+	if (identifier == "string") {
+		r_type = Variant::STRING;
+		return true;
+	}
+
+	for (int i = Variant::BOOL; i < Variant::VARIANT_MAX; i++) {
+		const Variant::Type type = Variant::Type(i);
+		const String engine_name = Variant::get_type_name(type);
+		if (identifier == engine_name || identifier == pascal_to_pascal_case(engine_name)) {
+			r_type = type;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static bool _is_csharp_identifier_body(char32_t p_char) {
+	return is_ascii_identifier_char(p_char);
+}
+
+static bool _is_csharp_type_path_char(char32_t p_char) {
+	return is_ascii_identifier_char(p_char) || p_char == '.' || p_char == ':';
+}
+
+static bool _is_csharp_type_expression_char(char32_t p_char) {
+	return _is_csharp_type_path_char(p_char) || p_char == '<' || p_char == '>' || p_char == ',';
+}
+
+static void _advance_csharp_position(char32_t p_char, int &r_line, int &r_column) {
+	if (p_char == '\n') {
+		r_line++;
+		r_column = 1;
+	} else {
+		r_column++;
+	}
+}
+
+static String _mask_csharp_comments_and_literals(const String &p_code) {
+	enum State {
+		NORMAL,
+		LINE_COMMENT,
+		BLOCK_COMMENT,
+		STRING_LITERAL,
+		VERBATIM_STRING_LITERAL,
+		CHAR_LITERAL,
+	};
+
+	String masked;
+	State state = NORMAL;
+
+	for (int i = 0; i < p_code.length(); i++) {
+		const char32_t c = p_code[i];
+		const char32_t next = i + 1 < p_code.length() ? p_code[i + 1] : 0;
+
+		switch (state) {
+			case NORMAL: {
+				if (c == '/' && next == '/') {
+					masked += "  ";
+					i++;
+					state = LINE_COMMENT;
+				} else if (c == '/' && next == '*') {
+					masked += "  ";
+					i++;
+					state = BLOCK_COMMENT;
+				} else if (c == '"') {
+					masked += " ";
+					state = (i > 0 && p_code[i - 1] == '@') ? VERBATIM_STRING_LITERAL : STRING_LITERAL;
+				} else if (c == '\'') {
+					masked += " ";
+					state = CHAR_LITERAL;
+				} else {
+					masked += c;
+				}
+			} break;
+
+			case LINE_COMMENT: {
+				if (c == '\n') {
+					masked += c;
+					state = NORMAL;
+				} else {
+					masked += " ";
+				}
+			} break;
+
+			case BLOCK_COMMENT: {
+				if (c == '*' && next == '/') {
+					masked += "  ";
+					i++;
+					state = NORMAL;
+				} else {
+					masked += c == '\n' ? String::chr(c) : String(" ");
+				}
+			} break;
+
+			case STRING_LITERAL: {
+				if (c == '\\' && next != 0) {
+					masked += next == '\n' ? " \n" : "  ";
+					i++;
+				} else if (c == '"') {
+					masked += " ";
+					state = NORMAL;
+				} else {
+					masked += c == '\n' ? String::chr(c) : String(" ");
+					if (c == '\n') {
+						state = NORMAL;
+					}
+				}
+			} break;
+
+			case VERBATIM_STRING_LITERAL: {
+				if (c == '"' && next == '"') {
+					masked += "  ";
+					i++;
+				} else if (c == '"') {
+					masked += " ";
+					state = NORMAL;
+				} else {
+					masked += c == '\n' ? String::chr(c) : String(" ");
+				}
+			} break;
+
+			case CHAR_LITERAL: {
+				if (c == '\\' && next != 0) {
+					masked += next == '\n' ? " \n" : "  ";
+					i++;
+				} else if (c == '\'') {
+					masked += " ";
+					state = NORMAL;
+				} else {
+					masked += c == '\n' ? String::chr(c) : String(" ");
+					if (c == '\n') {
+						state = NORMAL;
+					}
+				}
+			} break;
+		}
+	}
+
+	return masked;
+}
+
+static bool _is_csharp_word_boundary(const String &p_code, int p_pos, int p_length) {
+	if (p_pos < 0 || p_pos + p_length > p_code.length()) {
+		return false;
+	}
+
+	if (p_pos > 0 && _is_csharp_identifier_body(p_code[p_pos - 1])) {
+		return false;
+	}
+
+	const int end = p_pos + p_length;
+	if (end < p_code.length() && _is_csharp_identifier_body(p_code[end])) {
+		return false;
+	}
+
+	return true;
+}
+
+static String _parse_csharp_type_before_identifier(const String &p_code, int p_identifier_pos) {
+	int type_end = p_identifier_pos;
+	while (type_end > 0 && p_code[type_end - 1] <= 32) {
+		type_end--;
+	}
+
+	int type_start = type_end;
+	while (type_start > 0 && _is_csharp_type_expression_char(p_code[type_start - 1])) {
+		type_start--;
+	}
+
+	if (type_start == type_end) {
+		return String();
+	}
+
+	const String type_name = p_code.substr(type_start, type_end - type_start).strip_edges();
+	if (type_name == "return" || type_name == "new" || type_name == "if" || type_name == "for" || type_name == "foreach" ||
+			type_name == "while" || type_name == "switch" || type_name == "catch" || type_name == "using" || type_name == "lock") {
+		return String();
+	}
+
+	return type_name;
+}
+
+static String _parse_csharp_type_after_new(const String &p_code, int p_new_end) {
+	int type_start = p_new_end;
+	while (type_start < p_code.length() && p_code[type_start] <= 32) {
+		type_start++;
+	}
+
+	int type_end = type_start;
+	while (type_end < p_code.length() && _is_csharp_type_expression_char(p_code[type_end])) {
+		type_end++;
+	}
+
+	return p_code.substr(type_start, type_end - type_start).strip_edges();
+}
+
+static bool _find_csharp_variable_type(const String &p_code, int p_cursor, const String &p_variable, String &r_type) {
+	if (p_variable.is_empty()) {
+		return false;
+	}
+
+	const String code = _mask_csharp_comments_and_literals(p_code.substr(0, p_cursor));
+	String declared_type;
+	String assigned_type;
+	int search_pos = 0;
+
+	while (true) {
+		const int variable_pos = code.find(p_variable, search_pos);
+		if (variable_pos < 0) {
+			break;
+		}
+		search_pos = variable_pos + p_variable.length();
+
+		if (!_is_csharp_word_boundary(code, variable_pos, p_variable.length())) {
+			continue;
+		}
+
+		const String type_before_identifier = _parse_csharp_type_before_identifier(code, variable_pos);
+		if (!type_before_identifier.is_empty() && type_before_identifier != "var") {
+			declared_type = type_before_identifier;
+		}
+
+		int after_identifier = variable_pos + p_variable.length();
+		while (after_identifier < code.length() && code[after_identifier] <= 32) {
+			after_identifier++;
+		}
+		if (after_identifier >= code.length() || code[after_identifier] != '=') {
+			continue;
+		}
+
+		int value_pos = after_identifier + 1;
+		while (value_pos < code.length() && code[value_pos] <= 32) {
+			value_pos++;
+		}
+
+		if (value_pos + 3 > code.length() || code.substr(value_pos, 3) != "new" || !_is_csharp_word_boundary(code, value_pos, 3)) {
+			continue;
+		}
+
+		const String type_after_new = _parse_csharp_type_after_new(code, value_pos + 3);
+		if (!type_after_new.is_empty()) {
+			assigned_type = type_after_new;
+		} else if (!declared_type.is_empty()) {
+			assigned_type = declared_type;
+		}
+	}
+
+	if (!assigned_type.is_empty()) {
+		r_type = assigned_type;
+		return true;
+	}
+
+	if (!declared_type.is_empty()) {
+		r_type = declared_type;
+		return true;
+	}
+
+	return false;
+}
+
+static bool _get_csharp_new_expression_receiver(const String &p_code, int p_receiver_end, String &r_receiver) {
+	if (p_receiver_end <= 0 || p_code[p_receiver_end - 1] != ')') {
+		return false;
+	}
+
+	int depth = 0;
+	int open_paren_pos = -1;
+	for (int i = p_receiver_end - 1; i >= 0; i--) {
+		if (p_code[i] == ')') {
+			depth++;
+		} else if (p_code[i] == '(') {
+			depth--;
+			if (depth == 0) {
+				open_paren_pos = i;
+				break;
+			}
+		}
+	}
+
+	if (open_paren_pos < 0) {
+		return false;
+	}
+
+	int type_end = open_paren_pos;
+	while (type_end > 0 && p_code[type_end - 1] <= 32) {
+		type_end--;
+	}
+
+	int type_start = type_end;
+	while (type_start > 0 && _is_csharp_type_expression_char(p_code[type_start - 1])) {
+		type_start--;
+	}
+
+	if (type_start == type_end) {
+		return false;
+	}
+
+	int new_end = type_start;
+	while (new_end > 0 && p_code[new_end - 1] <= 32) {
+		new_end--;
+	}
+
+	const int new_start = new_end - 3;
+	if (new_start < 0 || p_code.substr(new_start, 3) != "new" || !_is_csharp_word_boundary(p_code, new_start, 3)) {
+		return false;
+	}
+
+	r_receiver = "new " + p_code.substr(type_start, type_end - type_start).strip_edges();
+	return true;
+}
+
+static bool _get_csharp_member_receiver(const String &p_code, int p_cursor, String &r_receiver) {
+	int word_start = p_cursor;
+	while (word_start > 0 && _is_csharp_identifier_body(p_code[word_start - 1])) {
+		word_start--;
+	}
+
+	int dot_pos = word_start;
+	while (dot_pos > 0 && p_code[dot_pos - 1] <= 32) {
+		dot_pos--;
+	}
+	if (dot_pos == 0 || p_code[dot_pos - 1] != '.') {
+		return false;
+	}
+
+	int receiver_end = dot_pos - 1;
+	while (receiver_end > 0 && p_code[receiver_end - 1] <= 32) {
+		receiver_end--;
+	}
+
+	int receiver_start = receiver_end;
+	while (receiver_start > 0 && _is_csharp_type_path_char(p_code[receiver_start - 1])) {
+		receiver_start--;
+	}
+
+	r_receiver = p_code.substr(receiver_start, receiver_end - receiver_start).strip_edges();
+	if (r_receiver.is_empty() && _get_csharp_new_expression_receiver(p_code, receiver_end, r_receiver)) {
+		return true;
+	}
+	return !r_receiver.is_empty();
+}
+
+static StringName _find_csharp_script_base_type(const String &p_code, int p_cursor) {
+	String code = p_code.substr(0, p_cursor).replace("\n", " ").replace("\r", " ");
+	int class_pos = code.rfind(" class ");
+	if (class_pos < 0 && code.begins_with("class ")) {
+		class_pos = 0;
+	}
+	if (class_pos < 0) {
+		return StringName();
+	}
+
+	const int colon_pos = code.find_char(':', class_pos);
+	if (colon_pos < 0) {
+		return StringName();
+	}
+
+	int base_start = colon_pos + 1;
+	while (base_start < code.length() && code[base_start] <= 32) {
+		base_start++;
+	}
+
+	int base_end = base_start;
+	while (base_end < code.length() && _is_csharp_type_path_char(code[base_end])) {
+		base_end++;
+	}
+
+	return _find_engine_class_from_csharp_name(code.substr(base_start, base_end - base_start));
+}
+
+static StringName _get_csharp_self_base_type(const String &p_code, int p_cursor, Object *p_owner) {
+	return p_owner ? p_owner->get_class_name() : _find_csharp_script_base_type(p_code, p_cursor);
+}
+
+static void _add_csharp_class_member_options(const StringName &p_class, HashMap<String, ScriptLanguage::CodeCompletionOption> &r_options) {
+	if (p_class == StringName()) {
+		return;
+	}
+
+	List<PropertyInfo> properties;
+	ClassDB::get_property_list(p_class, &properties);
+	for (const PropertyInfo &property : properties) {
+		if (property.usage & PROPERTY_USAGE_CATEGORY || property.usage & PROPERTY_USAGE_GROUP || property.usage & PROPERTY_USAGE_SUBGROUP ||
+				property.name.contains_char('/')) {
+			continue;
+		}
+		const String property_name = _get_csharp_name_for_member(property.name);
+		_add_csharp_completion_option(r_options, property_name, property_name, ScriptLanguage::CODE_COMPLETION_KIND_MEMBER);
+	}
+
+	List<MethodInfo> methods;
+	ClassDB::get_method_list(p_class, &methods, false, true);
+	for (const MethodInfo &method : methods) {
+		_add_csharp_method_completion(r_options, method.name, method.arguments.size(), (method.flags & METHOD_FLAG_VARARG) != 0);
+	}
+
+	List<MethodInfo> signals;
+	ClassDB::get_signal_list(p_class, &signals);
+	for (const MethodInfo &signal : signals) {
+		const String signal_name = _get_csharp_name_for_member(signal.name);
+		_add_csharp_completion_option(r_options, signal_name, signal_name, ScriptLanguage::CODE_COMPLETION_KIND_SIGNAL);
+	}
+
+	List<StringName> enums;
+	ClassDB::get_enum_list(p_class, &enums);
+	for (const StringName &enum_name : enums) {
+		const String csharp_enum_name = _get_csharp_name_for_engine_class(String(enum_name));
+		_add_csharp_completion_option(r_options, csharp_enum_name, csharp_enum_name, ScriptLanguage::CODE_COMPLETION_KIND_ENUM);
+	}
+
+	List<String> constants;
+	ClassDB::get_integer_constant_list(p_class, &constants);
+	for (const String &constant : constants) {
+		const String constant_name = _get_csharp_name_for_constant(constant);
+		_add_csharp_completion_option(r_options, constant_name, constant_name, ScriptLanguage::CODE_COMPLETION_KIND_CONSTANT);
+	}
+}
+
+static void _add_csharp_variant_member_options(Variant::Type p_type, bool p_static, HashMap<String, ScriptLanguage::CodeCompletionOption> &r_options) {
+	if (!p_static) {
+		List<StringName> members;
+		Variant::get_member_list(p_type, &members);
+		for (const StringName &member : members) {
+			const String member_name = _get_csharp_name_for_member(String(member));
+			_add_csharp_completion_option(r_options, member_name, member_name, ScriptLanguage::CODE_COMPLETION_KIND_MEMBER);
+		}
+	}
+
+	List<StringName> methods;
+	Variant::get_builtin_method_list(p_type, &methods);
+	for (const StringName &method : methods) {
+		if (Variant::is_builtin_method_static(p_type, method) != p_static) {
+			continue;
+		}
+		const int argument_count = Variant::get_builtin_method_argument_count(p_type, method);
+		_add_csharp_method_completion(r_options, String(method), argument_count, Variant::is_builtin_method_vararg(p_type, method));
+	}
+
+	if (p_static) {
+		List<StringName> constants;
+		Variant::get_constants_for_type(p_type, &constants);
+		for (const StringName &constant : constants) {
+			const String constant_name = _get_csharp_name_for_constant(String(constant));
+			_add_csharp_completion_option(r_options, constant_name, constant_name, ScriptLanguage::CODE_COMPLETION_KIND_CONSTANT);
+		}
+
+		List<StringName> enums;
+		Variant::get_enums_for_type(p_type, &enums);
+		for (const StringName &enum_name : enums) {
+			const String csharp_enum_name = _get_csharp_name_for_engine_class(String(enum_name));
+			_add_csharp_completion_option(r_options, csharp_enum_name, csharp_enum_name, ScriptLanguage::CODE_COMPLETION_KIND_ENUM);
+		}
+	}
+}
+
+static void _add_csharp_utility_function_options(HashMap<String, ScriptLanguage::CodeCompletionOption> &r_options) {
+	List<StringName> utility_functions;
+	Variant::get_utility_function_list(&utility_functions);
+	for (const StringName &function : utility_functions) {
+		const int argument_count = Variant::get_utility_function_argument_count(function);
+		_add_csharp_method_completion(r_options, String(function), argument_count, Variant::is_utility_function_vararg(function));
+	}
+}
+
+static bool _add_csharp_resolved_receiver_options(const String &p_code, int p_cursor, Object *p_owner, const String &p_receiver,
+		HashMap<String, ScriptLanguage::CodeCompletionOption> &r_options) {
+	String receiver = p_receiver;
+	const bool receiver_is_new_instance = receiver.begins_with("new ");
+	if (receiver_is_new_instance) {
+		receiver = receiver.substr(4);
+	}
+
+	const String receiver_type = _strip_csharp_type_name(receiver);
+	if (receiver_type == "this" || receiver_type == "base") {
+		_add_csharp_class_member_options(_get_csharp_self_base_type(p_code, p_cursor, p_owner), r_options);
+		return true;
+	}
+
+	if (receiver_type == "GD" || receiver_type == "Mathf") {
+		_add_csharp_utility_function_options(r_options);
+		return true;
+	}
+
+	const StringName engine_class = _find_engine_class_from_csharp_name(receiver);
+	if (engine_class != StringName()) {
+		_add_csharp_class_member_options(engine_class, r_options);
+		return true;
+	}
+
+	Variant::Type variant_type = Variant::NIL;
+	if (_find_variant_type_from_csharp_name(receiver, variant_type)) {
+		_add_csharp_variant_member_options(variant_type, !receiver_is_new_instance, r_options);
+		return true;
+	}
+
+	String inferred_type;
+	if (!_find_csharp_variable_type(p_code, p_cursor, receiver_type, inferred_type)) {
+		return false;
+	}
+
+	const StringName inferred_engine_class = _find_engine_class_from_csharp_name(inferred_type);
+	if (inferred_engine_class != StringName()) {
+		_add_csharp_class_member_options(inferred_engine_class, r_options);
+		return true;
+	}
+
+	Variant::Type inferred_variant_type = Variant::NIL;
+	if (_find_variant_type_from_csharp_name(inferred_type, inferred_variant_type)) {
+		_add_csharp_variant_member_options(inferred_variant_type, false, r_options);
+		return true;
+	}
+
+	return false;
+}
+
+struct CSharpBracketInfo {
+	char32_t bracket = 0;
+	int line = 1;
+	int column = 1;
+};
+
+static void _push_csharp_script_error(List<ScriptLanguage::ScriptError> *r_errors, const String &p_path, int p_line, int p_column, const String &p_message) {
+	if (!r_errors) {
+		return;
+	}
+
+	ScriptLanguage::ScriptError error;
+	error.path = p_path;
+	error.line = p_line;
+	error.column = p_column;
+	error.message = p_message;
+	r_errors->push_back(error);
+}
+
+static bool _is_csharp_control_declaration_name(const String &p_name) {
+	return p_name == "if" || p_name == "for" || p_name == "foreach" || p_name == "while" || p_name == "switch" ||
+			p_name == "catch" || p_name == "using" || p_name == "lock" || p_name == "return" || p_name == "new";
+}
+
+static bool _csharp_line_starts_with_word(const String &p_line, const String &p_word) {
+	return p_line == p_word || p_line.begins_with(p_word + " ");
+}
+
+static void _collect_csharp_function_names(const String &p_code, List<String> *r_functions) {
+	if (!r_functions) {
+		return;
+	}
+
+	const String masked = _mask_csharp_comments_and_literals(p_code);
+	int line_start = 0;
+	int line_number = 1;
+
+	while (line_start <= masked.length()) {
+		int line_end = masked.find_char('\n', line_start);
+		if (line_end < 0) {
+			line_end = masked.length();
+		}
+
+		const String line = masked.substr(line_start, line_end - line_start);
+		const int paren_pos = line.find_char('(');
+		if (paren_pos > 0) {
+			int name_end = paren_pos;
+			while (name_end > 0 && line[name_end - 1] <= 32) {
+				name_end--;
+			}
+
+			int name_start = name_end;
+			while (name_start > 0 && _is_csharp_identifier_body(line[name_start - 1])) {
+				name_start--;
+			}
+
+			if (name_start < name_end) {
+				const String name = line.substr(name_start, name_end - name_start);
+				const String before_name = line.substr(0, name_start).strip_edges();
+				if (!before_name.is_empty() && !before_name.ends_with(".") && !_is_csharp_control_declaration_name(name) &&
+						before_name != "new" && !before_name.ends_with(" new")) {
+					r_functions->push_back(name + ":" + itos(line_number));
+				}
+			}
+		}
+
+		if (line_end >= masked.length()) {
+			break;
+		}
+
+		line_start = line_end + 1;
+		line_number++;
+	}
+}
+
+struct CSharpPreprocessorBranch {
+	bool known = false;
+	bool active = true;
+};
+
+static bool _is_csharp_preprocessor_inactive(const Vector<CSharpPreprocessorBranch> &p_branches) {
+	for (int i = 0; i < p_branches.size(); i++) {
+		if (!p_branches[i].active) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static void _update_csharp_preprocessor_branch(const String &p_stripped_line, Vector<CSharpPreprocessorBranch> &r_branches) {
+	if (p_stripped_line.begins_with("#if ")) {
+		const String expression = p_stripped_line.substr(4).strip_edges();
+		CSharpPreprocessorBranch branch;
+		if (expression == "false" || expression == "0") {
+			branch.known = true;
+			branch.active = false;
+		} else if (expression == "true" || expression == "1") {
+			branch.known = true;
+			branch.active = true;
+		}
+		r_branches.push_back(branch);
+	} else if (p_stripped_line.begins_with("#else")) {
+		if (!r_branches.is_empty() && r_branches.write[r_branches.size() - 1].known) {
+			r_branches.write[r_branches.size() - 1].active = !r_branches[r_branches.size() - 1].active;
+		}
+	} else if (p_stripped_line.begins_with("#elif ")) {
+		if (!r_branches.is_empty() && r_branches.write[r_branches.size() - 1].known) {
+			const String expression = p_stripped_line.substr(6).strip_edges();
+			r_branches.write[r_branches.size() - 1].active = expression == "true" || expression == "1";
+		}
+	} else if (p_stripped_line.begins_with("#endif")) {
+		if (!r_branches.is_empty()) {
+			r_branches.resize(r_branches.size() - 1);
+		}
+	}
+}
+
+static bool _looks_like_csharp_method_declaration(const String &p_line, int p_paren_pos) {
+	if (p_line.contains("=") || p_line.contains("=>") || p_line.contains(".")) {
+		return false;
+	}
+
+	int name_end = p_paren_pos;
+	while (name_end > 0 && p_line[name_end - 1] <= 32) {
+		name_end--;
+	}
+
+	int name_start = name_end;
+	while (name_start > 0 && _is_csharp_identifier_body(p_line[name_start - 1])) {
+		name_start--;
+	}
+
+	if (name_start == name_end) {
+		return false;
+	}
+
+	const String before_name = p_line.substr(0, name_start).strip_edges();
+	if (before_name.is_empty()) {
+		return false;
+	}
+	if (before_name == "new" || before_name == "await" || before_name == "return" || before_name == "throw") {
+		return false;
+	}
+
+	const Vector<String> tokens = before_name.split(" ", false);
+	return tokens.size() >= 1;
+}
+
+static bool _looks_like_csharp_declaration_statement(const String &p_line) {
+	if (p_line.contains("(") || p_line.contains(".") || p_line.contains("=>")) {
+		return false;
+	}
+
+	const Vector<String> tokens = p_line.split(" ", false);
+	if (tokens.size() < 2) {
+		return false;
+	}
+
+	const String last_token = tokens[tokens.size() - 1];
+	if (last_token.is_empty() || !_is_csharp_identifier_body(last_token[0])) {
+		return false;
+	}
+
+	return true;
+}
+
+static bool _csharp_line_needs_semicolon(const String &p_line) {
+	const String line = p_line.strip_edges();
+	if (line.is_empty() || line.begins_with("#") || line.begins_with("[") || line.ends_with(";") || line.ends_with("{") || line.ends_with("}") ||
+			line.ends_with(",") || line.ends_with(":") || line.ends_with("?") || line.ends_with(".") || line.ends_with("+") ||
+			line.ends_with("-") || line.ends_with("*") || line.ends_with("/") || line.ends_with("%") || line.ends_with("&") ||
+			line.ends_with("|") || line.ends_with("^") || line.ends_with("=") || line.ends_with("<") || line.ends_with(">") ||
+			line.ends_with("!") || line.ends_with("~") || line.ends_with("(") || line.ends_with("[")) {
+		return false;
+	}
+
+	if (_csharp_line_starts_with_word(line, "if") || _csharp_line_starts_with_word(line, "else") || _csharp_line_starts_with_word(line, "for") ||
+			_csharp_line_starts_with_word(line, "foreach") || _csharp_line_starts_with_word(line, "while") || _csharp_line_starts_with_word(line, "switch") ||
+			_csharp_line_starts_with_word(line, "catch") || _csharp_line_starts_with_word(line, "try") || _csharp_line_starts_with_word(line, "finally") ||
+			_csharp_line_starts_with_word(line, "lock") || _csharp_line_starts_with_word(line, "do") || _csharp_line_starts_with_word(line, "class") ||
+			_csharp_line_starts_with_word(line, "namespace") || _csharp_line_starts_with_word(line, "interface") || _csharp_line_starts_with_word(line, "struct") ||
+			_csharp_line_starts_with_word(line, "enum")) {
+		return false;
+	}
+	if (line.contains(" class ") || line.contains(" namespace ") || line.contains(" interface ") || line.contains(" struct ") || line.contains(" enum ")) {
+		return false;
+	}
+
+	if (_csharp_line_starts_with_word(line, "using") && !line.contains("(")) {
+		return true;
+	}
+
+	if (_csharp_line_starts_with_word(line, "return") || _csharp_line_starts_with_word(line, "throw") ||
+			_csharp_line_starts_with_word(line, "break") || _csharp_line_starts_with_word(line, "continue") ||
+			line.begins_with("yield return ") || line == "yield break") {
+		return true;
+	}
+
+	if (line.contains("=") && !line.contains("=>")) {
+		return true;
+	}
+
+	const int paren_pos = line.find_char('(');
+	if (paren_pos >= 0 && line.find_char(')', paren_pos) > paren_pos) {
+		return !_looks_like_csharp_method_declaration(line, paren_pos);
+	}
+
+	return _looks_like_csharp_declaration_statement(line);
+}
+
+static bool _check_csharp_semicolons(const String &p_script, const String &p_path, List<ScriptLanguage::ScriptError> *r_errors) {
+	bool valid = true;
+	const String masked = _mask_csharp_comments_and_literals(p_script);
+	Vector<CSharpPreprocessorBranch> branches;
+	int line_start = 0;
+	int line_number = 1;
+
+	while (line_start <= masked.length()) {
+		int line_end = masked.find_char('\n', line_start);
+		if (line_end < 0) {
+			line_end = masked.length();
+		}
+
+		const String masked_line = masked.substr(line_start, line_end - line_start);
+		const String original_line = p_script.substr(line_start, line_end - line_start);
+		const String stripped_original = original_line.strip_edges();
+
+		_update_csharp_preprocessor_branch(stripped_original, branches);
+
+		if (!_is_csharp_preprocessor_inactive(branches) && _csharp_line_needs_semicolon(masked_line)) {
+			_push_csharp_script_error(r_errors, p_path, line_number, MAX(1, original_line.length()), "Expected ';'.");
+			valid = false;
+		}
+
+		if (line_end >= masked.length()) {
+			break;
+		}
+
+		line_start = line_end + 1;
+		line_number++;
+	}
+
+	return valid;
+}
+
+bool CSharpLanguage::validate(const String &p_script, const String &p_path, List<String> *r_functions,
+		List<ScriptLanguage::ScriptError> *r_errors, List<ScriptLanguage::Warning> *r_warnings, HashSet<int> *r_safe_lines) const {
+	(void)r_warnings;
+	(void)r_safe_lines;
+
+	enum State {
+		NORMAL,
+		LINE_COMMENT,
+		BLOCK_COMMENT,
+		STRING_LITERAL,
+		VERBATIM_STRING_LITERAL,
+		CHAR_LITERAL,
+	};
+
+	bool valid = true;
+	State state = NORMAL;
+	int state_line = 1;
+	int state_column = 1;
+	int line = 1;
+	int column = 1;
+	Vector<CSharpBracketInfo> brackets;
+
+	for (int i = 0; i < p_script.length(); i++) {
+		const char32_t c = p_script[i];
+		const char32_t next = i + 1 < p_script.length() ? p_script[i + 1] : 0;
+
+		switch (state) {
+			case NORMAL: {
+				if (c == '/' && next == '/') {
+					_advance_csharp_position(c, line, column);
+					_advance_csharp_position(next, line, column);
+					i++;
+					state = LINE_COMMENT;
+					continue;
+				}
+
+				if (c == '/' && next == '*') {
+					state_line = line;
+					state_column = column;
+					_advance_csharp_position(c, line, column);
+					_advance_csharp_position(next, line, column);
+					i++;
+					state = BLOCK_COMMENT;
+					continue;
+				}
+
+				if (c == '"') {
+					state_line = line;
+					state_column = column;
+					state = (i > 0 && p_script[i - 1] == '@') ? VERBATIM_STRING_LITERAL : STRING_LITERAL;
+					_advance_csharp_position(c, line, column);
+					continue;
+				}
+
+				if (c == '\'') {
+					state_line = line;
+					state_column = column;
+					state = CHAR_LITERAL;
+					_advance_csharp_position(c, line, column);
+					continue;
+				}
+
+				if (c == '(' || c == '{' || c == '[') {
+					CSharpBracketInfo bracket;
+					bracket.bracket = c;
+					bracket.line = line;
+					bracket.column = column;
+					brackets.push_back(bracket);
+				} else if (c == ')' || c == '}' || c == ']') {
+					const char32_t expected = c == ')' ? '(' : (c == '}' ? '{' : '[');
+					if (brackets.is_empty() || brackets[brackets.size() - 1].bracket != expected) {
+						_push_csharp_script_error(r_errors, p_path, line, column, "Unexpected '" + String::chr(c) + "'.");
+						valid = false;
+					} else {
+						brackets.resize(brackets.size() - 1);
+					}
+				}
+
+				_advance_csharp_position(c, line, column);
+			} break;
+
+			case LINE_COMMENT: {
+				if (c == '\n') {
+					state = NORMAL;
+				}
+				_advance_csharp_position(c, line, column);
+			} break;
+
+			case BLOCK_COMMENT: {
+				if (c == '*' && next == '/') {
+					_advance_csharp_position(c, line, column);
+					_advance_csharp_position(next, line, column);
+					i++;
+					state = NORMAL;
+					continue;
+				}
+				_advance_csharp_position(c, line, column);
+			} break;
+
+			case STRING_LITERAL: {
+				if (c == '\\' && next != 0) {
+					_advance_csharp_position(c, line, column);
+					_advance_csharp_position(next, line, column);
+					i++;
+					continue;
+				}
+
+				if (c == '"') {
+					state = NORMAL;
+				} else if (c == '\n') {
+					_push_csharp_script_error(r_errors, p_path, state_line, state_column, "Unterminated string literal.");
+					valid = false;
+					state = NORMAL;
+				}
+				_advance_csharp_position(c, line, column);
+			} break;
+
+			case VERBATIM_STRING_LITERAL: {
+				if (c == '"' && next == '"') {
+					_advance_csharp_position(c, line, column);
+					_advance_csharp_position(next, line, column);
+					i++;
+					continue;
+				}
+
+				if (c == '"') {
+					state = NORMAL;
+				}
+				_advance_csharp_position(c, line, column);
+			} break;
+
+			case CHAR_LITERAL: {
+				if (c == '\\' && next != 0) {
+					_advance_csharp_position(c, line, column);
+					_advance_csharp_position(next, line, column);
+					i++;
+					continue;
+				}
+
+				if (c == '\'') {
+					state = NORMAL;
+				} else if (c == '\n') {
+					_push_csharp_script_error(r_errors, p_path, state_line, state_column, "Unterminated character literal.");
+					valid = false;
+					state = NORMAL;
+				}
+				_advance_csharp_position(c, line, column);
+			} break;
+		}
+	}
+
+	if (state == BLOCK_COMMENT) {
+		_push_csharp_script_error(r_errors, p_path, state_line, state_column, "Unterminated block comment.");
+		valid = false;
+	} else if (state == STRING_LITERAL || state == VERBATIM_STRING_LITERAL) {
+		_push_csharp_script_error(r_errors, p_path, state_line, state_column, "Unterminated string literal.");
+		valid = false;
+	} else if (state == CHAR_LITERAL) {
+		_push_csharp_script_error(r_errors, p_path, state_line, state_column, "Unterminated character literal.");
+		valid = false;
+	}
+
+	if (!brackets.is_empty()) {
+		const CSharpBracketInfo &bracket = brackets[brackets.size() - 1];
+		_push_csharp_script_error(r_errors, p_path, bracket.line, bracket.column, "Unclosed '" + String::chr(bracket.bracket) + "'.");
+		valid = false;
+	}
+
+	if (!_check_csharp_semicolons(p_script, p_path, r_errors)) {
+		valid = false;
+	}
+
+	if (valid) {
+		_collect_csharp_function_names(p_script, r_functions);
+	}
+
+	return valid;
+}
+
+static bool _find_csharp_symbol_bounds_at_cursor(const String &p_code, int p_cursor, const String &p_symbol, int &r_start, int &r_end) {
+	if (p_code.is_empty()) {
+		return false;
+	}
+
+	p_cursor = CLAMP(p_cursor, 0, p_code.length());
+	int start = p_cursor;
+	while (start > 0 && _is_csharp_identifier_body(p_code[start - 1])) {
+		start--;
+	}
+
+	int end = p_cursor;
+	while (end < p_code.length() && _is_csharp_identifier_body(p_code[end])) {
+		end++;
+	}
+
+	if (start < end) {
+		r_start = start;
+		r_end = end;
+		return true;
+	}
+
+	const String symbol = _strip_csharp_type_name(p_symbol);
+	if (symbol.is_empty()) {
+		return false;
+	}
+
+	const int search_start = MAX(0, p_cursor - symbol.length());
+	const int search_end = MIN(p_code.length() - symbol.length(), p_cursor);
+	for (int i = search_start; i <= search_end; i++) {
+		if (p_code.substr(i, symbol.length()) == symbol && _is_csharp_word_boundary(p_code, i, symbol.length())) {
+			r_start = i;
+			r_end = i + symbol.length();
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static bool _get_csharp_member_receiver_before_symbol(const String &p_code, int p_symbol_start, String &r_receiver) {
+	int dot_pos = p_symbol_start;
+	while (dot_pos > 0 && p_code[dot_pos - 1] <= 32) {
+		dot_pos--;
+	}
+	if (dot_pos == 0 || p_code[dot_pos - 1] != '.') {
+		return false;
+	}
+
+	int receiver_end = dot_pos - 1;
+	while (receiver_end > 0 && p_code[receiver_end - 1] <= 32) {
+		receiver_end--;
+	}
+
+	int receiver_start = receiver_end;
+	while (receiver_start > 0 && _is_csharp_type_path_char(p_code[receiver_start - 1])) {
+		receiver_start--;
+	}
+
+	r_receiver = p_code.substr(receiver_start, receiver_end - receiver_start).strip_edges();
+	if (r_receiver.is_empty() && _get_csharp_new_expression_receiver(p_code, receiver_end, r_receiver)) {
+		return true;
+	}
+	return !r_receiver.is_empty();
+}
+
+static bool _lookup_csharp_class_member(const StringName &p_class, const String &p_symbol, ScriptLanguage::LookupResult &r_result) {
+	if (p_class == StringName()) {
+		return false;
+	}
+
+	List<PropertyInfo> properties;
+	ClassDB::get_property_list(p_class, &properties);
+	for (const PropertyInfo &property : properties) {
+		if (property.usage & PROPERTY_USAGE_CATEGORY || property.usage & PROPERTY_USAGE_GROUP || property.usage & PROPERTY_USAGE_SUBGROUP ||
+				property.name.contains_char('/')) {
+			continue;
+		}
+		if (_get_csharp_name_for_member(property.name) == p_symbol) {
+			r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS_PROPERTY;
+			r_result.class_name = p_class;
+			r_result.class_member = property.name;
+			return true;
+		}
+	}
+
+	List<MethodInfo> methods;
+	ClassDB::get_method_list(p_class, &methods, false, true);
+	for (const MethodInfo &method : methods) {
+		if (_get_csharp_name_for_member(method.name) == p_symbol) {
+			r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS_METHOD;
+			r_result.class_name = p_class;
+			r_result.class_member = method.name;
+			return true;
+		}
+	}
+
+	List<MethodInfo> signals;
+	ClassDB::get_signal_list(p_class, &signals);
+	for (const MethodInfo &signal : signals) {
+		if (_get_csharp_name_for_member(signal.name) == p_symbol) {
+			r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS_SIGNAL;
+			r_result.class_name = p_class;
+			r_result.class_member = signal.name;
+			return true;
+		}
+	}
+
+	List<StringName> enums;
+	ClassDB::get_enum_list(p_class, &enums);
+	for (const StringName &enum_name : enums) {
+		if (_get_csharp_name_for_engine_class(String(enum_name)) == p_symbol) {
+			r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS_ENUM;
+			r_result.class_name = p_class;
+			r_result.class_member = enum_name;
+			return true;
+		}
+	}
+
+	List<String> constants;
+	ClassDB::get_integer_constant_list(p_class, &constants);
+	for (const String &constant : constants) {
+		if (_get_csharp_name_for_constant(constant) == p_symbol) {
+			r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS_CONSTANT;
+			r_result.class_name = p_class;
+			r_result.class_member = constant;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static bool _lookup_csharp_variant_member(Variant::Type p_type, bool p_static, const String &p_symbol, ScriptLanguage::LookupResult &r_result) {
+	if (!p_static) {
+		List<StringName> members;
+		Variant::get_member_list(p_type, &members);
+		for (const StringName &member : members) {
+			if (_get_csharp_name_for_member(String(member)) == p_symbol) {
+				r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS_PROPERTY;
+				r_result.class_name = Variant::get_type_name(p_type);
+				r_result.class_member = member;
+				return true;
+			}
+		}
+	}
+
+	List<StringName> methods;
+	Variant::get_builtin_method_list(p_type, &methods);
+	for (const StringName &method : methods) {
+		if (Variant::is_builtin_method_static(p_type, method) == p_static && _get_csharp_name_for_member(String(method)) == p_symbol) {
+			r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS_METHOD;
+			r_result.class_name = Variant::get_type_name(p_type);
+			r_result.class_member = method;
+			return true;
+		}
+	}
+
+	if (p_static) {
+		List<StringName> constants;
+		Variant::get_constants_for_type(p_type, &constants);
+		for (const StringName &constant : constants) {
+			if (_get_csharp_name_for_constant(String(constant)) == p_symbol) {
+				r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS_CONSTANT;
+				r_result.class_name = Variant::get_type_name(p_type);
+				r_result.class_member = constant;
+				return true;
+			}
+		}
+
+		List<StringName> enums;
+		Variant::get_enums_for_type(p_type, &enums);
+		for (const StringName &enum_name : enums) {
+			if (_get_csharp_name_for_engine_class(String(enum_name)) == p_symbol) {
+				r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS_ENUM;
+				r_result.class_name = Variant::get_type_name(p_type);
+				r_result.class_member = enum_name;
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+static bool _lookup_csharp_utility_function(const String &p_symbol, ScriptLanguage::LookupResult &r_result) {
+	List<StringName> utility_functions;
+	Variant::get_utility_function_list(&utility_functions);
+	for (const StringName &function : utility_functions) {
+		if (_get_csharp_name_for_member(String(function)) == p_symbol) {
+			r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS_METHOD;
+			r_result.class_name = "@GlobalScope";
+			r_result.class_member = function;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+Error CSharpLanguage::complete_code(const String &p_code, const String &p_path, Object *p_owner, List<ScriptLanguage::CodeCompletionOption> *r_options,
+		bool &r_force, String &r_call_hint) {
+	(void)p_path;
+	r_call_hint = String();
+	r_force = false;
+
+	int cursor_pos = p_code.find_char(0xFFFF);
+	String code = p_code;
+	if (cursor_pos < 0) {
+		cursor_pos = code.length();
+	} else {
+		code = code.remove_char(0xFFFF);
+		cursor_pos = MIN(cursor_pos, code.length());
+	}
+
+	HashMap<String, ScriptLanguage::CodeCompletionOption> options;
+
+	String receiver;
+	if (_get_csharp_member_receiver(code, cursor_pos, receiver)) {
+		_add_csharp_resolved_receiver_options(code, cursor_pos, p_owner, receiver, options);
+
+		r_force = !options.is_empty();
+	} else {
+		for (const String &keyword : get_reserved_words()) {
+			_add_csharp_completion_option(options, keyword, keyword, ScriptLanguage::CODE_COMPLETION_KIND_KEYWORD, ScriptLanguage::LOCATION_LOCAL);
+		}
+
+		LocalVector<StringName> classes;
+		ClassDB::get_class_list(classes);
+		for (const StringName &class_name : classes) {
+			const String csharp_class_name = _get_csharp_name_for_engine_class(String(class_name));
+			_add_csharp_completion_option(options, csharp_class_name, csharp_class_name, ScriptLanguage::CODE_COMPLETION_KIND_CLASS);
+		}
+
+		LocalVector<StringName> global_classes;
+		ScriptServer::get_global_class_list(global_classes);
+		for (const StringName &class_name : global_classes) {
+			const String csharp_class_name = String(class_name);
+			_add_csharp_completion_option(options, csharp_class_name, csharp_class_name, ScriptLanguage::CODE_COMPLETION_KIND_CLASS, ScriptLanguage::LOCATION_OTHER_USER_CODE);
+		}
+
+		for (int i = Variant::BOOL; i < Variant::VARIANT_MAX; i++) {
+			const String type_name = pascal_to_pascal_case(Variant::get_type_name(Variant::Type(i)));
+			_add_csharp_completion_option(options, type_name, type_name, ScriptLanguage::CODE_COMPLETION_KIND_CLASS);
+		}
+
+		_add_csharp_completion_option(options, "Godot", "Godot", ScriptLanguage::CODE_COMPLETION_KIND_CLASS);
+		_add_csharp_completion_option(options, "GD", "GD", ScriptLanguage::CODE_COMPLETION_KIND_CLASS);
+		_add_csharp_completion_option(options, "Mathf", "Mathf", ScriptLanguage::CODE_COMPLETION_KIND_CLASS);
+		_add_csharp_completion_option(options, "Variant", "Variant", ScriptLanguage::CODE_COMPLETION_KIND_CLASS);
+
+		if (ProjectSettings::get_singleton()) {
+			for (const KeyValue<StringName, ProjectSettings::AutoloadInfo> &autoload : ProjectSettings::get_singleton()->get_autoload_list()) {
+				if (!autoload.value.is_singleton) {
+					continue;
+				}
+				const String singleton_name = String(autoload.key);
+				_add_csharp_completion_option(options, singleton_name, singleton_name, ScriptLanguage::CODE_COMPLETION_KIND_CONSTANT);
+			}
+		}
+	}
+
+	for (const KeyValue<String, ScriptLanguage::CodeCompletionOption> &option : options) {
+		r_options->push_back(option.value);
+	}
+
+	return OK;
+}
+
+Error CSharpLanguage::lookup_code(const String &p_code, const String &p_symbol, const String &p_path, Object *p_owner, LookupResult &r_result) {
+	(void)p_path;
+
+	String symbol = _strip_csharp_type_name(p_symbol);
+	if (symbol.is_empty()) {
+		return ERR_CANT_RESOLVE;
+	}
+
+	int cursor_pos = p_code.find_char(0xFFFF);
+	String code = p_code;
+	if (cursor_pos < 0) {
+		cursor_pos = code.find(symbol);
+		if (cursor_pos < 0) {
+			cursor_pos = code.length();
+		}
+	} else {
+		code = code.remove_char(0xFFFF);
+		cursor_pos = MIN(cursor_pos, code.length());
+	}
+
+	int symbol_start = -1;
+	int symbol_end = -1;
+	if (_find_csharp_symbol_bounds_at_cursor(code, cursor_pos, symbol, symbol_start, symbol_end)) {
+		symbol = code.substr(symbol_start, symbol_end - symbol_start);
+
+		String receiver;
+		if (_get_csharp_member_receiver_before_symbol(code, symbol_start, receiver)) {
+			const bool receiver_is_new_instance = receiver.begins_with("new ");
+			if (receiver_is_new_instance) {
+				receiver = receiver.substr(4);
+			}
+			const String receiver_type = _strip_csharp_type_name(receiver);
+			if (receiver_type == "GD" || receiver_type == "Mathf") {
+				if (_lookup_csharp_utility_function(symbol, r_result)) {
+					return OK;
+				}
+			}
+
+			StringName receiver_class;
+			Variant::Type receiver_variant_type = Variant::NIL;
+			bool receiver_is_static = !receiver_is_new_instance;
+
+			if (receiver_type == "this" || receiver_type == "base") {
+				receiver_class = _get_csharp_self_base_type(code, cursor_pos, p_owner);
+				receiver_is_static = false;
+			} else {
+				receiver_class = _find_engine_class_from_csharp_name(receiver);
+				if (receiver_class == StringName() && !_find_variant_type_from_csharp_name(receiver, receiver_variant_type)) {
+					String inferred_type;
+					if (_find_csharp_variable_type(code, cursor_pos, receiver_type, inferred_type)) {
+						receiver_class = _find_engine_class_from_csharp_name(inferred_type);
+						if (receiver_class == StringName()) {
+							_find_variant_type_from_csharp_name(inferred_type, receiver_variant_type);
+						}
+						receiver_is_static = false;
+					}
+				}
+			}
+
+			if (receiver_class != StringName() && _lookup_csharp_class_member(receiver_class, symbol, r_result)) {
+				return OK;
+			}
+
+			if (receiver_variant_type != Variant::NIL && _lookup_csharp_variant_member(receiver_variant_type, receiver_is_static, symbol, r_result)) {
+				return OK;
+			}
+		}
+	}
+
+	if (symbol == "Variant") {
+		r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS;
+		r_result.class_name = "Variant";
+		return OK;
+	}
+
+	const StringName engine_class = _find_engine_class_from_csharp_name(symbol);
+	if (engine_class != StringName()) {
+		r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS;
+		r_result.class_name = engine_class;
+		return OK;
+	}
+
+	Variant::Type variant_type = Variant::NIL;
+	if (_find_variant_type_from_csharp_name(symbol, variant_type)) {
+		r_result.type = ScriptLanguage::LOOKUP_RESULT_CLASS;
+		r_result.class_name = Variant::get_type_name(variant_type);
+		return OK;
+	}
+
+	return ERR_CANT_RESOLVE;
 }
 
 #ifdef TOOLS_ENABLED
