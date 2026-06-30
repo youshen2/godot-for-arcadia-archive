@@ -70,6 +70,7 @@
 #include "scene/gui/label.h"
 #include "scene/gui/line_edit.h"
 #include "scene/gui/link_button.h"
+#include "scene/gui/markdown_text_label.h"
 #include "scene/gui/margin_container.h"
 #include "scene/gui/menu_bar.h"
 #include "scene/gui/menu_button.h"
@@ -476,6 +477,7 @@ void register_scene_types() {
 	GDREGISTER_VIRTUAL_CLASS(BaseButton);
 	GDREGISTER_CLASS(Button);
 	GDREGISTER_CLASS(Label);
+	GDREGISTER_CLASS(MarkdownTextLabel);
 	GDREGISTER_VIRTUAL_CLASS(Range);
 	GDREGISTER_ABSTRACT_CLASS(ScrollBar);
 	GDREGISTER_CLASS(HScrollBar);

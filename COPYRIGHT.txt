@@ -424,6 +424,11 @@ Comment: Mbed TLS
 Copyright: The Mbed TLS Contributors
 License: Apache-2.0
 
+Files: thirdparty/md4c/*
+Comment: MD4C
+Copyright: 2016-2024, Martin Mitáš
+License: Expat
+
 Files: thirdparty/meshoptimizer/*
 Comment: meshoptimizer
 Copyright: 2016-2026, Arseny Kapoulkine

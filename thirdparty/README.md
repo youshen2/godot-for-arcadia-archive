@@ -705,6 +705,19 @@ Patches:
 - `0001-msvc-2019-psa-redeclaration.patch` ([GH-90535](https://github.com/godotengine/godot/pull/90535))
 
 
+## md4c
+
+- Upstream: https://github.com/mity/md4c
+- Version: release-0.5.3
+- License: MIT
+
+Files extracted from upstream source archive:
+
+- `src/md4c.c`
+- `src/md4c.h`
+- `LICENSE.md`
+
+
 ## metal-cpp
 
 - Upstream: https://developer.apple.com/metal/cpp/

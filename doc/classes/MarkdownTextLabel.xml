@@ -1,0 +1,322 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MarkdownTextLabel" inherits="Control" api_type="core" keywords="markdown text" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		用于显示 Markdown 文本的控件。
+	</brief_description>
+	<description>
+		[MarkdownTextLabel] 会解析 [member text] 中的 Markdown 内容，并将标题、段落、引用、列表、任务列表、代码块、表格、链接、图片、粗体、斜体、删除线和行内代码绘制为标签内容。
+		该控件只负责显示，不提供文本编辑或选择功能。点击 Markdown 链接时会发出 [signal meta_clicked] 信号，链接标题会作为提示文本显示。具体打开网页、跳转场景或执行其它行为需要由脚本处理。
+		图片语法会尝试使用 [ResourceLoader] 按路径加载 [Texture2D]。如果图片路径无法加载，例如远程 URL 或无效资源路径，则显示图片的替代文本；没有替代文本时显示原始路径。控件不会自动下载远程图片。
+		[b]注意：[/b] 原始 HTML 和数学公式没有专用渲染器，会作为普通文本或等宽文本显示。
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="append_text">
+			<return type="void" />
+			<param index="0" name="markdown" type="String" />
+			<description>
+				将 [param markdown] 追加到当前 [member text] 末尾，并重新解析 Markdown。追加文本不会自动插入换行符；如果需要新段落或新列表项，应在 [param markdown] 中包含必要的换行。
+			</description>
+		</method>
+		<method name="clear">
+			<return type="void" />
+			<description>
+				清空当前 Markdown 源文本，并移除已经解析和排版的内容。调用后 [member text] 会变为空字符串。
+			</description>
+		</method>
+		<method name="get_autowrap_mode" qualifiers="const">
+			<return type="int" enum="TextServer.AutowrapMode" />
+			<description>
+				返回当前自动换行模式。该值决定 Markdown 段落、列表项、引用和表格单元格是否按控件宽度换行。
+			</description>
+		</method>
+		<method name="get_autowrap_trim_flags" qualifiers="const">
+			<return type="int" enum="TextServer.LineBreakFlag" is_bitfield="true" />
+			<description>
+				返回自动换行时使用的空白裁剪标志。返回值只表示排版设置，不会改变或反映 [member text] 原始内容中的空白。
+			</description>
+		</method>
+		<method name="get_content_height" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回解析和排版后的内容高度，单位为像素。该值会包含主题样式边距，并会随着控件宽度、自动换行模式和主题字体变化而改变。
+			</description>
+		</method>
+		<method name="get_content_width" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回解析和排版后的内容宽度，单位为像素。自动换行关闭时，该值可能大于控件当前宽度。
+			</description>
+		</method>
+		<method name="get_horizontal_alignment" qualifiers="const">
+			<return type="int" enum="HorizontalAlignment" />
+			<description>
+				返回普通段落和标题的水平对齐方式。Markdown 表格单元格可能使用表格分隔行中声明的对齐方式。
+			</description>
+		</method>
+		<method name="get_justification_flags" qualifiers="const">
+			<return type="int" enum="TextServer.JustificationFlag" is_bitfield="true" />
+			<description>
+				返回填充对齐时传递给内部 [TextParagraph] 的排版规则。
+			</description>
+		</method>
+		<method name="get_language" qualifiers="const">
+			<return type="String" />
+			<description>
+				返回用于断行和字形排版的语言代码。空字符串表示使用默认区域设置。
+			</description>
+		</method>
+		<method name="get_parsed_text" qualifiers="const">
+			<return type="String" />
+			<description>
+				返回移除 Markdown 标记后的纯文本内容。图片会使用替代文本；如果没有替代文本，则使用图片路径。
+			</description>
+		</method>
+		<method name="get_structured_text_bidi_override" qualifiers="const">
+			<return type="int" enum="TextServer.StructuredTextParser" />
+			<description>
+				返回结构化文本的双向文本解析方式。
+			</description>
+		</method>
+		<method name="get_structured_text_bidi_override_options" qualifiers="const">
+			<return type="Array" />
+			<description>
+				返回传递给结构化文本双向解析器的附加选项。
+			</description>
+		</method>
+		<method name="get_text" qualifiers="const">
+			<return type="String" />
+			<description>
+				返回当前 Markdown 源文本。返回值包含原始 Markdown 标记；如果需要纯文本内容，请使用 [method get_parsed_text]。
+			</description>
+		</method>
+		<method name="get_text_direction" qualifiers="const">
+			<return type="int" enum="Control.TextDirection" />
+			<description>
+				返回文本基础书写方向。设置为继承时，控件会使用当前布局方向。
+			</description>
+		</method>
+		<method name="is_fit_content_enabled" qualifiers="const">
+			<return type="bool" />
+			<description>
+				返回控件是否使用 Markdown 内容排版尺寸作为最小尺寸。
+			</description>
+		</method>
+		<method name="parse_markdown">
+			<return type="void" />
+			<param index="0" name="markdown" type="String" />
+			<description>
+				用 [param markdown] 替换当前 [member text]，并重新解析 Markdown。该方法等价于设置 [member text] 属性，提供给需要显式表达“解析 Markdown 源文本”的脚本调用场景。
+			</description>
+		</method>
+		<method name="set_autowrap_mode">
+			<return type="void" />
+			<param index="0" name="autowrap_mode" type="int" enum="TextServer.AutowrapMode" />
+			<description>
+				设置自动换行模式。修改后会重新排版现有 Markdown 内容，但不会重新解析源文本。
+			</description>
+		</method>
+		<method name="set_autowrap_trim_flags">
+			<return type="void" />
+			<param index="0" name="autowrap_trim_flags" type="int" enum="TextServer.LineBreakFlag" is_bitfield="true" />
+			<description>
+				设置自动换行时用于裁剪行首或行尾空白的标志。只会保留 [enum TextServer.LineBreakFlag] 中和裁剪空白相关的位。
+			</description>
+		</method>
+		<method name="set_fit_content">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				设置是否使用 Markdown 内容的排版尺寸作为控件最小尺寸。内容较长时建议配合 [ScrollContainer] 使用。
+			</description>
+		</method>
+		<method name="set_horizontal_alignment">
+			<return type="void" />
+			<param index="0" name="alignment" type="int" enum="HorizontalAlignment" />
+			<description>
+				设置普通段落和标题的水平对齐方式。该设置不会覆盖 Markdown 表格单元格自身声明的对齐方式。
+			</description>
+		</method>
+		<method name="set_justification_flags">
+			<return type="void" />
+			<param index="0" name="justification_flags" type="int" enum="TextServer.JustificationFlag" is_bitfield="true" />
+			<description>
+				设置填充对齐时使用的排版规则。该值会传递给内部 [TextParagraph]，用于控制词间对齐、最后一行处理等行为。
+			</description>
+		</method>
+		<method name="set_language">
+			<return type="void" />
+			<param index="0" name="language" type="String" />
+			<description>
+				设置用于断行和字形排版的语言代码。修改后会重新排版现有 Markdown 内容，留空时使用默认区域设置。
+			</description>
+		</method>
+		<method name="set_structured_text_bidi_override">
+			<return type="void" />
+			<param index="0" name="parser" type="int" enum="TextServer.StructuredTextParser" />
+			<description>
+				设置结构化文本的双向文本解析方式。适用于包含 URL、文件路径、邮箱地址或混合方向文本的 Markdown 内容。
+			</description>
+		</method>
+		<method name="set_structured_text_bidi_override_options">
+			<return type="void" />
+			<param index="0" name="args" type="Array" />
+			<description>
+				设置传递给结构化文本双向解析器的附加选项。选项格式由当前选择的解析器决定。
+			</description>
+		</method>
+		<method name="set_text">
+			<return type="void" />
+			<param index="0" name="text" type="String" />
+			<description>
+				设置要显示的 Markdown 源文本，并标记内容需要重新解析。GDScript 可调用 [code]set_text()[/code] 或设置 [member text]；Mono / C# 绑定会生成对应的 [code]SetText()[/code] 方法和 [code]Text[/code] 属性。
+			</description>
+		</method>
+		<method name="set_text_direction">
+			<return type="void" />
+			<param index="0" name="direction" type="int" enum="Control.TextDirection" />
+			<description>
+				设置文本基础书写方向。设置为继承时，控件会使用当前布局方向；设置错误的枚举值会被拒绝。
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="autowrap_mode" type="int" setter="set_autowrap_mode" getter="get_autowrap_mode" enum="TextServer.AutowrapMode" default="3">
+			控制文本是否在控件宽度内自动换行。关闭自动换行时，内容宽度可能超过控件宽度；开启自动换行时，段落、列表项、引用和表格单元格会按可用宽度重新排版。
+		</member>
+		<member name="autowrap_trim_flags" type="int" setter="set_autowrap_trim_flags" getter="get_autowrap_trim_flags" enum="TextServer.LineBreakFlag" is_bitfield="true" default="192">
+			自动换行时用于裁剪行首或行尾空白的标志。该值只影响排版，不会修改 [member text] 原文。
+		</member>
+		<member name="fit_content" type="bool" setter="set_fit_content" getter="is_fit_content_enabled" default="false">
+			如果为 [code]true[/code]，控件的最小尺寸会使用 Markdown 内容的排版尺寸。内容较长时建议将该控件放入 [ScrollContainer]。
+		</member>
+		<member name="horizontal_alignment" type="int" setter="set_horizontal_alignment" getter="get_horizontal_alignment" enum="HorizontalAlignment" default="0">
+			控制普通段落和标题的水平对齐方式。Markdown 表格单元格会优先使用表格分隔行中声明的对齐方式。
+		</member>
+		<member name="justification_flags" type="int" setter="set_justification_flags" getter="get_justification_flags" enum="TextServer.JustificationFlag" is_bitfield="true" default="163">
+			控制填充对齐时的排版规则。该值会传递给内部 [TextParagraph]。
+		</member>
+		<member name="language" type="String" setter="set_language" getter="get_language" default="&quot;&quot;">
+			用于断行和字形排版的语言代码。留空时使用当前区域设置。
+		</member>
+		<member name="structured_text_bidi_override" type="int" setter="set_structured_text_bidi_override" getter="get_structured_text_bidi_override" enum="TextServer.StructuredTextParser" default="0">
+			设置结构化文本的双向文本解析方式。适用于包含 URL、文件路径、邮箱地址或混合方向文本的 Markdown 内容。
+		</member>
+		<member name="structured_text_bidi_override_options" type="Array" setter="set_structured_text_bidi_override_options" getter="get_structured_text_bidi_override_options" default="[]">
+			传递给结构化文本双向解析器的附加选项。
+		</member>
+		<member name="text" type="String" setter="set_text" getter="get_text" default="&quot;&quot;">
+			要显示的 Markdown 源文本。修改该属性会重新解析 Markdown，并在下一次绘制或尺寸查询时重新排版。
+		</member>
+		<member name="text_direction" type="int" setter="set_text_direction" getter="get_text_direction" enum="Control.TextDirection" default="0">
+			文本基础书写方向。设置为继承时会使用控件布局方向。
+		</member>
+	</members>
+	<signals>
+		<signal name="meta_clicked">
+			<param index="0" name="meta" type="Variant" />
+			<description>
+				当用户点击 Markdown 链接时发出。[param meta] 通常是链接目标字符串，例如 URL、资源路径或 Wiki 链接目标。信号不会自动打开链接，调用方需要自行处理。
+			</description>
+		</signal>
+	</signals>
+	<theme_items>
+		<theme_item name="block_separation" data_type="constant" type="int" default="6">
+			Markdown 块之间额外增加的垂直间距。
+		</theme_item>
+		<theme_item name="bold_font" data_type="font" type="Font">
+			用于粗体文本和标题的字体。
+		</theme_item>
+		<theme_item name="bold_font_size" data_type="font_size" type="int" default="-1">
+			粗体文本的字号。设置为 [code]-1[/code] 时使用主题默认字号。
+		</theme_item>
+		<theme_item name="bold_italics_font" data_type="font" type="Font">
+			用于同时粗体和斜体文本的字体。
+		</theme_item>
+		<theme_item name="bold_italics_font_size" data_type="font_size" type="int" default="-1">
+			同时粗体和斜体文本的字号。设置为 [code]-1[/code] 时使用主题默认字号。
+		</theme_item>
+		<theme_item name="code_bg_color" data_type="color" type="Color" default="Color(0.1, 0.1, 0.1, 0.55)">
+			代码块和行内代码背景颜色。
+		</theme_item>
+		<theme_item name="code_padding" data_type="constant" type="int" default="6">
+			代码块内部文本与背景边缘之间的距离。
+		</theme_item>
+		<theme_item name="focus" data_type="style" type="StyleBox">
+			控件获得焦点时绘制的 [StyleBox]。
+		</theme_item>
+		<theme_item name="font_color" data_type="color" type="Color" default="Color(1, 1, 1, 1)">
+			普通文本颜色。
+		</theme_item>
+		<theme_item name="font_outline_color" data_type="color" type="Color" default="Color(0, 0, 0, 1)">
+			文字描边颜色。
+		</theme_item>
+		<theme_item name="font_shadow_color" data_type="color" type="Color" default="Color(0, 0, 0, 0)">
+			文字阴影颜色。
+		</theme_item>
+		<theme_item name="italics_font" data_type="font" type="Font">
+			用于斜体文本的字体。
+		</theme_item>
+		<theme_item name="italics_font_size" data_type="font_size" type="int" default="-1">
+			斜体文本的字号。设置为 [code]-1[/code] 时使用主题默认字号。
+		</theme_item>
+		<theme_item name="line_separation" data_type="constant" type="int" default="0">
+			同一段落内多行之间的额外垂直间距。
+		</theme_item>
+		<theme_item name="link_color" data_type="color" type="Color" default="Color(0.45, 0.68, 1, 1)">
+			链接文本颜色。链接也会绘制下划线。
+		</theme_item>
+		<theme_item name="list_indent" data_type="constant" type="int" default="24">
+			每一级列表缩进的距离。
+		</theme_item>
+		<theme_item name="mono_font" data_type="font" type="Font">
+			用于行内代码、代码块、HTML 原文和数学公式原文的等宽字体。
+		</theme_item>
+		<theme_item name="mono_font_size" data_type="font_size" type="int" default="-1">
+			等宽文本的字号。设置为 [code]-1[/code] 时使用主题默认字号。
+		</theme_item>
+		<theme_item name="normal" data_type="style" type="StyleBox">
+			控件背景和内容边距使用的 [StyleBox]。
+		</theme_item>
+		<theme_item name="normal_font" data_type="font" type="Font">
+			普通文本字体。
+		</theme_item>
+		<theme_item name="normal_font_size" data_type="font_size" type="int" default="-1">
+			普通文本字号。设置为 [code]-1[/code] 时使用主题默认字号。
+		</theme_item>
+		<theme_item name="outline_size" data_type="constant" type="int" default="0">
+			文字描边大小。
+		</theme_item>
+		<theme_item name="paragraph_separation" data_type="constant" type="int" default="4">
+			段落之间额外增加的垂直间距。
+		</theme_item>
+		<theme_item name="quote_bar_color" data_type="color" type="Color" default="Color(1, 1, 1, 0.25)">
+			引用块左侧竖线颜色。
+		</theme_item>
+		<theme_item name="quote_bar_width" data_type="constant" type="int" default="2">
+			引用块左侧竖线宽度。
+		</theme_item>
+		<theme_item name="quote_indent" data_type="constant" type="int" default="18">
+			每一级引用缩进的距离。
+		</theme_item>
+		<theme_item name="shadow_offset_x" data_type="constant" type="int" default="1">
+			文字阴影的水平偏移。
+		</theme_item>
+		<theme_item name="shadow_offset_y" data_type="constant" type="int" default="1">
+			文字阴影的垂直偏移。
+		</theme_item>
+		<theme_item name="shadow_outline_size" data_type="constant" type="int" default="1">
+			文字阴影描边大小。
+		</theme_item>
+		<theme_item name="table_border_color" data_type="color" type="Color" default="Color(1, 1, 1, 0.25)">
+			表格边框颜色。
+		</theme_item>
+		<theme_item name="table_h_separation" data_type="constant" type="int" default="6">
+			表格单元格内的水平留白。
+		</theme_item>
+		<theme_item name="table_v_separation" data_type="constant" type="int" default="4">
+			表格单元格内的垂直留白以及行间距。
+		</theme_item>
+	</theme_items>
+</class>

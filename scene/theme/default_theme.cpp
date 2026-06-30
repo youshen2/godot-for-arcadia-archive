@@ -400,6 +400,41 @@ void fill_default_theme(Ref<Theme> &theme, const Ref<Font> &default_font, const 
 	theme->set_type_variation("HeaderLarge", "Label");
 	theme->set_font_size(SceneStringName(font_size), "HeaderLarge", default_font_size + 12);
 
+	// MarkdownTextLabel
+
+	theme->set_stylebox("focus", "MarkdownTextLabel", focus);
+	theme->set_stylebox(CoreStringName(normal), "MarkdownTextLabel", make_empty_stylebox(0, 0, 0, 0));
+	theme->set_font("normal_font", "MarkdownTextLabel", Ref<Font>());
+	theme->set_font("bold_font", "MarkdownTextLabel", bold_font);
+	theme->set_font("italics_font", "MarkdownTextLabel", italics_font);
+	theme->set_font("bold_italics_font", "MarkdownTextLabel", bold_italics_font);
+	theme->set_font("mono_font", "MarkdownTextLabel", Ref<Font>());
+	theme->set_font_size("normal_font_size", "MarkdownTextLabel", -1);
+	theme->set_font_size("bold_font_size", "MarkdownTextLabel", -1);
+	theme->set_font_size("italics_font_size", "MarkdownTextLabel", -1);
+	theme->set_font_size("bold_italics_font_size", "MarkdownTextLabel", -1);
+	theme->set_font_size("mono_font_size", "MarkdownTextLabel", -1);
+	theme->set_color("font_color", "MarkdownTextLabel", Color(1, 1, 1));
+	theme->set_color("link_color", "MarkdownTextLabel", Color(0.45, 0.68, 1.0));
+	theme->set_color("code_bg_color", "MarkdownTextLabel", Color(0.1, 0.1, 0.1, 0.55));
+	theme->set_color("quote_bar_color", "MarkdownTextLabel", Color(1, 1, 1, 0.25));
+	theme->set_color("table_border_color", "MarkdownTextLabel", Color(1, 1, 1, 0.25));
+	theme->set_color("font_shadow_color", "MarkdownTextLabel", Color(0, 0, 0, 0));
+	theme->set_color("font_outline_color", "MarkdownTextLabel", Color(0, 0, 0));
+	theme->set_constant("shadow_offset_x", "MarkdownTextLabel", Math::round(1 * scale));
+	theme->set_constant("shadow_offset_y", "MarkdownTextLabel", Math::round(1 * scale));
+	theme->set_constant("outline_size", "MarkdownTextLabel", 0);
+	theme->set_constant("shadow_outline_size", "MarkdownTextLabel", Math::round(1 * scale));
+	theme->set_constant(SceneStringName(line_separation), "MarkdownTextLabel", 0);
+	theme->set_constant(SceneStringName(paragraph_separation), "MarkdownTextLabel", Math::round(4 * scale));
+	theme->set_constant("block_separation", "MarkdownTextLabel", Math::round(6 * scale));
+	theme->set_constant("list_indent", "MarkdownTextLabel", Math::round(24 * scale));
+	theme->set_constant("quote_indent", "MarkdownTextLabel", Math::round(18 * scale));
+	theme->set_constant("quote_bar_width", "MarkdownTextLabel", Math::round(2 * scale));
+	theme->set_constant("code_padding", "MarkdownTextLabel", Math::round(6 * scale));
+	theme->set_constant("table_h_separation", "MarkdownTextLabel", Math::round(6 * scale));
+	theme->set_constant("table_v_separation", "MarkdownTextLabel", Math::round(4 * scale));
+
 	// LineEdit
 
 	Ref<StyleBoxFlat> style_line_edit = make_flat_stylebox(style_normal_color);
