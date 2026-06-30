@@ -47,6 +47,7 @@
 #endif
 
 class JoypadSDL;
+@class NSTimer;
 
 class OS_AppleEmbedded : public OS_Unix {
 private:
@@ -76,6 +77,8 @@ private:
 	virtual void finalize() override;
 
 	bool is_focused = false;
+	bool mobile_background_processing_enabled = false;
+	NSTimer *mobile_background_processing_timer = nullptr;
 
 	CGFloat _weight_to_ct(int p_weight) const;
 	CGFloat _stretch_to_ct(int p_stretch) const;
@@ -98,6 +101,11 @@ public:
 	bool iterate();
 
 	void start();
+
+	void start_mobile_background_processing();
+	void stop_mobile_background_processing();
+	bool is_mobile_background_processing_enabled() const;
+	bool is_app_focused() const { return is_focused; }
 
 	virtual void alert(const String &p_alert, const String &p_title = "ALERT!") override;
 

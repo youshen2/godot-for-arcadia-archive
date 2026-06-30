@@ -650,6 +650,9 @@ JNIEXPORT void JNICALL Java_org_godotengine_godot_GodotLib_onRendererResumed(JNI
 
 	// We force redraw to ensure we render at least once when resuming the app.
 	Main::force_redraw();
+	if (DisplayServerAndroid *dsa = Object::cast_to<DisplayServerAndroid>(DisplayServer::get_singleton())) {
+		dsa->notify_application_resumed();
+	}
 	CameraServer *camera_server = CameraServer::get_singleton();
 	if (camera_server) {
 		camera_server->handle_application_resume();
@@ -734,6 +737,10 @@ JNIEXPORT jboolean JNICALL Java_org_godotengine_godot_GodotLib_hasFeature(JNIEnv
 JNIEXPORT void JNICALL Java_org_godotengine_godot_GodotLib_onPictureInPictureModeChanged(JNIEnv *env, jclass clazz, jboolean p_is_in_picture_in_picture_mode) {
 	if (step.get() <= STEP_SETUP) {
 		return;
+	}
+
+	if (DisplayServerAndroid *dsa = Object::cast_to<DisplayServerAndroid>(DisplayServer::get_singleton())) {
+		dsa->notify_pip_mode_changed(p_is_in_picture_in_picture_mode);
 	}
 
 	if (os_android->get_main_loop()) {

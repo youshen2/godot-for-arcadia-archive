@@ -89,6 +89,10 @@ internal class VkRenderer {
 		}
 	}
 
+	fun onVkBackgroundFrame() {
+		GodotLib.step()
+	}
+
 	/**
 	 * Called when the rendering thread is resumed.
 	 */

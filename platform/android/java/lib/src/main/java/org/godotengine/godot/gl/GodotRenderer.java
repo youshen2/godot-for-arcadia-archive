@@ -66,6 +66,10 @@ public class GodotRenderer implements GLSurfaceView.Renderer {
 		return swapBuffers;
 	}
 
+	public void onBackgroundFrame() {
+		GodotLib.step();
+	}
+
 	@Override
 	public void onRenderThreadExiting() {
 		Log.d(TAG, "Destroying Godot Engine");

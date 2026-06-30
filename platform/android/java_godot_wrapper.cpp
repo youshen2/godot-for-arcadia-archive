@@ -103,6 +103,11 @@ GodotJavaWrapper::GodotJavaWrapper(JNIEnv *p_env, jobject p_godot_native_bridge)
 	_enter_pip_mode = p_env->GetMethodID(godot_native_bridge_class, "nativeEnterPiPMode", "()V");
 	_set_pip_mode_aspect_ratio = p_env->GetMethodID(godot_native_bridge_class, "nativeSetPiPModeAspectRatio", "(II)V");
 	_set_auto_enter_pip_mode_on_background = p_env->GetMethodID(godot_native_bridge_class, "nativeSetAutoEnterPiPModeOnBackground", "(Z)V");
+
+	_show_mobile_persistent_notification = p_env->GetMethodID(godot_native_bridge_class, "nativeShowMobilePersistentNotification", "(Ljava/lang/String;Ljava/lang/String;)Z");
+	_update_mobile_persistent_notification = p_env->GetMethodID(godot_native_bridge_class, "nativeUpdateMobilePersistentNotification", "(Ljava/lang/String;Ljava/lang/String;)Z");
+	_hide_mobile_persistent_notification = p_env->GetMethodID(godot_native_bridge_class, "nativeHideMobilePersistentNotification", "()V");
+	_is_mobile_persistent_notification_active = p_env->GetMethodID(godot_native_bridge_class, "nativeIsMobilePersistentNotificationActive", "()Z");
 }
 
 GodotJavaWrapper::~GodotJavaWrapper() {
@@ -755,4 +760,49 @@ void GodotJavaWrapper::set_auto_enter_pip_mode_on_background(bool p_auto_enter_o
 		ERR_FAIL_NULL(env);
 		env->CallVoidMethod(godot_native_bridge, _set_auto_enter_pip_mode_on_background, p_auto_enter_on_background);
 	}
+}
+
+bool GodotJavaWrapper::show_mobile_persistent_notification(const String &p_title, const String &p_message) {
+	if (_show_mobile_persistent_notification) {
+		JNIEnv *env = get_jni_env();
+		ERR_FAIL_NULL_V(env, false);
+		jstring j_title = env->NewStringUTF(p_title.utf8().get_data());
+		jstring j_message = env->NewStringUTF(p_message.utf8().get_data());
+		bool result = env->CallBooleanMethod(godot_native_bridge, _show_mobile_persistent_notification, j_title, j_message);
+		env->DeleteLocalRef(j_title);
+		env->DeleteLocalRef(j_message);
+		return result;
+	}
+	return false;
+}
+
+bool GodotJavaWrapper::update_mobile_persistent_notification(const String &p_title, const String &p_message) {
+	if (_update_mobile_persistent_notification) {
+		JNIEnv *env = get_jni_env();
+		ERR_FAIL_NULL_V(env, false);
+		jstring j_title = env->NewStringUTF(p_title.utf8().get_data());
+		jstring j_message = env->NewStringUTF(p_message.utf8().get_data());
+		bool result = env->CallBooleanMethod(godot_native_bridge, _update_mobile_persistent_notification, j_title, j_message);
+		env->DeleteLocalRef(j_title);
+		env->DeleteLocalRef(j_message);
+		return result;
+	}
+	return false;
+}
+
+void GodotJavaWrapper::hide_mobile_persistent_notification() {
+	if (_hide_mobile_persistent_notification) {
+		JNIEnv *env = get_jni_env();
+		ERR_FAIL_NULL(env);
+		env->CallVoidMethod(godot_native_bridge, _hide_mobile_persistent_notification);
+	}
+}
+
+bool GodotJavaWrapper::is_mobile_persistent_notification_active() const {
+	if (_is_mobile_persistent_notification_active) {
+		JNIEnv *env = get_jni_env();
+		ERR_FAIL_NULL_V(env, false);
+		return env->CallBooleanMethod(godot_native_bridge, _is_mobile_persistent_notification_active);
+	}
+	return false;
 }

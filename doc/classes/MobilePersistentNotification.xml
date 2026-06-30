@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MobilePersistentNotification" inherits="Object" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		移动端常驻通知与后台主循环控制单例。
+	</brief_description>
+	<description>
+		[MobilePersistentNotification] 用于在移动平台启动一个可持续更新内容的后台任务，使引擎主线程在应用进入后台后继续运行，但不会继续提交渲染帧。该能力适合后台下载、后台网络同步等不依赖画面绘制的任务。
+		目前只有 Android 和 iOS 提供实际效果，其他平台会安全返回不可用状态。Android 会通过前台服务显示常驻通知，并在应用停止显示窗口后继续驱动主循环。iOS 会使用系统后台任务接口保留有限后台执行时间，不会显示 Android 风格的常驻通知，且系统可以随时结束后台时间。
+		[b]注意：[/b]后台运行会增加电量和网络消耗，应只在确实存在用户可感知的后台任务时启用，并在任务完成后调用 [method stop]。
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="is_active" qualifiers="const">
+			<return type="bool" />
+			<description>
+				返回常驻通知或移动端后台任务当前是否处于启动状态。返回 [code]true[/code] 仅表示引擎已经请求保持后台任务；在 iOS 上，系统仍可能因为时间限制或资源策略结束后台执行。
+			</description>
+		</method>
+		<method name="is_supported" qualifiers="const">
+			<return type="bool" />
+			<description>
+				返回当前平台是否支持该单例的实际后台能力。Android 和 iOS 返回 [code]true[/code]，桌面、Web 和其他平台返回 [code]false[/code]。不支持的平台仍可以安全调用本单例的方法，但 [method start] 和 [method update] 会返回错误。
+			</description>
+		</method>
+		<method name="start">
+			<return type="Error" />
+			<param index="0" name="title" type="String" />
+			<param index="1" name="message" type="String" />
+			<description>
+				启动移动端后台任务，并设置常驻通知的标题 [param title] 和正文 [param message]。Android 会显示前台服务通知；当应用进入后台且窗口停止后，引擎会继续执行主循环，但不会继续渲染或交换缓冲区。iOS 会启动受系统限制的后台任务，[param title] 会作为系统后台任务名称使用，[param message] 仅用于保存当前状态，不会显示常驻通知。
+				返回 [constant OK] 表示启动请求成功。平台不支持时返回 [constant ERR_UNAVAILABLE]。Android 前台服务无法启动时返回 [constant ERR_CANT_CREATE]，例如系统限制从后台启动服务或宿主应用缺少必要权限时。
+				[b]注意：[/b]Android 导出模板会声明 [code]FOREGROUND_SERVICE[/code]、[code]FOREGROUND_SERVICE_DATA_SYNC[/code] 和 [code]POST_NOTIFICATIONS[/code] 权限。Android 13 及以上如果需要通知显示在通知抽屉中，项目仍应在运行时请求通知权限。
+			</description>
+		</method>
+		<method name="stop">
+			<return type="void" />
+			<description>
+				停止当前常驻通知或后台任务。Android 会移除前台服务通知，并在应用仍处于后台时停止后台主循环驱动。iOS 会结束当前系统后台任务。后台任务完成、失败或用户取消时应及时调用此方法，避免不必要的电量和资源消耗。
+			</description>
+		</method>
+		<method name="update">
+			<return type="Error" />
+			<param index="0" name="title" type="String" />
+			<param index="1" name="message" type="String" />
+			<description>
+				更新当前常驻通知的标题 [param title] 和正文 [param message]。Android 会更新前台服务通知内容，适合显示下载进度、同步状态等信息。iOS 会更新内部保存的标题和正文，但不会显示系统常驻通知。
+				返回 [constant OK] 表示更新请求成功。平台不支持时返回 [constant ERR_UNAVAILABLE]。尚未调用 [method start] 或后台任务已经结束时返回 [constant ERR_UNCONFIGURED]。Android 通知更新失败时返回 [constant ERR_CANT_CREATE]。
+			</description>
+		</method>
+	</methods>
+</class>

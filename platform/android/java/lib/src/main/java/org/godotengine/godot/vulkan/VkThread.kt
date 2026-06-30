@@ -62,6 +62,7 @@ internal class VkThread(private val vkSurfaceView: VkSurfaceView, private val vk
 	private var rendererInitialized = false
 	private var rendererResumed = false
 	private var resumed = false
+	private var backgroundProcessing = false
 	private var surfaceChanged = false
 	private var hasSurface = false
 	private var width = 0
@@ -73,6 +74,9 @@ internal class VkThread(private val vkSurfaceView: VkSurfaceView, private val vk
 	 */
 	private val readyToDraw
 		get() = hasSurface && resumed
+
+	private val readyToProcessInBackground
+		get() = backgroundProcessing && !readyToDraw
 
 	private fun threadExiting() {
 		lock.withLock {
@@ -156,6 +160,13 @@ internal class VkThread(private val vkSurfaceView: VkSurfaceView, private val vk
 		}
 	}
 
+	fun setBackgroundProcessingEnabled(enabled: Boolean) {
+		lock.withLock {
+			backgroundProcessing = enabled
+			lockCondition.signalAll()
+		}
+	}
+
 	/**
 	 * Invoked when the [android.view.Surface] has been created.
 	 */
@@ -195,6 +206,7 @@ internal class VkThread(private val vkSurfaceView: VkSurfaceView, private val vk
 		try {
 			while (true) {
 				var event: Runnable? = null
+				var backgroundFrame = false
 				lock.withLock {
 					while (true) {
 						// Code path for exiting the thread loop.
@@ -210,6 +222,7 @@ internal class VkThread(private val vkSurfaceView: VkSurfaceView, private val vk
 						}
 
 						if (readyToDraw) {
+							backgroundFrame = false
 							if (!rendererResumed) {
 								rendererResumed = true
 								vkRenderer.onVkResume()
@@ -226,6 +239,9 @@ internal class VkThread(private val vkSurfaceView: VkSurfaceView, private val vk
 							}
 
 							// Break out of the loop so drawing can occur without holding onto the lock.
+							break
+						} else if (readyToProcessInBackground) {
+							backgroundFrame = true
 							break
 						} else if (rendererResumed) {
 							// If we aren't ready to draw but are resumed, that means we either lost a surface
@@ -244,6 +260,11 @@ internal class VkThread(private val vkSurfaceView: VkSurfaceView, private val vk
 				// Run queued event.
 				if (event != null) {
 					event?.run()
+					continue
+				}
+
+				if (backgroundFrame) {
+					vkRenderer.onVkBackgroundFrame()
 					continue
 				}
 

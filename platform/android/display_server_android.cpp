@@ -631,11 +631,11 @@ bool DisplayServerAndroid::window_is_focused(DisplayServerEnums::WindowID p_wind
 }
 
 bool DisplayServerAndroid::window_can_draw(DisplayServerEnums::WindowID p_window) const {
-	return true;
+	return !application_paused.is_set() || pip_mode_active.is_set();
 }
 
 bool DisplayServerAndroid::can_any_window_draw() const {
-	return true;
+	return !application_paused.is_set() || pip_mode_active.is_set();
 }
 
 void DisplayServerAndroid::window_set_color(const Color &p_color) {
@@ -770,12 +770,29 @@ void DisplayServerAndroid::notify_surface_changed(int p_width, int p_height) {
 	}
 }
 
+void DisplayServerAndroid::notify_application_resumed() {
+	application_paused.clear();
+}
+
 void DisplayServerAndroid::notify_application_paused() {
+	application_paused.set();
 #if defined(RD_ENABLED)
 	if (rendering_device) {
 		rendering_device->update_pipeline_cache();
 	}
 #endif // defined(RD_ENABLED)
+}
+
+void DisplayServerAndroid::notify_pip_mode_changed(bool p_is_in_picture_in_picture_mode) {
+	pip_mode_active.set_to(p_is_in_picture_in_picture_mode);
+}
+
+void DisplayServerAndroid::set_background_processing_enabled(bool p_enabled) {
+	background_processing_enabled.set_to(p_enabled);
+}
+
+bool DisplayServerAndroid::is_processing_in_background() const {
+	return application_paused.is_set() && background_processing_enabled.is_set() && !pip_mode_active.is_set();
 }
 
 DisplayServerAndroid::DisplayServerAndroid(const String &p_rendering_driver, DisplayServerEnums::WindowMode p_mode, DisplayServerEnums::VSyncMode p_vsync_mode, uint32_t p_flags, const Vector2i *p_position, const Vector2i &p_resolution, int p_screen, DisplayServerEnums::Context p_context, int64_t p_parent_window, Error &r_error) {

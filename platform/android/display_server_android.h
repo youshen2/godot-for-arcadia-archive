@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/templates/safe_refcount.h"
 #include "servers/display/display_server.h"
 
 class InputEvent;
@@ -75,6 +76,9 @@ class DisplayServerAndroid : public DisplayServer {
 
 	bool keep_screen_on;
 	bool swap_buffers_flag;
+	SafeFlag application_paused;
+	SafeFlag background_processing_enabled;
+	SafeFlag pip_mode_active;
 
 	DisplayServerEnums::CursorShape cursor_shape = DisplayServerEnums::CursorShape::CURSOR_ARROW;
 
@@ -255,7 +259,11 @@ public:
 
 	void reset_window();
 	void notify_surface_changed(int p_width, int p_height);
+	void notify_application_resumed();
 	void notify_application_paused();
+	void notify_pip_mode_changed(bool p_is_in_picture_in_picture_mode);
+	void set_background_processing_enabled(bool p_enabled);
+	bool is_processing_in_background() const;
 
 	virtual Point2i mouse_get_position() const override;
 	virtual BitField<MouseButtonMask> mouse_get_button_state() const override;

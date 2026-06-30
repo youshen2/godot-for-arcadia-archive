@@ -383,16 +383,18 @@ bool OS_Android::main_loop_iterate(bool *r_should_swap_buffers) {
 	if (!main_loop) {
 		return false;
 	}
-	DisplayServerAndroid::get_singleton()->reset_swap_buffers_flag();
-	DisplayServerAndroid::get_singleton()->process_events();
+	DisplayServerAndroid *display_server = DisplayServerAndroid::get_singleton();
+	display_server->reset_swap_buffers_flag();
+	display_server->process_events();
 	uint64_t current_frames_drawn = Engine::get_singleton()->get_frames_drawn();
 	bool exit = Main::iteration();
 
 	if (r_should_swap_buffers) {
-		*r_should_swap_buffers = !is_in_low_processor_usage_mode() ||
-				DisplayServerAndroid::get_singleton()->should_swap_buffers() ||
+		*r_should_swap_buffers = !display_server->is_processing_in_background() &&
+				(!is_in_low_processor_usage_mode() ||
+				display_server->should_swap_buffers() ||
 				RenderingServer::get_singleton()->has_changed() ||
-				current_frames_drawn != Engine::get_singleton()->get_frames_drawn();
+				current_frames_drawn != Engine::get_singleton()->get_frames_drawn());
 	}
 
 	return exit;
@@ -455,6 +457,39 @@ void OS_Android::main_loop_focusin() {
 
 Error OS_Android::shell_open(const String &p_uri) {
 	return godot_io_java->open_uri(p_uri);
+}
+
+bool OS_Android::is_mobile_persistent_notification_supported() const {
+	return true;
+}
+
+bool OS_Android::is_mobile_persistent_notification_active() const {
+	ERR_FAIL_NULL_V(godot_java, false);
+	return godot_java->is_mobile_persistent_notification_active();
+}
+
+Error OS_Android::show_mobile_persistent_notification(const String &p_title, const String &p_message) {
+	ERR_FAIL_NULL_V(godot_java, ERR_UNAVAILABLE);
+	if (godot_java->show_mobile_persistent_notification(p_title, p_message)) {
+		if (DisplayServerAndroid *display_server = DisplayServerAndroid::get_singleton()) {
+			display_server->set_background_processing_enabled(true);
+		}
+		return OK;
+	}
+	return ERR_CANT_CREATE;
+}
+
+Error OS_Android::update_mobile_persistent_notification(const String &p_title, const String &p_message) {
+	ERR_FAIL_NULL_V(godot_java, ERR_UNAVAILABLE);
+	return godot_java->update_mobile_persistent_notification(p_title, p_message) ? OK : ERR_CANT_CREATE;
+}
+
+void OS_Android::hide_mobile_persistent_notification() {
+	ERR_FAIL_NULL(godot_java);
+	godot_java->hide_mobile_persistent_notification();
+	if (DisplayServerAndroid *display_server = DisplayServerAndroid::get_singleton()) {
+		display_server->set_background_processing_enabled(false);
+	}
 }
 
 String OS_Android::get_resource_dir() const {

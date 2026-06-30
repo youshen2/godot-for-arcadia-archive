@@ -596,6 +596,10 @@ public class GLSurfaceView extends SurfaceView implements SurfaceHolder.Callback
 		mGLThread.onResume();
 	}
 
+	protected final void setGLThreadBackgroundProcessingEnabled(boolean enabled) {
+		mGLThread.setBackgroundProcessingEnabled(enabled);
+	}
+
 	/**
 	 * Requests the render thread to exit and block until it does.
 	 */
@@ -804,6 +808,11 @@ public class GLSurfaceView extends SurfaceView implements SurfaceHolder.Callback
 		 * @return true if the buffers should be swapped, false otherwise.
 		 */
 		boolean onDrawFrame(GL10 gl);
+
+		/**
+		 * Called when Godot must keep processing in the background without a drawable surface.
+		 */
+		void onBackgroundFrame();
 
 		/**
 		 * Invoked when the render thread is in the process of shutting down.
@@ -1349,6 +1358,7 @@ public class GLSurfaceView extends SurfaceView implements SurfaceHolder.Callback
 				boolean wantRenderNotification = false;
 				boolean doRenderNotification = false;
 				boolean askedToReleaseEglContext = false;
+				boolean backgroundFrame = false;
 				int w = 0;
 				int h = 0;
 				Runnable event = null;
@@ -1455,6 +1465,7 @@ public class GLSurfaceView extends SurfaceView implements SurfaceHolder.Callback
 
 							// Ready to draw?
 							if (readyToDraw()) {
+								backgroundFrame = false;
 
 								// If we don't have an EGL context, try to acquire one.
 								if (! mHaveEglContext) {
@@ -1505,6 +1516,9 @@ public class GLSurfaceView extends SurfaceView implements SurfaceHolder.Callback
 									}
 									break;
 								}
+							} else if (readyToProcessInBackground()) {
+								backgroundFrame = true;
+								break;
 							} else {
 								if (finishDrawingRunnable != null) {
 									Log.w(TAG, "Warning, !readyToDraw() but waiting for " +
@@ -1535,6 +1549,15 @@ public class GLSurfaceView extends SurfaceView implements SurfaceHolder.Callback
 					if (event != null) {
 						event.run();
 						event = null;
+						continue;
+					}
+
+					if (backgroundFrame) {
+						backgroundFrame = false;
+						GLSurfaceView view = mGLSurfaceViewWeakRef.get();
+						if (view != null) {
+							view.mRenderer.onBackgroundFrame();
+						}
 						continue;
 					}
 
@@ -1669,6 +1692,10 @@ public class GLSurfaceView extends SurfaceView implements SurfaceHolder.Callback
 					&& (mRequestRender || (mRenderMode == RENDERMODE_CONTINUOUSLY));
 		}
 
+		private boolean readyToProcessInBackground() {
+			return mBackgroundProcessing;
+		}
+
 		public void setRenderMode(int renderMode) {
 			if ( !((RENDERMODE_WHEN_DIRTY <= renderMode) && (renderMode <= RENDERMODE_CONTINUOUSLY)) ) {
 				throw new IllegalArgumentException("renderMode");
@@ -1771,6 +1798,13 @@ public class GLSurfaceView extends SurfaceView implements SurfaceHolder.Callback
 			}
 		}
 
+		public void setBackgroundProcessingEnabled(boolean enabled) {
+			synchronized (sGLThreadManager) {
+				mBackgroundProcessing = enabled;
+				sGLThreadManager.notifyAll();
+			}
+		}
+
 		public void onWindowResize(int w, int h) {
 			synchronized (sGLThreadManager) {
 				mWidth = w;
@@ -1850,6 +1884,7 @@ public class GLSurfaceView extends SurfaceView implements SurfaceHolder.Callback
 		private boolean mExited;
 		private boolean mRequestPaused;
 		private boolean mPaused;
+		private boolean mBackgroundProcessing;
 		private boolean mHasSurface;
 		private boolean mSurfaceIsBad;
 		private boolean mWaitingForSurface;

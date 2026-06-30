@@ -107,6 +107,18 @@ internal class GodotNativeBridge(private val godot: Godot) {
 
 	private fun setKeepScreenOn(enabled: Boolean) = godot.setKeepScreenOn(enabled)
 
+	private fun nativeShowMobilePersistentNotification(title: String, message: String): Boolean {
+		return godot.showMobilePersistentNotification(title, message)
+	}
+
+	private fun nativeUpdateMobilePersistentNotification(title: String, message: String): Boolean {
+		return godot.updateMobilePersistentNotification(title, message)
+	}
+
+	private fun nativeHideMobilePersistentNotification() = godot.hideMobilePersistentNotification()
+
+	private fun nativeIsMobilePersistentNotificationActive() = godot.isMobilePersistentNotificationActive()
+
 	private fun restart() { godot.primaryHost?.onGodotRestartRequested(godot) }
 
 	private fun alert(message: String, title: String) {

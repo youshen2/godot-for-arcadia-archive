@@ -112,6 +112,10 @@ open internal class VkSurfaceView(context: Context) : SurfaceView(context), Surf
 		vkThread.onPause()
 	}
 
+	protected fun setVkThreadBackgroundProcessingEnabled(enabled: Boolean) {
+		vkThread.setBackgroundProcessingEnabled(enabled)
+	}
+
 	/**
 	 * Requests the render thread to exit and block until it does.
 	 */

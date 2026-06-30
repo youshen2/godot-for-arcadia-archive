@@ -157,7 +157,9 @@ OS_AppleEmbedded::OS_AppleEmbedded() {
 	AudioDriverManager::add_driver(&audio_driver);
 }
 
-OS_AppleEmbedded::~OS_AppleEmbedded() {}
+OS_AppleEmbedded::~OS_AppleEmbedded() {
+	stop_mobile_background_processing();
+}
 
 void OS_AppleEmbedded::alert(const String &p_alert, const String &p_title) {
 	const CharString utf8_alert = p_alert.utf8();
@@ -237,6 +239,39 @@ bool OS_AppleEmbedded::iterate() {
 #endif
 
 	return Main::iteration();
+}
+
+void OS_AppleEmbedded::start_mobile_background_processing() {
+	if (mobile_background_processing_enabled) {
+		return;
+	}
+
+	mobile_background_processing_enabled = true;
+	if (mobile_background_processing_timer) {
+		return;
+	}
+
+	mobile_background_processing_timer = [NSTimer timerWithTimeInterval:(1.0 / 60.0) repeats:YES block:^(NSTimer *timer) {
+		OS_AppleEmbedded *os = OS_AppleEmbedded::get_singleton();
+		if (!os || !os->is_mobile_background_processing_enabled()) {
+			[timer invalidate];
+			return;
+		}
+		os->iterate();
+	}];
+	[[NSRunLoop mainRunLoop] addTimer:mobile_background_processing_timer forMode:NSRunLoopCommonModes];
+}
+
+void OS_AppleEmbedded::stop_mobile_background_processing() {
+	mobile_background_processing_enabled = false;
+	if (mobile_background_processing_timer) {
+		[mobile_background_processing_timer invalidate];
+		mobile_background_processing_timer = nullptr;
+	}
+}
+
+bool OS_AppleEmbedded::is_mobile_background_processing_enabled() const {
+	return mobile_background_processing_enabled;
 }
 
 void OS_AppleEmbedded::start() {
@@ -820,9 +855,15 @@ void OS_AppleEmbedded::on_enter_background() {
 	}
 
 	on_focus_out();
+
+	if (OS::get_singleton()->is_mobile_persistent_notification_active()) {
+		start_mobile_background_processing();
+	}
 }
 
 void OS_AppleEmbedded::on_exit_background() {
+	stop_mobile_background_processing();
+
 	if (!is_focused) {
 		on_focus_in();
 

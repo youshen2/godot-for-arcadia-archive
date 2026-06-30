@@ -64,6 +64,7 @@ import org.godotengine.godot.nativeapi.GodotNativeBridge
 import org.godotengine.godot.plugin.AndroidRuntimePlugin
 import org.godotengine.godot.plugin.GodotPlugin
 import org.godotengine.godot.plugin.GodotPluginRegistry
+import org.godotengine.godot.service.MobilePersistentNotificationService
 import org.godotengine.godot.tts.GodotTTS
 import org.godotengine.godot.utils.GodotNetUtils
 import org.godotengine.godot.utils.PermissionsUtil
@@ -187,6 +188,12 @@ class Godot private constructor(val context: Context) {
 	 * See [onResume] and [onPause]
 	 */
 	private var resumed = false
+
+	/**
+	 * Tracks whether we're in the STARTED lifecycle state.
+	 * See [onStart] and [onStop]
+	 */
+	private var started = false
 
 	/**
 	 * Tracks the engine's run status.
@@ -649,12 +656,37 @@ class Godot private constructor(val context: Context) {
 		return containerLayout
 	}
 
+	fun showMobilePersistentNotification(title: String, message: String): Boolean {
+		val serviceStarted = MobilePersistentNotificationService.show(context, title, message)
+		if (serviceStarted && !started) {
+			renderView?.setBackgroundProcessingEnabled(true)
+			renderView?.onActivityStopped()
+		}
+		return serviceStarted
+	}
+
+	fun updateMobilePersistentNotification(title: String, message: String): Boolean {
+		return MobilePersistentNotificationService.update(context, title, message)
+	}
+
+	fun hideMobilePersistentNotification() {
+		MobilePersistentNotificationService.stop(context)
+		renderView?.setBackgroundProcessingEnabled(false)
+		if (!started) {
+			renderView?.onActivityStopped()
+		}
+	}
+
+	fun isMobilePersistentNotificationActive() = MobilePersistentNotificationService.isActive()
+
 	fun onStart(host: GodotHost) {
 		Log.v(TAG, "OnStart: $host")
 		if (host != primaryHost) {
 			return
 		}
 
+		started = true
+		renderView?.setBackgroundProcessingEnabled(false)
 		renderView?.onActivityStarted()
 		for (plugin in pluginRegistry.allPlugins) {
 			plugin.onMainStart()
@@ -721,10 +753,17 @@ class Godot private constructor(val context: Context) {
 			return
 		}
 
+		started = false
 		for (plugin in pluginRegistry.allPlugins) {
 			plugin.onMainStop()
 		}
-		renderView?.onActivityStopped()
+		if (MobilePersistentNotificationService.isActive()) {
+			renderView?.setBackgroundProcessingEnabled(true)
+			renderView?.onActivityStopped()
+		} else {
+			renderView?.setBackgroundProcessingEnabled(false)
+			renderView?.onActivityStopped()
+		}
 	}
 
 	fun onDestroy(primaryHost: GodotHost) {
@@ -736,6 +775,8 @@ class Godot private constructor(val context: Context) {
 		for (plugin in pluginRegistry.allPlugins) {
 			plugin.onMainDestroy()
 		}
+
+		MobilePersistentNotificationService.stop(context)
 
 		if (renderView?.blockingExitRenderer(EXIT_RENDERER_TIMEOUT_IN_MS) != true) {
 			Log.w(TAG, "Unable to exit the renderer within $EXIT_RENDERER_TIMEOUT_IN_MS ms... Force quitting the process.")

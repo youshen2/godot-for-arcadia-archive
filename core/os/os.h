@@ -228,6 +228,12 @@ public:
 	virtual Error set_cwd(const String &p_cwd);
 	virtual String get_cwd() const;
 
+	virtual bool is_mobile_persistent_notification_supported() const { return false; }
+	virtual bool is_mobile_persistent_notification_active() const { return false; }
+	virtual Error show_mobile_persistent_notification(const String &p_title, const String &p_message) { return ERR_UNAVAILABLE; }
+	virtual Error update_mobile_persistent_notification(const String &p_title, const String &p_message) { return ERR_UNAVAILABLE; }
+	virtual void hide_mobile_persistent_notification() {}
+
 	virtual bool has_environment(const String &p_var) const = 0;
 	virtual String get_environment(const String &p_var) const = 0;
 	virtual void set_environment(const String &p_var, const String &p_value) const = 0;

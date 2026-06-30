@@ -78,6 +78,7 @@
 #include "core/math/expression.h"
 #include "core/math/random_number_generator.h"
 #include "core/math/triangle_mesh.h"
+#include "core/mobile_persistent_notification.h"
 #include "core/object/class_db.h"
 #include "core/object/script_backtrace.h"
 #include "core/object/script_language_extension.h"
@@ -112,6 +113,7 @@ static CoreBind::Engine *_engine = nullptr;
 static CoreBind::Special::ClassDB *_classdb = nullptr;
 static CoreBind::Marshalls *_marshalls = nullptr;
 static CoreBind::EngineDebugger *_engine_debugger = nullptr;
+static MobilePersistentNotification *mobile_persistent_notification = nullptr;
 
 static IP *ip = nullptr;
 static Time *_time = nullptr;
@@ -323,6 +325,7 @@ void register_core_types() {
 	GDREGISTER_CLASS(CoreBind::Special::ClassDB);
 	GDREGISTER_CLASS(CoreBind::Marshalls);
 	GDREGISTER_CLASS(CoreBind::EngineDebugger);
+	GDREGISTER_CLASS(MobilePersistentNotification);
 
 	GDREGISTER_CLASS(TranslationServer);
 	GDREGISTER_ABSTRACT_CLASS(Input);
@@ -342,6 +345,7 @@ void register_core_types() {
 	_classdb = memnew(CoreBind::Special::ClassDB);
 	_marshalls = memnew(CoreBind::Marshalls);
 	_engine_debugger = memnew(CoreBind::EngineDebugger);
+	mobile_persistent_notification = memnew(MobilePersistentNotification);
 
 	GDREGISTER_NATIVE_STRUCT(ObjectID, "uint64_t id = 0");
 	GDREGISTER_NATIVE_STRUCT(AudioFrame, "float left;float right");
@@ -380,6 +384,7 @@ void register_core_singletons() {
 	Engine::get_singleton()->add_singleton(Engine::Singleton("ResourceLoader", CoreBind::ResourceLoader::get_singleton()));
 	Engine::get_singleton()->add_singleton(Engine::Singleton("ResourceSaver", CoreBind::ResourceSaver::get_singleton()));
 	Engine::get_singleton()->add_singleton(Engine::Singleton("Marshalls", CoreBind::Marshalls::get_singleton()));
+	Engine::get_singleton()->add_singleton(Engine::Singleton("MobilePersistentNotification", MobilePersistentNotification::get_singleton()));
 	Engine::get_singleton()->add_singleton(Engine::Singleton("TranslationServer", TranslationServer::get_singleton()));
 	Engine::get_singleton()->add_singleton(Engine::Singleton("Input", Input::get_singleton()));
 	Engine::get_singleton()->add_singleton(Engine::Singleton("InputMap", InputMap::get_singleton()));
@@ -422,6 +427,7 @@ void unregister_core_types() {
 	memdelete(worker_thread_pool);
 
 	memdelete(_engine_debugger);
+	memdelete(mobile_persistent_notification);
 	memdelete(_marshalls);
 	memdelete(_classdb);
 	memdelete(_engine);

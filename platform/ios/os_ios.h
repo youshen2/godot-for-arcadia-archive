@@ -34,7 +34,14 @@
 
 #import "drivers/apple_embedded/os_apple_embedded.h"
 
+#import <UIKit/UIKit.h>
+
 class OS_IOS : public OS_AppleEmbedded {
+	bool mobile_persistent_notification_active = false;
+	String mobile_persistent_notification_title;
+	String mobile_persistent_notification_message;
+	UIBackgroundTaskIdentifier mobile_persistent_notification_task = UIBackgroundTaskInvalid;
+
 public:
 	static OS_IOS *get_singleton();
 
@@ -42,6 +49,11 @@ public:
 	~OS_IOS();
 
 	virtual String get_name() const override;
+	virtual bool is_mobile_persistent_notification_supported() const override;
+	virtual bool is_mobile_persistent_notification_active() const override;
+	virtual Error show_mobile_persistent_notification(const String &p_title, const String &p_message) override;
+	virtual Error update_mobile_persistent_notification(const String &p_title, const String &p_message) override;
+	virtual void hide_mobile_persistent_notification() override;
 };
 
 #endif // IOS_ENABLED

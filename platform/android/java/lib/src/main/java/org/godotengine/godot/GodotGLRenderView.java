@@ -130,6 +130,11 @@ class GodotGLRenderView extends GLSurfaceView implements GodotRenderView {
 	}
 
 	@Override
+	public void setBackgroundProcessingEnabled(boolean enabled) {
+		setGLThreadBackgroundProcessingEnabled(enabled);
+	}
+
+	@Override
 	public boolean blockingExitRenderer(long blockingTimeInMs) {
 		return requestRenderThreadExitAndWait(blockingTimeInMs);
 	}

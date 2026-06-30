@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  GodotRenderView.java                                                  */
+/*  mobile_persistent_notification.h                                      */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,45 +28,28 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-package org.godotengine.godot;
+#pragma once
 
-import org.godotengine.godot.input.GodotInputHandler;
+#include "core/error/error_list.h"
+#include "core/object/object.h"
 
-import android.view.SurfaceView;
+class MobilePersistentNotification : public Object {
+	GDCLASS(MobilePersistentNotification, Object);
 
-public interface GodotRenderView {
-	SurfaceView getView();
+	static MobilePersistentNotification *singleton;
 
-	/**
-	 * Starts the thread that will drive Godot's rendering.
-	 */
-	void startRenderer();
+protected:
+	static void _bind_methods();
 
-	/**
-	 * Queues a runnable to be run on the rendering thread.
-	 */
-	void queueOnRenderThread(Runnable event);
+public:
+	static MobilePersistentNotification *get_singleton() { return singleton; }
 
-	void onActivityPaused();
+	bool is_supported() const;
+	bool is_active() const;
+	Error start(const String &p_title, const String &p_message);
+	Error update(const String &p_title, const String &p_message);
+	void stop();
 
-	void onActivityStopped();
-
-	void onActivityResumed();
-
-	void onActivityStarted();
-
-	void setBackgroundProcessingEnabled(boolean enabled);
-
-	boolean blockingExitRenderer(long blockingTimeInMs);
-
-	GodotInputHandler getInputHandler();
-
-	void configurePointerIcon(int pointerType, String imagePath, float hotSpotX, float hotSpotY);
-
-	void setPointerIcon(int pointerType);
-
-	/**
-	 * @return true if pointer capture is supported.
-	 */
-	boolean canCapturePointer();
-}
+	MobilePersistentNotification();
+	~MobilePersistentNotification();
+};

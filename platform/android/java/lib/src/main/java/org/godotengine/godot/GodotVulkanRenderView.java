@@ -115,6 +115,11 @@ class GodotVulkanRenderView extends VkSurfaceView implements GodotRenderView {
 	}
 
 	@Override
+	public void setBackgroundProcessingEnabled(boolean enabled) {
+		setVkThreadBackgroundProcessingEnabled(enabled);
+	}
+
+	@Override
 	public boolean blockingExitRenderer(long blockingTimeInMs) {
 		return requestRenderThreadExitAndWait(blockingTimeInMs);
 	}

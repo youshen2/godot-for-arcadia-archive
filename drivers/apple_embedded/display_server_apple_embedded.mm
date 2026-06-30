@@ -698,11 +698,13 @@ DisplayServerEnums::ScreenOrientation DisplayServerAppleEmbedded::screen_get_ori
 }
 
 bool DisplayServerAppleEmbedded::window_can_draw(DisplayServerEnums::WindowID p_window) const {
-	return true;
+	OS_AppleEmbedded *os = OS_AppleEmbedded::get_singleton();
+	return !os || !os->is_mobile_background_processing_enabled();
 }
 
 bool DisplayServerAppleEmbedded::can_any_window_draw() const {
-	return true;
+	OS_AppleEmbedded *os = OS_AppleEmbedded::get_singleton();
+	return !os || !os->is_mobile_background_processing_enabled();
 }
 
 bool DisplayServerAppleEmbedded::is_touchscreen_available() const {

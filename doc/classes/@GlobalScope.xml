@@ -1605,6 +1605,9 @@
 		<member name="Marshalls" type="Marshalls" setter="" getter="">
 			The [Marshalls] singleton.
 		</member>
+		<member name="MobilePersistentNotification" type="MobilePersistentNotification" setter="" getter="">
+			[MobilePersistentNotification] 单例。用于在移动平台启动可更新内容的常驻通知或后台任务；只有 Android 和 iOS 提供实际效果，其他平台可安全调用但不会启动后台能力。
+		</member>
 		<member name="NativeMenu" type="NativeMenu" setter="" getter="">
 			The [NativeMenu] singleton.
 			[b]Note:[/b] Only implemented on macOS.

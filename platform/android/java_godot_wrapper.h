@@ -96,6 +96,10 @@ private:
 	jmethodID _enter_pip_mode = nullptr;
 	jmethodID _set_pip_mode_aspect_ratio = nullptr;
 	jmethodID _set_auto_enter_pip_mode_on_background = nullptr;
+	jmethodID _show_mobile_persistent_notification = nullptr;
+	jmethodID _update_mobile_persistent_notification = nullptr;
+	jmethodID _hide_mobile_persistent_notification = nullptr;
+	jmethodID _is_mobile_persistent_notification_active = nullptr;
 
 public:
 	GodotJavaWrapper(JNIEnv *p_env, jobject p_godot_native_bridge);
@@ -166,4 +170,9 @@ public:
 	void enter_pip_mode();
 	void set_pip_mode_aspect_ratio(int p_numerator, int p_denominator);
 	void set_auto_enter_pip_mode_on_background(bool p_auto_enter_on_background);
+
+	bool show_mobile_persistent_notification(const String &p_title, const String &p_message);
+	bool update_mobile_persistent_notification(const String &p_title, const String &p_message);
+	void hide_mobile_persistent_notification();
+	bool is_mobile_persistent_notification_active() const;
 };

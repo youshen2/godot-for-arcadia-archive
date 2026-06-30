@@ -153,7 +153,7 @@ build_macos_editor() {
     arch=arm64 \
     target=editor \
     module_mono_enabled=yes \
-    macos_app=yes
+    generate_bundle=yes
 
   check_exists "$MACOS_EDITOR_BIN" "macOS editor binary"
   check_exists "bin/GodotSharp" "GodotSharp"
@@ -165,7 +165,6 @@ build_macos_editor() {
     echo "当前 .app 列表："
     find bin -maxdepth 1 -type d -name "*.app" -print || true
     echo
-    echo "如果你的分支需要 generate_bundle=yes，请手动把 editor 打包参数从 macos_app=yes 改成 generate_bundle=yes"
     exit 1
   fi
 

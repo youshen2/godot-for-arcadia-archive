@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  GodotRenderView.java                                                  */
+/*  mobile_persistent_notification.cpp                                    */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,45 +28,51 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-package org.godotengine.godot;
+#include "mobile_persistent_notification.h"
 
-import org.godotengine.godot.input.GodotInputHandler;
+#include "core/object/class_db.h"
+#include "core/os/os.h"
 
-import android.view.SurfaceView;
+MobilePersistentNotification *MobilePersistentNotification::singleton = nullptr;
 
-public interface GodotRenderView {
-	SurfaceView getView();
+bool MobilePersistentNotification::is_supported() const {
+	return OS::get_singleton()->is_mobile_persistent_notification_supported();
+}
 
-	/**
-	 * Starts the thread that will drive Godot's rendering.
-	 */
-	void startRenderer();
+bool MobilePersistentNotification::is_active() const {
+	return OS::get_singleton()->is_mobile_persistent_notification_active();
+}
 
-	/**
-	 * Queues a runnable to be run on the rendering thread.
-	 */
-	void queueOnRenderThread(Runnable event);
+Error MobilePersistentNotification::start(const String &p_title, const String &p_message) {
+	return OS::get_singleton()->show_mobile_persistent_notification(p_title, p_message);
+}
 
-	void onActivityPaused();
+Error MobilePersistentNotification::update(const String &p_title, const String &p_message) {
+	if (!is_supported()) {
+		return ERR_UNAVAILABLE;
+	}
+	ERR_FAIL_COND_V_MSG(!is_active(), ERR_UNCONFIGURED, "The mobile persistent notification is not active.");
+	return OS::get_singleton()->update_mobile_persistent_notification(p_title, p_message);
+}
 
-	void onActivityStopped();
+void MobilePersistentNotification::stop() {
+	OS::get_singleton()->hide_mobile_persistent_notification();
+}
 
-	void onActivityResumed();
+void MobilePersistentNotification::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("is_supported"), &MobilePersistentNotification::is_supported);
+	ClassDB::bind_method(D_METHOD("is_active"), &MobilePersistentNotification::is_active);
+	ClassDB::bind_method(D_METHOD("start", "title", "message"), &MobilePersistentNotification::start);
+	ClassDB::bind_method(D_METHOD("update", "title", "message"), &MobilePersistentNotification::update);
+	ClassDB::bind_method(D_METHOD("stop"), &MobilePersistentNotification::stop);
+}
 
-	void onActivityStarted();
+MobilePersistentNotification::MobilePersistentNotification() {
+	singleton = this;
+}
 
-	void setBackgroundProcessingEnabled(boolean enabled);
-
-	boolean blockingExitRenderer(long blockingTimeInMs);
-
-	GodotInputHandler getInputHandler();
-
-	void configurePointerIcon(int pointerType, String imagePath, float hotSpotX, float hotSpotY);
-
-	void setPointerIcon(int pointerType);
-
-	/**
-	 * @return true if pointer capture is supported.
-	 */
-	boolean canCapturePointer();
+MobilePersistentNotification::~MobilePersistentNotification() {
+	if (singleton == this) {
+		singleton = nullptr;
+	}
 }
