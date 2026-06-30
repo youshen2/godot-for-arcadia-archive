@@ -346,6 +346,14 @@
 				[b]Warning:[/b] Deserialized objects can contain code which gets executed. Do not use this option if the serialized object comes from untrusted sources to avoid potential security threats such as remote code execution.
 			</description>
 		</method>
+		<method name="humanize_size" qualifiers="static">
+			<return type="String" />
+			<param index="0" name="size" type="int" />
+			<description>
+				将 [param size] 表示的字节数转换为便于用户阅读的存储大小字符串。返回值使用 IEC 二进制单位，可能以 [code]"B"[/code]、[code]"KiB"[/code]、[code]"MiB"[/code]、[code]"GiB"[/code]、[code]"TiB"[/code]、[code]"PiB"[/code] 或 [code]"EiB"[/code] 结尾。
+				此方法只根据传入的字节数进行格式化，不会读取文件或移动文件游标。可将 [method get_length]、[method get_size] 或实际读取到的字节数量作为参数，用于在进度、日志或界面中显示文件大小。
+			</description>
+		</method>
 		<method name="is_open" qualifiers="const">
 			<return type="bool" />
 			<description>

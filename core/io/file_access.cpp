@@ -931,6 +931,10 @@ String FileAccess::get_file_as_string(const String &p_path, Error *r_error) {
 	return ret;
 }
 
+String FileAccess::humanize_size(uint64_t p_size) {
+	return String::humanize_size(p_size);
+}
+
 String FileAccess::get_md5(const String &p_file) {
 	Ref<FileAccess> f = FileAccess::open(p_file, READ);
 	if (f.is_null()) {
@@ -1022,6 +1026,7 @@ void FileAccess::_bind_methods() {
 
 	ClassDB::bind_static_method("FileAccess", D_METHOD("get_file_as_bytes", "path"), &FileAccess::_get_file_as_bytes);
 	ClassDB::bind_static_method("FileAccess", D_METHOD("get_file_as_string", "path"), &FileAccess::_get_file_as_string);
+	ClassDB::bind_static_method("FileAccess", D_METHOD("humanize_size", "size"), &FileAccess::humanize_size);
 
 	ClassDB::bind_method(D_METHOD("resize", "length"), &FileAccess::resize);
 	ClassDB::bind_method(D_METHOD("flush"), &FileAccess::flush);

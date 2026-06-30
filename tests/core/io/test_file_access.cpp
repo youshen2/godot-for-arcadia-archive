@@ -137,6 +137,14 @@ TEST_CASE("[FileAccess] Get as UTF-8 String") {
 	}
 }
 
+TEST_CASE("[FileAccess] humanize_size") {
+	CHECK(FileAccess::humanize_size(1000) == "1000 B");
+	CHECK(FileAccess::humanize_size(1025) == "1.00 KiB");
+	CHECK(FileAccess::humanize_size(1025300) == "1001.2 KiB");
+	CHECK(FileAccess::humanize_size(100523550) == "95.86 MiB");
+	CHECK(FileAccess::humanize_size(5345555000) == "4.97 GiB");
+}
+
 TEST_CASE("[FileAccess] Get/Store floating point values") {
 	// BigEndian Hex: 0x40490E56
 	// LittleEndian Hex: 0x560E4940
