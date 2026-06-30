@@ -46,6 +46,9 @@ int VideoStreamPlayer::sp_get_channel_count() const {
 }
 
 bool VideoStreamPlayer::mix(AudioFrame *p_buffer, int p_frames) {
+	if (!audio_enabled) {
+		return false;
+	}
 	// Check the amount resampler can really handle.
 	// If it cannot, wait "wait_resampler_phase_limit" times.
 	// This mechanism contributes to smoother pause/unpause operation.
@@ -85,6 +88,9 @@ void VideoStreamPlayer::_mix_audios(void *p_self) {
 
 // Called from audio thread
 void VideoStreamPlayer::_mix_audio() {
+	if (!audio_enabled) {
+		return;
+	}
 	if (stream.is_null()) {
 		return;
 	}
@@ -129,6 +135,27 @@ void VideoStreamPlayer::_mix_audio() {
 	}
 }
 
+void VideoStreamPlayer::_apply_playback_settings() {
+	if (playback.is_null()) {
+		return;
+	}
+
+	playback->set_audio_track(audio_track);
+	playback->set_video_track(video_track);
+	playback->set_audio_enabled(audio_enabled);
+	playback->set_audio_speed_to_sync(audio_speed_to_sync);
+	playback->set_audio_buffering_msec(buffering_ms);
+	playback->set_pitch_adjust_enabled(pitch_adjust);
+	playback->set_color_profile(color_profile);
+	playback->set_debug_enabled(debug);
+	playback->set_max_video_fps(max_video_fps);
+	playback->set_max_video_frames_per_update(max_video_frames_per_update);
+	playback->set_frame_dropping_enabled(frame_dropping);
+	playback->set_key_frame_only_enabled(key_frame_only);
+	playback->set_accurate_seek_enabled(accurate_seek);
+	playback->set_apply_rotation_metadata_enabled(apply_rotation_metadata);
+}
+
 void VideoStreamPlayer::_notification(int p_notification) {
 	switch (p_notification) {
 		case NOTIFICATION_ACCESSIBILITY_UPDATE: {
@@ -165,9 +192,19 @@ void VideoStreamPlayer::_notification(int p_notification) {
 
 			playback->update(delta * speed_scale); // playback->is_playing() returns false in the last video frame
 
+			if (loop && loop_end > loop_start && playback->is_playing() && playback->get_playback_position() >= loop_end) {
+				resampler.flush();
+				playback->seek(loop_start);
+				first_frame = true;
+				return;
+			}
+
 			if (!playback->is_playing()) {
 				resampler.flush();
 				if (loop) {
+					if (loop_start > 0.0) {
+						playback->seek(loop_start);
+					}
 					play();
 					return;
 				}
@@ -292,6 +329,7 @@ void VideoStreamPlayer::set_stream(const Ref<VideoStream> &p_stream) {
 	}
 
 	if (playback.is_valid()) {
+		_apply_playback_settings();
 		playback->set_paused(paused);
 		texture = playback->get_texture();
 
@@ -300,7 +338,7 @@ void VideoStreamPlayer::set_stream(const Ref<VideoStream> &p_stream) {
 			texture->connect_changed(callable_mp(this, &VideoStreamPlayer::texture_changed).bind(texture));
 		}
 
-		const int channels = playback->get_channels();
+		const int channels = audio_enabled ? playback->get_channels() : 0;
 
 		AudioServer::get_singleton()->lock();
 		if (channels > 0) {
@@ -310,7 +348,7 @@ void VideoStreamPlayer::set_stream(const Ref<VideoStream> &p_stream) {
 		}
 		AudioServer::get_singleton()->unlock();
 
-		if (channels > 0) {
+		if (audio_enabled && channels > 0) {
 			playback->set_mix_callback(_audio_mix_callback, this);
 		}
 
@@ -393,6 +431,9 @@ bool VideoStreamPlayer::is_paused() const {
 
 void VideoStreamPlayer::set_buffering_msec(int p_msec) {
 	buffering_ms = p_msec;
+	if (playback.is_valid()) {
+		playback->set_audio_buffering_msec(buffering_ms);
+	}
 }
 
 int VideoStreamPlayer::get_buffering_msec() const {
@@ -411,6 +452,17 @@ void VideoStreamPlayer::set_audio_track(int p_track) {
 
 int VideoStreamPlayer::get_audio_track() const {
 	return audio_track;
+}
+
+void VideoStreamPlayer::set_video_track(int p_track) {
+	video_track = MAX(0, p_track);
+	if (playback.is_valid()) {
+		playback->set_video_track(video_track);
+	}
+}
+
+int VideoStreamPlayer::get_video_track() const {
+	return video_track;
 }
 
 void VideoStreamPlayer::set_volume(float p_vol) {
@@ -439,11 +491,180 @@ float VideoStreamPlayer::get_volume_db() const {
 
 void VideoStreamPlayer::set_speed_scale(float p_speed_scale) {
 	ERR_FAIL_COND(p_speed_scale < 0.0);
+	if (playback_speed_override != Vector2()) {
+		const float min_speed = MIN(playback_speed_override.x, playback_speed_override.y);
+		const float max_speed = MAX(playback_speed_override.x, playback_speed_override.y);
+		p_speed_scale = CLAMP(p_speed_scale, min_speed, max_speed);
+	}
 	speed_scale = p_speed_scale;
 }
 
 float VideoStreamPlayer::get_speed_scale() const {
 	return speed_scale;
+}
+
+void VideoStreamPlayer::set_playback_speed_override(const Vector2 &p_override) {
+	playback_speed_override = p_override;
+	set_speed_scale(speed_scale);
+}
+
+Vector2 VideoStreamPlayer::get_playback_speed_override() const {
+	return playback_speed_override;
+}
+
+void VideoStreamPlayer::set_max_video_fps(double p_fps) {
+	ERR_FAIL_COND(p_fps < 0.0);
+	max_video_fps = p_fps;
+	if (playback.is_valid()) {
+		playback->set_max_video_fps(max_video_fps);
+	}
+}
+
+double VideoStreamPlayer::get_max_video_fps() const {
+	return max_video_fps;
+}
+
+void VideoStreamPlayer::set_max_video_frames_per_update(int p_frames) {
+	ERR_FAIL_COND(p_frames < 1);
+	max_video_frames_per_update = p_frames;
+	if (playback.is_valid()) {
+		playback->set_max_video_frames_per_update(max_video_frames_per_update);
+	}
+}
+
+int VideoStreamPlayer::get_max_video_frames_per_update() const {
+	return max_video_frames_per_update;
+}
+
+void VideoStreamPlayer::set_frame_dropping_enabled(bool p_enabled) {
+	frame_dropping = p_enabled;
+	if (playback.is_valid()) {
+		playback->set_frame_dropping_enabled(frame_dropping);
+	}
+}
+
+bool VideoStreamPlayer::is_frame_dropping_enabled() const {
+	return frame_dropping;
+}
+
+void VideoStreamPlayer::set_key_frame_only_enabled(bool p_enabled) {
+	key_frame_only = p_enabled;
+	if (playback.is_valid()) {
+		playback->set_key_frame_only_enabled(key_frame_only);
+	}
+}
+
+bool VideoStreamPlayer::is_key_frame_only_enabled() const {
+	return key_frame_only;
+}
+
+void VideoStreamPlayer::set_accurate_seek_enabled(bool p_enabled) {
+	accurate_seek = p_enabled;
+	if (playback.is_valid()) {
+		playback->set_accurate_seek_enabled(accurate_seek);
+	}
+}
+
+bool VideoStreamPlayer::is_accurate_seek_enabled() const {
+	return accurate_seek;
+}
+
+void VideoStreamPlayer::set_apply_rotation_metadata_enabled(bool p_enabled) {
+	apply_rotation_metadata = p_enabled;
+	if (playback.is_valid()) {
+		playback->set_apply_rotation_metadata_enabled(apply_rotation_metadata);
+	}
+}
+
+bool VideoStreamPlayer::is_apply_rotation_metadata_enabled() const {
+	return apply_rotation_metadata;
+}
+
+void VideoStreamPlayer::set_loop_start(double p_time) {
+	ERR_FAIL_COND(p_time < 0.0);
+	loop_start = p_time;
+}
+
+double VideoStreamPlayer::get_loop_start() const {
+	return loop_start;
+}
+
+void VideoStreamPlayer::set_loop_end(double p_time) {
+	ERR_FAIL_COND(p_time < 0.0);
+	loop_end = p_time;
+}
+
+double VideoStreamPlayer::get_loop_end() const {
+	return loop_end;
+}
+
+void VideoStreamPlayer::set_audio_enabled(bool p_enabled) {
+	if (audio_enabled == p_enabled) {
+		return;
+	}
+
+	audio_enabled = p_enabled;
+	if (playback.is_valid()) {
+		playback->set_audio_enabled(audio_enabled);
+	}
+
+	AudioServer::get_singleton()->lock();
+	if (audio_enabled && playback.is_valid() && playback->get_channels() > 0) {
+		resampler.setup(playback->get_channels(), playback->get_mix_rate(), AudioServer::get_singleton()->get_mix_rate(), buffering_ms, 0);
+		playback->set_mix_callback(_audio_mix_callback, this);
+	} else {
+		resampler.clear();
+	}
+	AudioServer::get_singleton()->unlock();
+}
+
+bool VideoStreamPlayer::is_audio_enabled() const {
+	return audio_enabled;
+}
+
+void VideoStreamPlayer::set_audio_speed_to_sync(bool p_enabled) {
+	audio_speed_to_sync = p_enabled;
+	if (playback.is_valid()) {
+		playback->set_audio_speed_to_sync(audio_speed_to_sync);
+	}
+}
+
+bool VideoStreamPlayer::is_audio_speed_to_sync_enabled() const {
+	return audio_speed_to_sync;
+}
+
+void VideoStreamPlayer::set_pitch_adjust_enabled(bool p_enabled) {
+	pitch_adjust = p_enabled;
+	if (playback.is_valid()) {
+		playback->set_pitch_adjust_enabled(pitch_adjust);
+	}
+}
+
+bool VideoStreamPlayer::is_pitch_adjust_enabled() const {
+	return pitch_adjust;
+}
+
+void VideoStreamPlayer::set_color_profile(ColorProfile p_profile) {
+	ERR_FAIL_INDEX(p_profile, COLOR_PROFILE_BT2100 + 1);
+	color_profile = p_profile;
+	if (playback.is_valid()) {
+		playback->set_color_profile(color_profile);
+	}
+}
+
+VideoStreamPlayer::ColorProfile VideoStreamPlayer::get_color_profile() const {
+	return color_profile;
+}
+
+void VideoStreamPlayer::set_debug_enabled(bool p_enabled) {
+	debug = p_enabled;
+	if (playback.is_valid()) {
+		playback->set_debug_enabled(debug);
+	}
+}
+
+bool VideoStreamPlayer::is_debug_enabled() const {
+	return debug;
 }
 
 String VideoStreamPlayer::get_stream_name() const {
@@ -549,8 +770,53 @@ void VideoStreamPlayer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_speed_scale", "speed_scale"), &VideoStreamPlayer::set_speed_scale);
 	ClassDB::bind_method(D_METHOD("get_speed_scale"), &VideoStreamPlayer::get_speed_scale);
 
+	ClassDB::bind_method(D_METHOD("set_playback_speed_override", "speed_override"), &VideoStreamPlayer::set_playback_speed_override);
+	ClassDB::bind_method(D_METHOD("get_playback_speed_override"), &VideoStreamPlayer::get_playback_speed_override);
+
+	ClassDB::bind_method(D_METHOD("set_max_video_fps", "fps"), &VideoStreamPlayer::set_max_video_fps);
+	ClassDB::bind_method(D_METHOD("get_max_video_fps"), &VideoStreamPlayer::get_max_video_fps);
+
+	ClassDB::bind_method(D_METHOD("set_max_video_frames_per_update", "frames"), &VideoStreamPlayer::set_max_video_frames_per_update);
+	ClassDB::bind_method(D_METHOD("get_max_video_frames_per_update"), &VideoStreamPlayer::get_max_video_frames_per_update);
+
+	ClassDB::bind_method(D_METHOD("set_frame_dropping_enabled", "enabled"), &VideoStreamPlayer::set_frame_dropping_enabled);
+	ClassDB::bind_method(D_METHOD("is_frame_dropping_enabled"), &VideoStreamPlayer::is_frame_dropping_enabled);
+
+	ClassDB::bind_method(D_METHOD("set_key_frame_only_enabled", "enabled"), &VideoStreamPlayer::set_key_frame_only_enabled);
+	ClassDB::bind_method(D_METHOD("is_key_frame_only_enabled"), &VideoStreamPlayer::is_key_frame_only_enabled);
+
+	ClassDB::bind_method(D_METHOD("set_accurate_seek_enabled", "enabled"), &VideoStreamPlayer::set_accurate_seek_enabled);
+	ClassDB::bind_method(D_METHOD("is_accurate_seek_enabled"), &VideoStreamPlayer::is_accurate_seek_enabled);
+
+	ClassDB::bind_method(D_METHOD("set_apply_rotation_metadata_enabled", "enabled"), &VideoStreamPlayer::set_apply_rotation_metadata_enabled);
+	ClassDB::bind_method(D_METHOD("is_apply_rotation_metadata_enabled"), &VideoStreamPlayer::is_apply_rotation_metadata_enabled);
+
+	ClassDB::bind_method(D_METHOD("set_loop_start", "time"), &VideoStreamPlayer::set_loop_start);
+	ClassDB::bind_method(D_METHOD("get_loop_start"), &VideoStreamPlayer::get_loop_start);
+
+	ClassDB::bind_method(D_METHOD("set_loop_end", "time"), &VideoStreamPlayer::set_loop_end);
+	ClassDB::bind_method(D_METHOD("get_loop_end"), &VideoStreamPlayer::get_loop_end);
+
+	ClassDB::bind_method(D_METHOD("set_audio_enabled", "enabled"), &VideoStreamPlayer::set_audio_enabled);
+	ClassDB::bind_method(D_METHOD("is_audio_enabled"), &VideoStreamPlayer::is_audio_enabled);
+
+	ClassDB::bind_method(D_METHOD("set_audio_speed_to_sync", "enabled"), &VideoStreamPlayer::set_audio_speed_to_sync);
+	ClassDB::bind_method(D_METHOD("is_audio_speed_to_sync_enabled"), &VideoStreamPlayer::is_audio_speed_to_sync_enabled);
+
+	ClassDB::bind_method(D_METHOD("set_pitch_adjust_enabled", "enabled"), &VideoStreamPlayer::set_pitch_adjust_enabled);
+	ClassDB::bind_method(D_METHOD("is_pitch_adjust_enabled"), &VideoStreamPlayer::is_pitch_adjust_enabled);
+
+	ClassDB::bind_method(D_METHOD("set_color_profile", "profile"), &VideoStreamPlayer::set_color_profile);
+	ClassDB::bind_method(D_METHOD("get_color_profile"), &VideoStreamPlayer::get_color_profile);
+
+	ClassDB::bind_method(D_METHOD("set_debug_enabled", "enabled"), &VideoStreamPlayer::set_debug_enabled);
+	ClassDB::bind_method(D_METHOD("is_debug_enabled"), &VideoStreamPlayer::is_debug_enabled);
+
 	ClassDB::bind_method(D_METHOD("set_audio_track", "track"), &VideoStreamPlayer::set_audio_track);
 	ClassDB::bind_method(D_METHOD("get_audio_track"), &VideoStreamPlayer::get_audio_track);
+
+	ClassDB::bind_method(D_METHOD("set_video_track", "track"), &VideoStreamPlayer::set_video_track);
+	ClassDB::bind_method(D_METHOD("get_video_track"), &VideoStreamPlayer::get_video_track);
 
 	ClassDB::bind_method(D_METHOD("get_stream_name"), &VideoStreamPlayer::get_stream_name);
 	ClassDB::bind_method(D_METHOD("get_stream_length"), &VideoStreamPlayer::get_stream_length);
@@ -575,18 +841,40 @@ void VideoStreamPlayer::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("finished"));
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "audio_track", PROPERTY_HINT_RANGE, "0,128,1"), "set_audio_track", "get_audio_track");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "video_track", PROPERTY_HINT_RANGE, "0,128,1"), "set_video_track", "get_video_track");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "stream", PROPERTY_HINT_RESOURCE_TYPE, VideoStream::get_class_static()), "set_stream", "get_stream");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "volume_db", PROPERTY_HINT_RANGE, "-80,24,0.01,suffix:dB"), "set_volume_db", "get_volume_db");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "volume", PROPERTY_HINT_RANGE, "0,15,0.01,exp", PROPERTY_USAGE_NONE), "set_volume", "get_volume");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "speed_scale", PROPERTY_HINT_RANGE, "0,4,0.001,or_greater"), "set_speed_scale", "get_speed_scale");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "playback_speed_override"), "set_playback_speed_override", "get_playback_speed_override");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "max_video_fps", PROPERTY_HINT_RANGE, "0,240,0.01,or_greater,suffix:FPS"), "set_max_video_fps", "get_max_video_fps");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "max_video_frames_per_update", PROPERTY_HINT_RANGE, "1,128,1,or_greater"), "set_max_video_frames_per_update", "get_max_video_frames_per_update");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "enable_frame_dropping"), "set_frame_dropping_enabled", "is_frame_dropping_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "key_frame_only"), "set_key_frame_only_enabled", "is_key_frame_only_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "accurate_seek"), "set_accurate_seek_enabled", "is_accurate_seek_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "apply_rotation_metadata"), "set_apply_rotation_metadata_enabled", "is_apply_rotation_metadata_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "enable_audio"), "set_audio_enabled", "is_audio_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "audio_speed_to_sync"), "set_audio_speed_to_sync", "is_audio_speed_to_sync_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "pitch_adjust"), "set_pitch_adjust_enabled", "is_pitch_adjust_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "color_profile", PROPERTY_HINT_ENUM, "Auto,BT.470,BT.601,BT.709,BT.2020,BT.2100"), "set_color_profile", "get_color_profile");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug"), "set_debug_enabled", "is_debug_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "autoplay"), "set_autoplay", "has_autoplay");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "paused"), "set_paused", "is_paused");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "expand"), "set_expand", "has_expand");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "loop"), "set_loop", "has_loop");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "loop_start", PROPERTY_HINT_RANGE, "0,1280000,0.001,or_greater,suffix:s"), "set_loop_start", "get_loop_start");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "loop_end", PROPERTY_HINT_RANGE, "0,1280000,0.001,or_greater,suffix:s"), "set_loop_end", "get_loop_end");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "buffering_msec", PROPERTY_HINT_RANGE, "10,1000,suffix:ms"), "set_buffering_msec", "get_buffering_msec");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "stream_position", PROPERTY_HINT_RANGE, "0,1280000,0.1", PROPERTY_USAGE_NONE), "set_stream_position", "get_stream_position");
 
 	ADD_PROPERTY(PropertyInfo(Variant::STRING_NAME, "bus", PROPERTY_HINT_ENUM, ""), "set_bus", "get_bus");
+
+	BIND_ENUM_CONSTANT(COLOR_PROFILE_AUTO);
+	BIND_ENUM_CONSTANT(COLOR_PROFILE_BT470);
+	BIND_ENUM_CONSTANT(COLOR_PROFILE_BT601);
+	BIND_ENUM_CONSTANT(COLOR_PROFILE_BT709);
+	BIND_ENUM_CONSTANT(COLOR_PROFILE_BT2020);
+	BIND_ENUM_CONSTANT(COLOR_PROFILE_BT2100);
 }
 
 VideoStreamPlayer::~VideoStreamPlayer() {

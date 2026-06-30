@@ -37,6 +37,17 @@
 class VideoStreamPlayer : public Control {
 	GDCLASS(VideoStreamPlayer, Control);
 
+public:
+	enum ColorProfile {
+		COLOR_PROFILE_AUTO,
+		COLOR_PROFILE_BT470,
+		COLOR_PROFILE_BT601,
+		COLOR_PROFILE_BT709,
+		COLOR_PROFILE_BT2020,
+		COLOR_PROFILE_BT2100,
+	};
+
+private:
 	Ref<VideoStreamPlayback> playback;
 	Ref<VideoStream> stream;
 
@@ -57,15 +68,31 @@ class VideoStreamPlayer : public Control {
 	bool autoplay = false;
 	float volume = 1.0;
 	float speed_scale = 1.0;
+	Vector2 playback_speed_override;
+	double max_video_fps = 0.0;
+	double loop_start = 0.0;
+	double loop_end = 0.0;
 	bool expand = false;
 	bool loop = false;
 	bool first_frame = false;
+	bool audio_enabled = true;
+	bool audio_speed_to_sync = false;
+	bool pitch_adjust = true;
+	bool frame_dropping = false;
+	bool key_frame_only = false;
+	bool accurate_seek = true;
+	bool apply_rotation_metadata = true;
+	bool debug = false;
 	int buffering_ms = 500;
+	int max_video_frames_per_update = 32;
+	int video_track = 0;
 	int audio_track = 0;
 	int bus_index = 0;
+	ColorProfile color_profile = COLOR_PROFILE_AUTO;
 
 	StringName bus;
 
+	void _apply_playback_settings();
 	void _mix_audio();
 	static int _audio_mix_callback(void *p_udata, const float *p_data, int p_frames);
 	static void _mix_audios(void *p_self);
@@ -104,6 +131,48 @@ public:
 	void set_speed_scale(float p_speed_scale);
 	float get_speed_scale() const;
 
+	void set_playback_speed_override(const Vector2 &p_override);
+	Vector2 get_playback_speed_override() const;
+
+	void set_max_video_fps(double p_fps);
+	double get_max_video_fps() const;
+
+	void set_max_video_frames_per_update(int p_frames);
+	int get_max_video_frames_per_update() const;
+
+	void set_frame_dropping_enabled(bool p_enabled);
+	bool is_frame_dropping_enabled() const;
+
+	void set_key_frame_only_enabled(bool p_enabled);
+	bool is_key_frame_only_enabled() const;
+
+	void set_accurate_seek_enabled(bool p_enabled);
+	bool is_accurate_seek_enabled() const;
+
+	void set_apply_rotation_metadata_enabled(bool p_enabled);
+	bool is_apply_rotation_metadata_enabled() const;
+
+	void set_loop_start(double p_time);
+	double get_loop_start() const;
+
+	void set_loop_end(double p_time);
+	double get_loop_end() const;
+
+	void set_audio_enabled(bool p_enabled);
+	bool is_audio_enabled() const;
+
+	void set_audio_speed_to_sync(bool p_enabled);
+	bool is_audio_speed_to_sync_enabled() const;
+
+	void set_pitch_adjust_enabled(bool p_enabled);
+	bool is_pitch_adjust_enabled() const;
+
+	void set_color_profile(ColorProfile p_profile);
+	ColorProfile get_color_profile() const;
+
+	void set_debug_enabled(bool p_enabled);
+	bool is_debug_enabled() const;
+
 	String get_stream_name() const;
 	double get_stream_length() const;
 	double get_stream_position() const;
@@ -115,6 +184,9 @@ public:
 	void set_audio_track(int p_track);
 	int get_audio_track() const;
 
+	void set_video_track(int p_track);
+	int get_video_track() const;
+
 	void set_buffering_msec(int p_msec);
 	int get_buffering_msec() const;
 
@@ -123,3 +195,5 @@ public:
 
 	~VideoStreamPlayer();
 };
+
+VARIANT_ENUM_CAST(VideoStreamPlayer::ColorProfile);

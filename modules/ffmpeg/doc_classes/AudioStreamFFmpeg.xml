@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="AudioStreamFFmpeg" inherits="AudioStream" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		使用 FFmpeg 加载音频资源。
+	</brief_description>
+	<description>
+		使用 FFmpeg 打开音频文件或包含音频流的媒体容器，并可由 [AudioStreamPlayer]、[AudioStreamPlayer2D] 和 [AudioStreamPlayer3D] 播放。
+		该资源在实例化播放时为每个播放实例创建独立解码上下文，因此多个播放器可以同时播放同一个资源。实际可播放格式取决于本地 FFmpeg 构建启用的格式、协议和解码器。
+		当该资源赋给 [AudioStreamPlayer] 系列节点时，播放器会出现 [code]parameters/loop[/code]、[code]parameters/loop_start[/code]、[code]parameters/loop_end[/code]、[code]parameters/end_time[/code] 和 [code]parameters/downmix_to_mono[/code] 动态播放参数。脚本和 Mono / C# 可通过普通属性访问或 [method Object.set] / [method Object.get] 使用这些参数。
+		[code]parameters/loop[/code] 启用后会在 [code]parameters/loop_start[/code] 与 [code]parameters/loop_end[/code] 之间循环；只有结束时间大于起始时间时才生效。[code]parameters/end_time[/code] 可限制非循环播放的停止时间，设为 [code]0.0[/code] 表示播放到资源结束。[code]parameters/downmix_to_mono[/code] 会把解码后的左右声道混合为单声道再写回左右声道，适合需要稳定中心声像的语音或环境音。
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="close">
+			<return type="void" />
+			<description>
+				清空当前探测缓存和媒体信息。该方法不会停止已经由播放器创建的独立播放实例。
+			</description>
+		</method>
+		<method name="get_icy_headers" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				启用 [member use_icy] 后，返回 FFmpeg 当前读取到的 ICY 响应头。非网络流、未启用 ICY 或服务端未返回 ICY 信息时返回空字典。
+			</description>
+		</method>
+		<method name="get_stream_title" qualifiers="const">
+			<return type="String" />
+			<description>
+				启用 [member use_icy] 后，返回 ICY 元数据中的当前流标题。该值依赖服务端是否发送 [code]StreamTitle[/code]。
+			</description>
+		</method>
+		<method name="is_open" qualifiers="const">
+			<return type="bool" />
+			<description>
+				返回资源是否能被 FFmpeg 成功探测。调用该方法可能会打开文件并读取流信息，因此不建议在每帧中调用。
+			</description>
+		</method>
+		<method name="open">
+			<return type="int" enum="Error" />
+			<param index="0" name="path" type="String" />
+			<param index="1" name="stream_index" type="int" default="-1" />
+			<description>
+				设置并探测指定路径。 [param stream_index] 为 [code]-1[/code] 时使用第一个可解码音频流；否则尝试使用容器内指定的 FFmpeg 流索引。返回 [constant OK] 表示探测成功。
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="file" type="String" setter="set_file" getter="get_file" default="&quot;&quot;">
+			要加载的音频文件路径或 URI。支持 [code]res://[/code]、[code]user://[/code]、普通文件路径和 FFmpeg 构建中启用的网络协议。
+		</member>
+		<member name="headers" type="String" setter="set_headers" getter="get_headers" default="&quot;&quot;">
+			打开 HTTP/HTTPS 等网络输入时传递给 FFmpeg 的请求头字符串。多行请求头应使用换行分隔。
+		</member>
+		<member name="stream_index" type="int" setter="set_stream_index" getter="get_stream_index" default="-1">
+			要播放的 FFmpeg 音频流索引。使用 [code]-1[/code] 时自动选择第一个可解码音频流。
+		</member>
+		<member name="use_icy" type="bool" setter="set_use_icy" getter="get_use_icy" default="false">
+			如果为 [code]true[/code]，打开网络音频流时向 FFmpeg 请求 ICY 元数据，用于网络电台标题和响应头读取。该选项只对支持 ICY 的服务端有意义。
+		</member>
+	</members>
+</class>

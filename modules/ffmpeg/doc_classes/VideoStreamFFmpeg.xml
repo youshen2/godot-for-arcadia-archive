@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="VideoStreamFFmpeg" inherits="VideoStream" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		使用 FFmpeg 加载视频资源。
+	</brief_description>
+	<description>
+		使用 FFmpeg 打开本地文件、[code]res://[/code]、[code]user://[/code] 或 FFmpeg 支持的网络地址，并为 [VideoStreamPlayer] 创建播放实例。
+		该资源只负责文件加载、流列表、元数据和章节信息。是否播放音频、选择音频轨、循环、速度、调试输出等播放行为由 [VideoStreamPlayer] 控制。
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_audio_streams" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>
+				返回文件中所有可由 FFmpeg 解码的音频流索引。返回值是 FFmpeg 容器内的流索引，可用于查询 [method get_stream_metadata]。
+			</description>
+		</method>
+		<method name="get_chapter_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回文件中的章节数量。没有章节或文件尚未成功探测时返回 [code]0[/code]。
+			</description>
+		</method>
+		<method name="get_chapter_end" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="chapter_index" type="int" />
+			<description>
+				返回指定章节的结束时间，单位为秒。索引越界时返回 [code]0.0[/code] 并报告错误。
+			</description>
+		</method>
+		<method name="get_chapter_metadata" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="chapter_index" type="int" />
+			<description>
+				返回指定章节的元数据字典，例如标题。具体键值取决于视频容器和编码工具。
+			</description>
+		</method>
+		<method name="get_chapter_start" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="chapter_index" type="int" />
+			<description>
+				返回指定章节的开始时间，单位为秒。索引越界时返回 [code]0.0[/code] 并报告错误。
+			</description>
+		</method>
+		<method name="get_duration" qualifiers="const">
+			<return type="float" />
+			<description>
+				返回容器报告的总时长，单位为秒。直播流、部分损坏文件或未写入时长的容器可能返回 [code]0.0[/code]。
+			</description>
+		</method>
+		<method name="get_stream_metadata" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="stream_index" type="int" />
+			<description>
+				返回指定流索引的元数据字典。若文件没有提供 [code]title[/code] 或 [code]language[/code]，返回字典中会包含空字符串形式的对应键，便于脚本和 C# 侧统一读取。
+			</description>
+		</method>
+		<method name="get_subtitle_streams" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>
+				返回文件中所有可识别字幕流的索引。当前 [VideoStreamPlayer] 不渲染字幕，该列表用于脚本层自行选择或展示流信息。
+			</description>
+		</method>
+		<method name="get_video_streams" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>
+				返回文件中所有可由 FFmpeg 解码的视频流索引。播放时默认使用第一个非封面图视频流。
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="file" type="String" setter="set_file" getter="get_file" default="&quot;&quot;">
+			要加载的视频文件路径或 URI。支持范围取决于本地 FFmpeg 构建启用的 demuxer、decoder 和 protocol。
+		</member>
+		<member name="headers" type="String" setter="set_headers" getter="get_headers" default="&quot;&quot;">
+			打开 HTTP/HTTPS 等网络输入时传递给 FFmpeg 的请求头字符串。多行请求头应使用换行分隔。更改后会清空已探测的流缓存。
+		</member>
+	</members>
+</class>

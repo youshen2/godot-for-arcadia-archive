@@ -44,7 +44,20 @@ void VideoStreamPlayback::_bind_methods() {
 	GDVIRTUAL_BIND(_get_length);
 	GDVIRTUAL_BIND(_get_playback_position);
 	GDVIRTUAL_BIND(_seek, "time");
+	GDVIRTUAL_BIND(_set_video_track, "idx");
 	GDVIRTUAL_BIND(_set_audio_track, "idx");
+	GDVIRTUAL_BIND(_set_audio_enabled, "enabled");
+	GDVIRTUAL_BIND(_set_audio_speed_to_sync, "enabled");
+	GDVIRTUAL_BIND(_set_audio_buffering_msec, "msec");
+	GDVIRTUAL_BIND(_set_pitch_adjust_enabled, "enabled");
+	GDVIRTUAL_BIND(_set_color_profile, "profile");
+	GDVIRTUAL_BIND(_set_debug_enabled, "enabled");
+	GDVIRTUAL_BIND(_set_max_video_fps, "fps");
+	GDVIRTUAL_BIND(_set_max_video_frames_per_update, "frames");
+	GDVIRTUAL_BIND(_set_frame_dropping_enabled, "enabled");
+	GDVIRTUAL_BIND(_set_key_frame_only_enabled, "enabled");
+	GDVIRTUAL_BIND(_set_accurate_seek_enabled, "enabled");
+	GDVIRTUAL_BIND(_set_apply_rotation_metadata_enabled, "enabled");
 	GDVIRTUAL_BIND(_get_texture);
 	GDVIRTUAL_BIND(_update, "delta");
 	GDVIRTUAL_BIND(_get_channels);
@@ -105,8 +118,60 @@ void VideoStreamPlayback::seek(double p_time) {
 	GDVIRTUAL_CALL(_seek, p_time);
 }
 
+void VideoStreamPlayback::set_video_track(int p_idx) {
+	GDVIRTUAL_CALL(_set_video_track, p_idx);
+}
+
 void VideoStreamPlayback::set_audio_track(int p_idx) {
 	GDVIRTUAL_CALL(_set_audio_track, p_idx);
+}
+
+void VideoStreamPlayback::set_audio_enabled(bool p_enabled) {
+	GDVIRTUAL_CALL(_set_audio_enabled, p_enabled);
+}
+
+void VideoStreamPlayback::set_audio_speed_to_sync(bool p_enabled) {
+	GDVIRTUAL_CALL(_set_audio_speed_to_sync, p_enabled);
+}
+
+void VideoStreamPlayback::set_audio_buffering_msec(int p_msec) {
+	GDVIRTUAL_CALL(_set_audio_buffering_msec, p_msec);
+}
+
+void VideoStreamPlayback::set_pitch_adjust_enabled(bool p_enabled) {
+	GDVIRTUAL_CALL(_set_pitch_adjust_enabled, p_enabled);
+}
+
+void VideoStreamPlayback::set_color_profile(int p_profile) {
+	GDVIRTUAL_CALL(_set_color_profile, p_profile);
+}
+
+void VideoStreamPlayback::set_debug_enabled(bool p_enabled) {
+	GDVIRTUAL_CALL(_set_debug_enabled, p_enabled);
+}
+
+void VideoStreamPlayback::set_max_video_fps(double p_fps) {
+	GDVIRTUAL_CALL(_set_max_video_fps, p_fps);
+}
+
+void VideoStreamPlayback::set_max_video_frames_per_update(int p_frames) {
+	GDVIRTUAL_CALL(_set_max_video_frames_per_update, p_frames);
+}
+
+void VideoStreamPlayback::set_frame_dropping_enabled(bool p_enabled) {
+	GDVIRTUAL_CALL(_set_frame_dropping_enabled, p_enabled);
+}
+
+void VideoStreamPlayback::set_key_frame_only_enabled(bool p_enabled) {
+	GDVIRTUAL_CALL(_set_key_frame_only_enabled, p_enabled);
+}
+
+void VideoStreamPlayback::set_accurate_seek_enabled(bool p_enabled) {
+	GDVIRTUAL_CALL(_set_accurate_seek_enabled, p_enabled);
+}
+
+void VideoStreamPlayback::set_apply_rotation_metadata_enabled(bool p_enabled) {
+	GDVIRTUAL_CALL(_set_apply_rotation_metadata_enabled, p_enabled);
 }
 
 Ref<Texture2D> VideoStreamPlayback::get_texture() const {

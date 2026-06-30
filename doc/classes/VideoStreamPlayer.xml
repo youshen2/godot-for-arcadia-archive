@@ -55,6 +55,12 @@
 		<member name="audio_track" type="int" setter="set_audio_track" getter="get_audio_track" default="0">
 			The embedded audio track to play.
 		</member>
+		<member name="accurate_seek" type="bool" setter="set_accurate_seek_enabled" getter="is_accurate_seek_enabled" default="true">
+			如果为 [code]true[/code]，支持的播放实现会在 seek 到关键帧后继续解码到目标时间附近，以获得更准确的画面位置。设为 [code]false[/code] 时，seek 可以更快返回，但画面通常会停在目标时间之前的关键帧。
+		</member>
+		<member name="apply_rotation_metadata" type="bool" setter="set_apply_rotation_metadata_enabled" getter="is_apply_rotation_metadata_enabled" default="true">
+			如果为 [code]true[/code]，支持的播放实现会读取媒体容器中的旋转元数据，并在上传视频帧前应用常见的 90、180 或 270 度旋转。关闭该选项可查看未经旋转修正的原始帧方向。
+		</member>
 		<member name="autoplay" type="bool" setter="set_autoplay" getter="has_autoplay" default="false">
 			If [code]true[/code], playback starts when the scene loads.
 		</member>
@@ -64,14 +70,50 @@
 		<member name="bus" type="StringName" setter="set_bus" getter="get_bus" default="&amp;&quot;Master&quot;">
 			Audio bus to use for sound playback.
 		</member>
+		<member name="audio_speed_to_sync" type="bool" setter="set_audio_speed_to_sync" getter="is_audio_speed_to_sync_enabled" default="false">
+			如果播放实现支持，该属性会允许音频播放速度在很小范围内临时调整，用于缓解音频和视频时间戳之间的轻微偏移。当前核心混音路径不创建额外音频 Bus，因此具体同步策略由底层 [VideoStreamPlayback] 实现决定。
+		</member>
+		<member name="color_profile" type="int" setter="set_color_profile" getter="get_color_profile" enum="VideoStreamPlayer.ColorProfile" default="0">
+			指定视频颜色转换使用的色彩配置。使用 [constant COLOR_PROFILE_AUTO] 时由播放实现根据视频元数据自动选择；如果视频元数据缺失或颜色明显不正确，可以手动指定 BT.601、BT.709 或 BT.2020 等配置。
+		</member>
+		<member name="debug" type="bool" setter="set_debug_enabled" getter="is_debug_enabled" default="false">
+			如果为 [code]true[/code]，允许底层播放实现输出调试信息。调试输出可能较多，不建议在正式版本中开启。
+		</member>
+		<member name="enable_audio" type="bool" setter="set_audio_enabled" getter="is_audio_enabled" default="true">
+			如果为 [code]true[/code]，播放视频内嵌音频流。设为 [code]false[/code] 时，支持的播放实现可以跳过音频流打开和解码，从而减少加载时间和运行时开销。
+		</member>
+		<member name="enable_frame_dropping" type="bool" setter="set_frame_dropping_enabled" getter="is_frame_dropping_enabled" default="false">
+			如果为 [code]true[/code]，允许播放实现丢弃已经明显落后于当前播放时间的视频帧，以便在卡顿或低性能设备上更快追上音频和时间轴。启用后画面可能跳帧，但通常能减少延迟堆积。
+		</member>
 		<member name="expand" type="bool" setter="set_expand" getter="has_expand" default="false">
 			If [code]true[/code], the video scales to the control size. Otherwise, the control minimum size will be automatically adjusted to match the video stream's dimensions.
+		</member>
+		<member name="key_frame_only" type="bool" setter="set_key_frame_only_enabled" getter="is_key_frame_only_enabled" default="false">
+			如果为 [code]true[/code]，请求播放实现只解码关键帧。该模式适合缩略图、快速预览或极低性能场景，不适合要求平滑播放的正式视频，因为非关键帧会被跳过，画面时间间隔可能明显变大。
 		</member>
 		<member name="loop" type="bool" setter="set_loop" getter="has_loop" default="false">
 			If [code]true[/code], the video restarts when it reaches its end.
 		</member>
+		<member name="loop_end" type="float" setter="set_loop_end" getter="get_loop_end" default="0.0">
+			设置循环区间的结束时间，单位为秒。仅当 [member loop] 为 [code]true[/code] 且 [member loop_end] 大于 [member loop_start] 时生效；播放位置到达该时间后会回到 [member loop_start]。设为 [code]0.0[/code] 或不大于起点时，播放器使用普通整段循环行为。
+		</member>
+		<member name="loop_start" type="float" setter="set_loop_start" getter="get_loop_start" default="0.0">
+			设置循环区间的起始时间，单位为秒。该属性不会改变首次调用 [method play] 时的起播位置，只影响循环回绕时跳转到的位置。时间不能为负数。
+		</member>
+		<member name="max_video_fps" type="float" setter="set_max_video_fps" getter="get_max_video_fps" default="0.0">
+			限制视频画面上传或显示的最高帧率。设为 [code]0.0[/code] 表示不限制。支持的播放实现会继续推进播放时间和音频解码；当限制低于源视频帧率时，可能会丢弃过期视频帧以保持时间轴同步。
+		</member>
+		<member name="max_video_frames_per_update" type="int" setter="set_max_video_frames_per_update" getter="get_max_video_frames_per_update" default="32">
+			限制播放实现单次更新中最多处理的视频帧数量，用于避免卡顿后一次性追赶过多视频帧造成主线程尖峰。数值必须大于等于 [code]1[/code]；过低可能导致画面追赶变慢。
+		</member>
 		<member name="paused" type="bool" setter="set_paused" getter="is_paused" default="false">
 			If [code]true[/code], the video is paused.
+		</member>
+		<member name="pitch_adjust" type="bool" setter="set_pitch_adjust_enabled" getter="is_pitch_adjust_enabled" default="true">
+			在播放速度改变时请求播放实现尽量保持音高不变。是否能实现无变调播放取决于底层音频路径；不支持时该属性只作为兼容设置保存。
+		</member>
+		<member name="playback_speed_override" type="Vector2" setter="set_playback_speed_override" getter="get_playback_speed_override" default="Vector2(0, 0)">
+			设置 [member speed_scale] 的最小值和最大值。为 [code]Vector2(0, 0)[/code] 时不额外限制速度；非零时会把 [member speed_scale] 限制在两个分量组成的闭区间内。
 		</member>
 		<member name="speed_scale" type="float" setter="set_speed_scale" getter="get_speed_scale" default="1.0">
 			The stream's current speed scale. [code]1.0[/code] is the normal speed, while [code]2.0[/code] is double speed and [code]0.5[/code] is half speed. A speed scale of [code]0.0[/code] pauses the video, similar to setting [member paused] to [code]true[/code].
@@ -88,6 +130,9 @@
 		<member name="volume_db" type="float" setter="set_volume_db" getter="get_volume_db" default="0.0">
 			Audio volume in dB.
 		</member>
+		<member name="video_track" type="int" setter="set_video_track" getter="get_video_track" default="0">
+			选择要播放的视频轨。该值表示第几个可解码视频轨，而不是容器中的原始 FFmpeg 流索引；可通过具体 [VideoStream] 实现提供的流列表和元数据方法向用户展示可选轨道。
+		</member>
 	</members>
 	<signals>
 		<signal name="finished">
@@ -96,4 +141,24 @@
 			</description>
 		</signal>
 	</signals>
+	<constants>
+		<constant name="COLOR_PROFILE_AUTO" value="0" enum="ColorProfile">
+			由播放实现根据视频元数据自动选择色彩配置。
+		</constant>
+		<constant name="COLOR_PROFILE_BT470" value="1" enum="ColorProfile">
+			使用 BT.470/FCC 近似色彩转换参数。
+		</constant>
+		<constant name="COLOR_PROFILE_BT601" value="2" enum="ColorProfile">
+			使用 BT.601 色彩转换参数，常见于标清视频。
+		</constant>
+		<constant name="COLOR_PROFILE_BT709" value="3" enum="ColorProfile">
+			使用 BT.709 色彩转换参数，常见于高清视频。
+		</constant>
+		<constant name="COLOR_PROFILE_BT2020" value="4" enum="ColorProfile">
+			使用 BT.2020 色彩转换参数，常见于广色域视频。
+		</constant>
+		<constant name="COLOR_PROFILE_BT2100" value="5" enum="ColorProfile">
+			使用 BT.2020 近似参数处理 BT.2100 视频。HDR 到 SDR 的显示映射仍取决于具体播放实现和渲染管线。
+		</constant>
+	</constants>
 </class>

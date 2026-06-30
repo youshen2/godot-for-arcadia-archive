@@ -64,6 +64,20 @@
 				Seeks to [param time] seconds. Called in response to the [member VideoStreamPlayer.stream_position] setter.
 			</description>
 		</method>
+		<method name="_set_accurate_seek_enabled" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				设置是否优先进行精确 seek。启用时，播放实现可在定位到关键帧后继续解码到目标时间附近；禁用时，播放实现可以停在关键帧以减少 seek 延迟。
+			</description>
+		</method>
+		<method name="_set_apply_rotation_metadata_enabled" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				设置是否应用媒体容器中的旋转元数据。支持该功能的播放实现应在输出视频帧前修正常见的直角旋转；不支持时可忽略该设置。
+			</description>
+		</method>
 		<method name="_set_audio_track" qualifiers="virtual">
 			<return type="void" />
 			<param index="0" name="idx" type="int" />
@@ -71,11 +85,88 @@
 				Select the audio track [param idx]. Called when playback starts, and in response to the [member VideoStreamPlayer.audio_track] setter.
 			</description>
 		</method>
+		<method name="_set_audio_buffering_msec" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="msec" type="int" />
+			<description>
+				设置视频播放器希望缓存的音频时长，单位为毫秒。播放实现可以根据该值决定提前解码多少音频数据；如果实现没有独立音频缓存，也可以忽略该值。
+			</description>
+		</method>
+		<method name="_set_audio_enabled" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				设置是否启用视频内嵌音频。为 [code]false[/code] 时，播放实现应尽量避免打开或解码音频流；为 [code]true[/code] 时，可根据当前音频轨重新打开音频解码器。
+			</description>
+		</method>
+		<method name="_set_audio_speed_to_sync" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				设置是否允许播放实现通过轻微调整音频速度来修正音视频同步偏移。具体修正幅度和策略由播放实现决定。
+			</description>
+		</method>
+		<method name="_set_color_profile" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="profile" type="int" />
+			<description>
+				设置播放器请求的色彩配置，取值对应 [enum VideoStreamPlayer.ColorProfile]。播放实现可用该值覆盖或补充视频文件中的色彩元数据。
+			</description>
+		</method>
+		<method name="_set_debug_enabled" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				设置是否启用播放实现的调试输出。调试信息用于定位解码、同步或媒体元数据问题，不应影响播放结果。
+			</description>
+		</method>
+		<method name="_set_frame_dropping_enabled" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				设置是否允许播放实现丢弃已经落后于当前播放时间的视频帧。启用后实现可以优先保持时间轴同步，而不是逐帧追赶；这可能减少卡顿后的延迟，但会牺牲画面连续性。
+			</description>
+		</method>
+		<method name="_set_key_frame_only_enabled" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				设置是否只解码关键帧。实现支持时可用于快速预览、缩略图或低性能场景；启用后非关键帧会被跳过，因此画面可能不连续，播放时长和音频时间轴仍应按正常速度推进。
+			</description>
+		</method>
+		<method name="_set_max_video_fps" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="fps" type="float" />
+			<description>
+				设置播放器请求的最高视频显示帧率。传入 [code]0.0[/code] 表示不限制；传入大于 [code]0.0[/code] 的值时，播放实现可以降低纹理上传或画面更新频率，并在必要时丢弃过期帧以保持同步。
+			</description>
+		</method>
+		<method name="_set_max_video_frames_per_update" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="frames" type="int" />
+			<description>
+				设置单次 [method _update] 中最多处理的视频帧数量。播放实现可用该值限制卡顿追帧时的工作量，避免一次更新占用过长主线程时间。小于 [code]1[/code] 的值应按 [code]1[/code] 处理。
+			</description>
+		</method>
 		<method name="_set_paused" qualifiers="virtual">
 			<return type="void" />
 			<param index="0" name="paused" type="bool" />
 			<description>
 				Set the paused status of video playback. [method _is_paused] must return [param paused]. Called in response to the [member VideoStreamPlayer.paused] setter.
+			</description>
+		</method>
+		<method name="_set_pitch_adjust_enabled" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				设置变速播放时是否尽量保持音高。底层实现如果没有时间拉伸或音高校正能力，可以保存该设置但保持原有混音行为。
+			</description>
+		</method>
+		<method name="_set_video_track" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="idx" type="int" />
+			<description>
+				选择播放的视频轨。该索引表示第几个可解码视频轨，具体如何映射到底层容器流由播放实现决定；索引无效时实现可以保持当前轨道或停止视频解码。
 			</description>
 		</method>
 		<method name="_stop" qualifiers="virtual">

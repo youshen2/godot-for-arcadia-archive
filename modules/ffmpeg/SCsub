@@ -1,0 +1,209 @@
+#!/usr/bin/env python
+
+import os
+import shlex
+import subprocess
+
+Import("env")
+Import("env_modules")
+
+env_ffmpeg = env_modules.Clone()
+
+REQUIRED_FFMPEG_LIBS = ["avformat", "avcodec", "swscale", "swresample", "avutil"]
+
+
+def rooted(path):
+    if not path:
+        return ""
+    if os.path.isabs(path):
+        return path
+    if path.startswith("#"):
+        return env.Dir(path).abspath
+    return os.path.join(env.Dir("#").abspath, path)
+
+
+def target_name():
+    return "%s-%s" % (env["platform"], env["arch"])
+
+
+def selected_prefix():
+    prefix = env.get("ffmpeg_prefix", "")
+    if prefix:
+        return rooted(prefix)
+    build_root = rooted(env.get("ffmpeg_build_root", "thirdparty/FFmpeg/build"))
+    if has_ffmpeg_install(os.path.join(build_root, "include"), os.path.join(build_root, "lib")):
+        return build_root
+    return os.path.join(build_root, target_name())
+
+
+def find_library(lib_dir, name):
+    if not os.path.isdir(lib_dir):
+        return ""
+
+    exact_names = [
+        "lib%s.a" % name,
+        "lib%s.dylib" % name,
+        "lib%s.so" % name,
+        "lib%s.lib" % name,
+        "%s.lib" % name,
+    ]
+    for candidate in exact_names:
+        path = os.path.join(lib_dir, candidate)
+        if os.path.exists(path):
+            return path
+
+    prefixes = ("lib%s." % name, "lib%s-" % name)
+    for candidate in os.listdir(lib_dir):
+        if candidate.startswith(prefixes):
+            return os.path.join(lib_dir, candidate)
+    return ""
+
+
+def get_ffmpeg_libraries(lib_dir):
+    libraries = []
+    for lib in REQUIRED_FFMPEG_LIBS:
+        path = find_library(lib_dir, lib)
+        if not path:
+            return []
+        libraries.append(path)
+    return libraries
+
+
+def has_ffmpeg_install(include_dir, lib_dir):
+    if not os.path.exists(os.path.join(include_dir, "libavformat", "avformat.h")):
+        return False
+    return bool(get_ffmpeg_libraries(lib_dir))
+
+
+def ffmpeg_arch():
+    arch = env["arch"]
+    if env["platform"] in ["macos", "ios", "visionos"] and arch == "arm64":
+        return "arm64"
+    return {
+        "x86_32": "x86",
+        "x86_64": "x86_64",
+        "arm32": "arm",
+        "arm64": "aarch64",
+        "rv64": "riscv64",
+        "riscv64": "riscv64",
+    }.get(arch, arch)
+
+
+def ffmpeg_platform_flags():
+    platform = env["platform"]
+    arch = ffmpeg_arch()
+
+    if platform == "macos":
+        return ["--target-os=darwin", "--arch=%s" % arch]
+    if platform == "linuxbsd":
+        return ["--target-os=linux", "--arch=%s" % arch]
+    if platform == "windows":
+        flags = ["--target-os=mingw32", "--arch=%s" % arch]
+        if not env.get("use_mingw", True):
+            flags.append("--toolchain=msvc")
+        return flags
+    if platform == "android":
+        return ["--target-os=android", "--arch=%s" % arch, "--enable-cross-compile"]
+    if platform == "ios":
+        return ["--target-os=darwin", "--arch=%s" % arch, "--enable-cross-compile"]
+    if platform == "visionos":
+        return ["--target-os=darwin", "--arch=%s" % arch, "--enable-cross-compile"]
+    if platform == "web":
+        return ["--target-os=none", "--arch=wasm32", "--enable-cross-compile"]
+    return ["--arch=%s" % arch]
+
+
+def make_jobs():
+    jobs = env.get("ffmpeg_make_jobs", "")
+    if jobs:
+        return str(jobs)
+    scons_jobs = env.GetOption("num_jobs")
+    if scons_jobs:
+        return str(scons_jobs)
+    return str(os.cpu_count() or 1)
+
+
+ffmpeg_source_dir = rooted("#thirdparty/FFmpeg")
+ffmpeg_configure = os.path.join(ffmpeg_source_dir, "configure")
+ffmpeg_prefix = selected_prefix()
+ffmpeg_include_dir = rooted(env.get("ffmpeg_include_path", "")) or os.path.join(ffmpeg_prefix, "include")
+ffmpeg_lib_dir = rooted(env.get("ffmpeg_lib_path", "")) or os.path.join(ffmpeg_prefix, "lib")
+using_custom_include_or_lib = bool(env.get("ffmpeg_include_path", "") or env.get("ffmpeg_lib_path", ""))
+
+ffmpeg_build = None
+ffmpeg_libraries = get_ffmpeg_libraries(ffmpeg_lib_dir)
+
+if not has_ffmpeg_install(ffmpeg_include_dir, ffmpeg_lib_dir):
+    if using_custom_include_or_lib:
+        raise RuntimeError("Explicit ffmpeg_include_path/ffmpeg_lib_path was provided, but FFmpeg headers or libraries were not found.")
+    if not os.path.exists(ffmpeg_configure):
+        raise RuntimeError("thirdparty/FFmpeg/configure was not found. Initialize the FFmpeg submodule or provide ffmpeg_prefix.")
+
+    ffmpeg_build_dir = os.path.join(ffmpeg_prefix, "_build")
+    ffmpeg_stamp = os.path.join(ffmpeg_prefix, ".ffmpeg-built.stamp")
+    static_libraries = [os.path.join(ffmpeg_lib_dir, "lib%s.a" % lib) for lib in REQUIRED_FFMPEG_LIBS]
+    installed_header = os.path.join(ffmpeg_include_dir, "libavformat", "avformat.h")
+
+    def build_ffmpeg(target, source, env):
+        if has_ffmpeg_install(ffmpeg_include_dir, ffmpeg_lib_dir):
+            os.makedirs(os.path.dirname(ffmpeg_stamp), exist_ok=True)
+            with open(ffmpeg_stamp, "w", encoding="utf-8") as stamp:
+                stamp.write("FFmpeg already built for %s\n" % target_name())
+            return 0
+
+        os.makedirs(ffmpeg_build_dir, exist_ok=True)
+        os.makedirs(ffmpeg_prefix, exist_ok=True)
+
+        configure_flags = [
+            "--prefix=%s" % ffmpeg_prefix,
+            "--disable-programs",
+            "--disable-doc",
+            "--disable-debug",
+            "--disable-avdevice",
+            "--disable-avfilter",
+            "--enable-pic",
+            "--disable-autodetect",
+            "--disable-x86asm",
+        ]
+        configure_flags += ffmpeg_platform_flags()
+        extra_flags = env.get("ffmpeg_configure_flags", "")
+        if extra_flags:
+            configure_flags += shlex.split(extra_flags)
+
+        subprocess.check_call([ffmpeg_configure] + configure_flags, cwd=ffmpeg_build_dir)
+
+        make = env.get("ffmpeg_make", "make")
+        subprocess.check_call([make, "-j", make_jobs()], cwd=ffmpeg_build_dir)
+        subprocess.check_call([make, "install"], cwd=ffmpeg_build_dir)
+
+        if not has_ffmpeg_install(ffmpeg_include_dir, ffmpeg_lib_dir):
+            raise RuntimeError("FFmpeg build completed but required headers or libraries were not installed under %s." % ffmpeg_prefix)
+
+        with open(ffmpeg_stamp, "w", encoding="utf-8") as stamp:
+            stamp.write("FFmpeg built for %s\n" % target_name())
+        return 0
+
+    ffmpeg_build = env.CommandNoCache(
+        [ffmpeg_stamp, installed_header] + static_libraries,
+        ffmpeg_configure,
+        env.Run(build_ffmpeg, "Building FFmpeg for %s" % target_name()),
+    )
+    ffmpeg_libraries = static_libraries
+
+env_ffmpeg.Prepend(CPPPATH=[ffmpeg_include_dir])
+env.Prepend(CPPPATH=[ffmpeg_include_dir])
+env.Append(LIBPATH=[ffmpeg_lib_dir])
+env.Append(LIBS=[env.File(lib) for lib in ffmpeg_libraries])
+
+extra_libs = env.get("ffmpeg_extra_libs", "")
+if extra_libs:
+    env.Append(LIBS=[lib.strip() for lib in extra_libs.split(",") if lib.strip()])
+
+if ffmpeg_build is not None:
+    env.Append(LIBS_EXTERNAL=ffmpeg_build)
+
+module_obj = []
+env_ffmpeg.add_source_files(module_obj, "*.cpp")
+if ffmpeg_build is not None:
+    env_ffmpeg.Depends(module_obj, ffmpeg_build)
+env.modules_sources += module_obj

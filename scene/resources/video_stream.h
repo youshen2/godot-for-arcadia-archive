@@ -52,7 +52,20 @@ protected:
 	GDVIRTUAL0RC(double, _get_length);
 	GDVIRTUAL0RC(double, _get_playback_position);
 	GDVIRTUAL1(_seek, double);
+	GDVIRTUAL1(_set_video_track, int);
 	GDVIRTUAL1(_set_audio_track, int);
+	GDVIRTUAL1(_set_audio_enabled, bool);
+	GDVIRTUAL1(_set_audio_speed_to_sync, bool);
+	GDVIRTUAL1(_set_audio_buffering_msec, int);
+	GDVIRTUAL1(_set_pitch_adjust_enabled, bool);
+	GDVIRTUAL1(_set_color_profile, int);
+	GDVIRTUAL1(_set_debug_enabled, bool);
+	GDVIRTUAL1(_set_max_video_fps, double);
+	GDVIRTUAL1(_set_max_video_frames_per_update, int);
+	GDVIRTUAL1(_set_frame_dropping_enabled, bool);
+	GDVIRTUAL1(_set_key_frame_only_enabled, bool);
+	GDVIRTUAL1(_set_accurate_seek_enabled, bool);
+	GDVIRTUAL1(_set_apply_rotation_metadata_enabled, bool);
 	GDVIRTUAL0RC(Ref<Texture2D>, _get_texture);
 	GDVIRTUAL1_REQUIRED(_update, double);
 	GDVIRTUAL0RC(int, _get_channels);
@@ -77,7 +90,20 @@ public:
 	virtual double get_playback_position() const;
 	virtual void seek(double p_time);
 
+	virtual void set_video_track(int p_idx);
 	virtual void set_audio_track(int p_idx);
+	virtual void set_audio_enabled(bool p_enabled);
+	virtual void set_audio_speed_to_sync(bool p_enabled);
+	virtual void set_audio_buffering_msec(int p_msec);
+	virtual void set_pitch_adjust_enabled(bool p_enabled);
+	virtual void set_color_profile(int p_profile);
+	virtual void set_debug_enabled(bool p_enabled);
+	virtual void set_max_video_fps(double p_fps);
+	virtual void set_max_video_frames_per_update(int p_frames);
+	virtual void set_frame_dropping_enabled(bool p_enabled);
+	virtual void set_key_frame_only_enabled(bool p_enabled);
+	virtual void set_accurate_seek_enabled(bool p_enabled);
+	virtual void set_apply_rotation_metadata_enabled(bool p_enabled);
 
 	virtual Ref<Texture2D> get_texture() const;
 	virtual void update(double p_delta);
@@ -100,7 +126,7 @@ protected:
 	int audio_track = 0;
 
 public:
-	void set_file(const String &p_file);
+	virtual void set_file(const String &p_file);
 	String get_file();
 
 	virtual void set_audio_track(int p_track);
