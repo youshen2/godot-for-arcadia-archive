@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GIFWriter" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		把 [Image] 或调色板索引数据写出为 GIF 文件或内存缓冲区。
+	</brief_description>
+	<description>
+		[GIFWriter] 提供两类写入方式：逐帧调用 [method open]、[method set_canvas_size]、[method begin_frame]、[method write_frame_image] 或 [method write_frame_pixels]、[method end_frame]、[method close]；或使用 [method save_to_file]、[method save_to_buffer] 一次性写出数组中的所有帧。
+		GIF 最多支持 256 色。使用 [method write_frame_image] 且 [param quantize] 为 [code]true[/code] 时，会自动将图像量化为 GIF 调色板；带透明像素的 RGBA 图像会保留透明索引。使用 [method write_frame_pixels] 时，调用方必须提供 8 位调色板索引，并且在写帧前设置全局或局部调色板。
+		[method set_global_palette] 必须在 [method set_canvas_size] 之前调用，因为 GIF 头会在设置画布尺寸时写出。写入失败通常会返回 [enum GIFError]，调用方应检查返回值；完成写入后必须调用 [method close]，否则 GIF 尾部数据可能不会写出。
+		在 C# 中，方法名和枚举名会按 Godot 绑定规则转换，例如 [method save_to_buffer] 对应 [code]SaveToBuffer[/code]。
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_comment">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="comment" type="String" />
+			<description>
+				向 GIF 写入注释扩展块。[param comment] 会按 UTF-8 写入。必须在文件或缓冲区打开后调用；写入失败返回 [constant WRITER_FAILED]。
+			</description>
+		</method>
+		<method name="begin_frame">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="left" type="int" />
+			<param index="1" name="top" type="int" />
+			<param index="2" name="width" type="int" />
+			<param index="3" name="height" type="int" />
+			<param index="4" name="interlace" type="bool" default="false" />
+			<description>
+				开始配置一帧的图像矩形。[param left] 和 [param top] 是该帧在 GIF 画布中的位置，[param width] 和 [param height] 是帧尺寸。调用后应设置帧延迟、透明色、处置方式或局部调色板，然后调用 [method write_frame_pixels] 或 [method write_frame_image]，最后调用 [method end_frame]。
+			</description>
+		</method>
+		<method name="close">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<description>
+				完成 GIF 写入并关闭文件或内存流。使用 [method open_from_buffer] 时，需要在调用该方法后再通过 [method get_output_buffer] 读取完整 GIF 数据。成功返回 [constant SUCCEEDED]。
+			</description>
+		</method>
+		<method name="end_frame">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<description>
+				结束当前帧写入，释放局部调色板并增加已写入帧计数。应在每次成功写入帧像素后调用；如果当前没有活动帧，会直接返回 [constant SUCCEEDED]。
+			</description>
+		</method>
+		<method name="get_canvas_size">
+			<return type="Vector2i" />
+			<description>
+				返回已经写入的 GIF 画布尺寸。尚未打开或尚未调用 [method set_canvas_size] 时返回 [code]Vector2i(0, 0)[/code]。
+			</description>
+		</method>
+		<method name="get_frame_count">
+			<return type="int" />
+			<description>
+				返回当前写入器已经完成的帧数量。只有调用 [method end_frame] 后帧计数才会增加。
+			</description>
+		</method>
+		<method name="get_output_buffer">
+			<return type="PackedByteArray" />
+			<description>
+				返回 [method open_from_buffer] 模式写出的 GIF 数据。应在 [method close] 成功后调用；文件写入模式下该数组通常为空。
+			</description>
+		</method>
+		<method name="open">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="path" type="String" />
+			<description>
+				以覆盖写入方式打开 [param path] 指定文件。路径通过 Godot [FileAccess] 打开，因此支持 [code]user://[/code] 等可写路径。打开失败返回 [constant OPEN_FAILED]。
+			</description>
+		</method>
+		<method name="open_from_buffer">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<description>
+				打开内存输出流。写入完成并调用 [method close] 后，可通过 [method get_output_buffer] 取得 GIF 字节数组。
+			</description>
+		</method>
+		<method name="save_to_buffer" qualifiers="static">
+			<return type="Dictionary" />
+			<param index="0" name="images" type="Image[]" />
+			<param index="1" name="delays" type="PackedInt32Array" />
+			<param index="2" name="loop_count" type="int" default="0" />
+			<param index="3" name="quantize" type="bool" default="true" />
+			<description>
+				一次性把 [param images] 写入内存 GIF。返回字典包含 [code]error[/code]（[enum GIFError]）和 [code]data[/code]（[PackedByteArray]）。[param delays] 的单位为毫秒；数组长度不足时，缺失帧使用 100 毫秒。第一帧尺寸会作为 GIF 画布尺寸。
+			</description>
+		</method>
+		<method name="save_to_file" qualifiers="static">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="path" type="String" />
+			<param index="1" name="images" type="Image[]" />
+			<param index="2" name="delays" type="PackedInt32Array" />
+			<param index="3" name="loop_count" type="int" default="0" />
+			<param index="4" name="quantize" type="bool" default="true" />
+			<description>
+				一次性把 [param images] 写入 [param path] 指定 GIF 文件。第一帧尺寸会作为 GIF 画布尺寸。[param delays] 的单位为毫秒；[param loop_count] 为 [code]0[/code] 时表示无限循环。成功返回 [constant SUCCEEDED]。
+			</description>
+		</method>
+		<method name="set_canvas_size">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="width" type="int" />
+			<param index="1" name="height" type="int" />
+			<param index="2" name="background_color" type="int" default="0" />
+			<description>
+				写入 GIF 逻辑画布尺寸。宽高必须位于 [code]1[/code] 到 [code]65535[/code]。该方法只能调用一次；如需设置全局调色板或颜色分辨率，必须先调用 [method set_global_palette] 或 [method set_color_resolution]。
+			</description>
+		</method>
+		<method name="set_color_resolution">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="bits" type="int" />
+			<description>
+				设置 GIF 头中的颜色分辨率，范围为 [code]1[/code] 到 [code]8[/code]。必须在 [method set_canvas_size] 前调用，否则返回 [constant HAS_SCRN_DSCR]。
+			</description>
+		</method>
+		<method name="set_disposal_method">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="method" type="int" enum="GIFWriter.DisposalMethod" />
+			<description>
+				设置当前帧的处置方式。应在 [method begin_frame] 后、写入帧像素前调用。该值影响后续播放器如何合成动画。
+			</description>
+		</method>
+		<method name="set_frame_delay">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="delay_ms" type="int" />
+			<description>
+				设置当前帧延迟时间，单位为毫秒。GIF 文件内部会以 1/100 秒精度保存，因此数值会被换算并钳制到 GIF 可表示范围。
+			</description>
+		</method>
+		<method name="set_frame_palette">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="palette" type="PackedColorArray" />
+			<description>
+				设置当前帧局部调色板。最多支持 256 个颜色，颜色数会补齐到 giflib 要求的 2 的幂。使用 [method write_frame_pixels] 时，像素索引必须引用该调色板或全局调色板中的颜色。
+			</description>
+		</method>
+		<method name="set_global_palette">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="palette" type="PackedColorArray" />
+			<description>
+				设置 GIF 全局调色板。必须在 [method set_canvas_size] 前调用；否则 GIF 头已经写出，会返回 [constant HAS_SCRN_DSCR]。最多支持 256 个颜色，颜色数会自动补齐到 2 的幂。
+			</description>
+		</method>
+		<method name="set_loop_count">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="loop_count" type="int" />
+			<description>
+				写入 Netscape 循环扩展。[param loop_count] 为 [code]0[/code] 表示无限循环，正数表示循环次数。应在写入帧数据前调用。
+			</description>
+		</method>
+		<method name="set_transparent_color">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="index" type="int" />
+			<description>
+				设置当前帧透明色索引。[param index] 为 [code]-1[/code] 表示没有透明色。索引应指向当前帧局部调色板或全局调色板中的颜色。
+			</description>
+		</method>
+		<method name="write_frame_image">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="image" type="Image" />
+			<param index="1" name="quantize" type="bool" default="true" />
+			<description>
+				把 [param image] 作为当前帧写入。默认会量化为 GIF 调色板；如果 [param quantize] 为 [code]false[/code]，会使用当前局部或全局调色板按最近颜色映射，未设置调色板时会创建灰度调色板。成功写入后仍应调用 [method end_frame]。
+			</description>
+		</method>
+		<method name="write_frame_pixels">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="indices" type="PackedByteArray" />
+			<description>
+				写入当前帧的 8 位调色板索引数据。数组长度必须至少等于当前帧宽度乘高度，并且必须已经设置全局或局部调色板。成功写入后仍应调用 [method end_frame]。
+			</description>
+		</method>
+		<method name="write_gif">
+			<return type="int" enum="GIFWriter.GIFError" />
+			<param index="0" name="images" type="Image[]" />
+			<param index="1" name="delays" type="PackedInt32Array" />
+			<param index="2" name="loop_count" type="int" default="0" />
+			<param index="3" name="quantize" type="bool" default="true" />
+			<description>
+				把 [param images] 中的所有图像依次写入当前已经打开的文件或缓冲区。调用前必须已经调用 [method set_canvas_size]。该方法会自动为每帧调用 [method begin_frame]、[method set_frame_delay]、[method write_frame_image] 和 [method end_frame]。
+			</description>
+		</method>
+	</methods>
+	<constants>
+		<constant name="SUCCEEDED" value="0" enum="GIFError">
+			操作成功。
+		</constant>
+		<constant name="OPEN_FAILED" value="1" enum="GIFError">
+			无法打开目标文件或内存输出流。
+		</constant>
+		<constant name="WRITER_FAILED" value="2" enum="GIFError">
+			底层 GIF 写入操作失败。
+		</constant>
+		<constant name="HAS_SCRN_DSCR" value="3" enum="GIFError">
+			画布描述符已经写出，不能再次设置相关全局信息。
+		</constant>
+		<constant name="HAS_IMAG_DSCR" value="4" enum="GIFError">
+			当前仍有未结束的帧。
+		</constant>
+		<constant name="NO_COLOR_MAP" value="5" enum="GIFError">
+			缺少写入像素索引所需的全局或局部调色板。
+		</constant>
+		<constant name="DATA_TOO_BIG" value="6" enum="GIFError">
+			输入图像或像素数据无效，或像素数量不满足当前帧尺寸。
+		</constant>
+		<constant name="NOT_ENOUGH_MEM" value="7" enum="GIFError">
+			内存分配失败。
+		</constant>
+		<constant name="DISK_IS_FULL" value="8" enum="GIFError">
+			写入目标失败，可能是磁盘空间不足或底层文件系统拒绝写入。
+		</constant>
+		<constant name="CLOSE_FAILED" value="9" enum="GIFError">
+			关闭并完成 GIF 输出失败。
+		</constant>
+		<constant name="NOT_WRITEABLE" value="10" enum="GIFError">
+			目标流不可写。
+		</constant>
+		<constant name="INVALID_DIMENSIONS" value="11" enum="GIFError">
+			画布或帧尺寸无效。
+		</constant>
+		<constant name="NO_FILE_OPEN" value="12" enum="GIFError">
+			尚未打开文件或内存输出流。
+		</constant>
+		<constant name="PALETTE_TOO_LARGE" value="13" enum="GIFError">
+			调色板颜色数量超过 GIF 支持的 256 色上限。
+		</constant>
+		<constant name="NO_SCRN_DSCR" value="14" enum="GIFError">
+			尚未写入画布描述符。
+		</constant>
+		<constant name="NO_IMAG_DSCR" value="15" enum="GIFError">
+			尚未开始当前帧图像描述。
+		</constant>
+		<constant name="DISPOSAL_METHOD_UNSPECIFIED" value="0" enum="DisposalMethod">
+			帧未指定处置方式。
+		</constant>
+		<constant name="DISPOSAL_METHOD_DO_NOT" value="1" enum="DisposalMethod">
+			播放下一帧前保留当前帧结果。
+		</constant>
+		<constant name="DISPOSAL_METHOD_BACKGROUND" value="2" enum="DisposalMethod">
+			播放下一帧前把当前帧区域恢复为背景色或透明。
+		</constant>
+		<constant name="DISPOSAL_METHOD_PREVIOUS" value="3" enum="DisposalMethod">
+			播放下一帧前恢复到当前帧绘制前的画布状态。
+		</constant>
+	</constants>
+</class>

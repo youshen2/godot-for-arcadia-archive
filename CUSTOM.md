@@ -15,6 +15,7 @@
 - `VideoStreamPlayback`：新增播放器侧设置下发虚方法：`_set_video_track`、`_set_audio_enabled`、`_set_audio_speed_to_sync`、`_set_audio_buffering_msec`、`_set_pitch_adjust_enabled`、`_set_color_profile`、`_set_debug_enabled`、`_set_max_video_fps`、`_set_max_video_frames_per_update`、`_set_frame_dropping_enabled`、`_set_key_frame_only_enabled`、`_set_accurate_seek_enabled`、`_set_apply_rotation_metadata_enabled`，用于视频播放实现接收 `VideoStreamPlayer` 设置。GDScript 扩展和 Mono / C# 可见。
 - `VideoStreamFFmpeg`：新增基于 FFmpeg 的视频资源，负责视频文件/URI、请求头、视频/音频/字幕流列表、流元数据、章节信息和时长探测，并为 `VideoStreamPlayer` 创建 FFmpeg 播放实例。GDScript 和 Mono / C# 可用。
 - `AudioStreamFFmpeg`：新增基于 FFmpeg 的音频资源，供 `AudioStreamPlayer`、`AudioStreamPlayer2D`、`AudioStreamPlayer3D` 播放 FFmpeg 支持的音频文件或媒体容器音频流。支持请求头、指定流索引、ICY 元数据读取、标签和时长探测，并在播放器上提供 `parameters/loop`、`parameters/loop_start`、`parameters/loop_end`、`parameters/end_time`、`parameters/downmix_to_mono` 等播放参数。GDScript 和 Mono / C# 可用。
+- `GIFReader`、`GIFWriter`、`GIFTexture`、`GIFPlayer`：内置 godothub/godot-gif GIF 模块，基于随模块编译的 giflib 支持读取 GIF 文件或内存数据、写出 GIF 文件或内存缓冲区、将 `.gif` 导入为按需解码的 `GIFTexture` 资源，以及通过 `GIFPlayer` 控件播放动画 GIF。相关类、方法、属性和枚举通过 ClassDB 注册，GDScript 和 Mono / C# 均可用；`ResourceImporterGIFTexture` 在编辑器中负责 `.gif` 资源导入，`.gif` 不再由 `VideoStreamFFmpeg` 识别为视频资源。
 
 使用时不需要ClassDB.class_exists和ClassDB.instantiate，直接当现有存在的类就行。
 

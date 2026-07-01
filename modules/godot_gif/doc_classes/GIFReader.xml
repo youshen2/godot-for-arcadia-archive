@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GIFReader" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		读取 GIF 文件或内存数据并获取帧图像与元数据。
+	</brief_description>
+	<description>
+		[GIFReader] 是底层 GIF 解码辅助类，可从文件路径或字节数组读取 GIF，查询画布尺寸、调色板、帧延迟、处置方式、注释和循环次数，也可以把指定帧转换为 [Image]。
+		[method open] 使用 Godot 的 [FileAccess] 读取文件，因此支持 [code]res://[/code]、[code]user://[/code] 和导出的 PCK 资源。读取会一次性解析 GIF 结构；超大 GIF 或帧数很多的 GIF 可能带来明显内存开销。需要作为纹理播放时通常应使用 [GIFTexture] 或 [GIFPlayer]。
+		在 C# 中，方法名和枚举名会按 Godot 绑定规则转换，例如 [method open_from_buffer] 对应 [code]OpenFromBuffer[/code]，[constant DISPOSAL_METHOD_BACKGROUND] 对应同名枚举成员。
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="close">
+			<return type="int" enum="GIFReader.GIFError" />
+			<description>
+				关闭当前打开的 GIF 并释放内部缓存。无论数据来自文件还是内存，都应在不再需要读取时调用该方法。成功返回 [constant SUCCEEDED]。
+			</description>
+		</method>
+		<method name="get_aspect_byte">
+			<return type="int" />
+			<description>
+				返回 GIF 逻辑屏幕描述符中的像素宽高比字节。返回 [code]0[/code] 表示文件未声明特殊像素宽高比，通常可按 1:1 处理。
+			</description>
+		</method>
+		<method name="get_background_color">
+			<return type="Color" />
+			<description>
+				返回全局调色板中背景色索引对应的颜色。未打开文件、没有全局调色板或索引无效时返回默认颜色。
+			</description>
+		</method>
+		<method name="get_color_map">
+			<return type="Dictionary" />
+			<description>
+				返回全局调色板信息字典，包含 [code]color_count[/code]、[code]bits_per_pixel[/code]、[code]sort_flag[/code] 和 [code]colors[/code]（[PackedColorArray]）。没有全局调色板时返回空字典。
+			</description>
+		</method>
+		<method name="get_color_resolution">
+			<return type="int" />
+			<description>
+				返回 GIF 逻辑屏幕描述符中的颜色分辨率位数。未打开文件时返回 [code]0[/code]。
+			</description>
+		</method>
+		<method name="get_comments">
+			<return type="PackedStringArray" />
+			<description>
+				返回文件和各帧扩展块中包含的注释文本。注释会按 UTF-8 尝试解析；不是 UTF-8 的历史文件可能得到替换字符或空字符串。
+			</description>
+		</method>
+		<method name="get_disposal_method">
+			<return type="int" enum="GIFReader.DisposalMethod" />
+			<param index="0" name="frame_index" type="int" />
+			<description>
+				返回 [param frame_index] 帧的处置方式，用于决定下一帧绘制前如何处理当前画布。索引无效或缺少图形控制扩展时返回 [constant DISPOSAL_METHOD_UNSPECIFIED]。
+			</description>
+		</method>
+		<method name="get_frame_delay">
+			<return type="int" />
+			<param index="0" name="frame_index" type="int" />
+			<description>
+				返回 [param frame_index] 帧的延迟时间，单位为毫秒。索引无效或文件未声明延迟时返回 [code]0[/code]。
+			</description>
+		</method>
+		<method name="get_frame_gcb">
+			<return type="Dictionary" />
+			<param index="0" name="frame_index" type="int" />
+			<description>
+				返回指定帧的图形控制块信息字典，包含 [code]disposal_mode[/code]、[code]delay_time_ms[/code]、[code]transparent_color[/code] 和 [code]user_input_flag[/code]。索引无效或扩展解析失败时返回空字典。
+			</description>
+		</method>
+		<method name="get_global_metadata">
+			<return type="Dictionary" />
+			<description>
+				返回全局元数据字典，包括画布宽高、颜色分辨率、背景色索引、帧数、循环次数、像素宽高比、是否存在全局调色板，以及可选注释列表。
+			</description>
+		</method>
+		<method name="get_image">
+			<return type="Image" />
+			<param index="0" name="frame_index" type="int" default="0" />
+			<description>
+				返回指定帧自身矩形区域转换出的 [Image]，像素格式为 RGBA8。该方法不执行跨帧画布合成；需要按 GIF 处置方式得到完整画面时请使用 [GIFTexture] 的帧纹理。索引无效或解码失败时返回空引用。
+			</description>
+		</method>
+		<method name="get_image_count">
+			<return type="int" />
+			<description>
+				返回 GIF 中保存的帧数量。未打开文件时返回 [code]0[/code]。
+			</description>
+		</method>
+		<method name="get_loop_count">
+			<return type="int" />
+			<description>
+				返回 Netscape/AnimExts 应用扩展声明的循环次数。[code]0[/code] 表示无限循环；未声明时返回 [code]1[/code]。
+			</description>
+		</method>
+		<method name="get_saved_images">
+			<return type="Image[]" />
+			<description>
+				返回所有帧通过 [method get_image] 转换后的数组。该方法会一次性分配所有帧图像，较大的 GIF 可能造成明显内存峰值。
+			</description>
+		</method>
+		<method name="get_size">
+			<return type="Vector2i" />
+			<description>
+				返回 GIF 逻辑画布尺寸，单位为像素。未打开文件时返回 [code]Vector2i(0, 0)[/code]。
+			</description>
+		</method>
+		<method name="open">
+			<return type="int" enum="GIFReader.GIFError" />
+			<param index="0" name="path" type="String" />
+			<description>
+				打开并解析 [param path] 指定 GIF 文件。路径通过 Godot [FileAccess] 读取，支持资源包内文件。成功返回 [constant SUCCEEDED]；打开失败、数据为空或解析失败时返回对应 [enum GIFError]。
+			</description>
+		</method>
+		<method name="open_from_buffer">
+			<return type="int" enum="GIFReader.GIFError" />
+			<param index="0" name="buffer" type="PackedByteArray" />
+			<description>
+				从内存字节数组打开并解析 GIF。数组必须包含完整 GIF 文件数据，适合网络下载或自定义归档读取后的数据。成功返回 [constant SUCCEEDED]。
+			</description>
+		</method>
+	</methods>
+	<constants>
+		<constant name="SUCCEEDED" value="0" enum="GIFError">
+			操作成功。
+		</constant>
+		<constant name="OPEN_FAILED" value="101" enum="GIFError">
+			无法打开文件或输入缓冲区为空。
+		</constant>
+		<constant name="READ_FAILED" value="102" enum="GIFError">
+			读取或解析 GIF 数据失败。
+		</constant>
+		<constant name="NOT_GIF_FILE" value="103" enum="GIFError">
+			输入数据不是有效 GIF 文件。
+		</constant>
+		<constant name="NO_SCRN_DSCR" value="104" enum="GIFError">
+			缺少逻辑屏幕描述符。
+		</constant>
+		<constant name="NO_IMAG_DSCR" value="105" enum="GIFError">
+			缺少图像描述符。
+		</constant>
+		<constant name="NO_COLOR_MAP" value="106" enum="GIFError">
+			缺少可用于解码像素索引的全局或局部调色板。
+		</constant>
+		<constant name="WRONG_RECORD" value="107" enum="GIFError">
+			读取到不符合当前位置的 GIF 记录类型。
+		</constant>
+		<constant name="DATA_TOO_BIG" value="108" enum="GIFError">
+			帧像素数据尺寸超过声明宽高可容纳的范围。
+		</constant>
+		<constant name="NOT_ENOUGH_MEM" value="109" enum="GIFError">
+			内存分配失败。
+		</constant>
+		<constant name="CLOSE_FAILED" value="110" enum="GIFError">
+			关闭 GIF 解码对象失败。
+		</constant>
+		<constant name="NOT_READABLE" value="111" enum="GIFError">
+			底层数据源不可读。
+		</constant>
+		<constant name="IMAGE_DEFECT" value="112" enum="GIFError">
+			图像数据损坏或不完整。
+		</constant>
+		<constant name="EOF_TOO_SOON" value="113" enum="GIFError">
+			在完成读取前遇到文件结尾。
+		</constant>
+		<constant name="DISPOSAL_METHOD_UNSPECIFIED" value="0" enum="DisposalMethod">
+			帧未指定处置方式。
+		</constant>
+		<constant name="DISPOSAL_METHOD_DO_NOT" value="1" enum="DisposalMethod">
+			绘制下一帧前保留当前帧结果。
+		</constant>
+		<constant name="DISPOSAL_METHOD_BACKGROUND" value="2" enum="DisposalMethod">
+			绘制下一帧前把当前帧区域恢复为背景色或透明。
+		</constant>
+		<constant name="DISPOSAL_METHOD_PREVIOUS" value="3" enum="DisposalMethod">
+			绘制下一帧前恢复到当前帧绘制之前的画布状态。
+		</constant>
+	</constants>
+</class>

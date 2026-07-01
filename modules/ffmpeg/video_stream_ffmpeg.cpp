@@ -9,7 +9,7 @@
 
 static bool _ffmpeg_path_has_video_extension(const String &p_path) {
 	static const char *extensions[] = {
-		"mp4", "m4v", "mov", "mkv", "webm", "ogv", "avi", "wmv", "flv", "mpeg", "mpg", "m2ts", "ts", "gif", "webp"
+		"mp4", "m4v", "mov", "mkv", "webm", "ogv", "avi", "wmv", "flv", "mpeg", "mpg", "m2ts", "ts", "webp"
 	};
 
 	for (const char *extension : extensions) {
@@ -1006,7 +1006,7 @@ Ref<Resource> ResourceFormatLoaderFFmpegVideo::load(const String &p_path, const 
 
 void ResourceFormatLoaderFFmpegVideo::get_recognized_extensions(List<String> *p_extensions) const {
 	static const char *extensions[] = {
-		"mp4", "m4v", "mov", "mkv", "webm", "ogv", "avi", "wmv", "flv", "mpeg", "mpg", "m2ts", "ts", "gif", "webp"
+		"mp4", "m4v", "mov", "mkv", "webm", "ogv", "avi", "wmv", "flv", "mpeg", "mpg", "m2ts", "ts", "webp"
 	};
 
 	for (const char *extension : extensions) {

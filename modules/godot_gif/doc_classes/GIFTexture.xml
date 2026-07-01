@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GIFTexture" inherits="Texture2D" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		用于保存和显示动画 GIF 数据的 2D 纹理资源。
+	</brief_description>
+	<description>
+		[GIFTexture] 保存原始 GIF 字节数据，并按需解析动画元数据和帧纹理。[code].gif[/code] 文件会被识别为 [GIFTexture] 资源；在编辑器中导入后会加载导入生成的资源，没有导入文件时也可以通过 [ResourceLoader]、[method load_from_file]、[method load_from_buffer] 或设置 [member data] 创建。
+		该资源继承 [Texture2D]，因此可以用于接受 2D 纹理的节点和材质。当前显示帧由 [member frame] 控制；[GIFPlayer] 会根据每帧延迟自动推进它。大型或帧数很多的 GIF 会占用较多内存和纹理资源，建议避免把高分辨率长动画作为普通 UI 动画长期缓存。
+		在 C# 中，方法名和属性名会按 Godot 绑定规则转换为 PascalCase，例如 [method load_from_file] 对应 [code]LoadFromFile[/code]，[member frame] 对应 [code]Frame[/code]。
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_current_texture">
+			<return type="ImageTexture" />
+			<description>
+				返回 [member frame] 当前指向的帧纹理。如果 GIF 数据尚未成功解析，或当前帧索引无效，则返回空引用。调用该方法可能触发从第 0 帧到当前帧的按需解码。
+			</description>
+		</method>
+		<method name="get_frame_count">
+			<return type="int" />
+			<description>
+				返回 GIF 中包含的帧数。首次调用时会解析 GIF 元数据；如果 [member data] 为空或数据无效，返回 [code]0[/code]。
+			</description>
+		</method>
+		<method name="get_frame_delay">
+			<return type="float" />
+			<param index="0" name="frame" type="int" />
+			<description>
+				返回 [param frame] 指定帧的显示时长，单位为秒。无效索引会返回默认值 [code]0.1[/code]。GIF 中缺失或为 0 的延迟也通常应按短延迟处理，播放节点会做相同兜底。
+			</description>
+		</method>
+		<method name="get_frame_texture">
+			<return type="ImageTexture" />
+			<param index="0" name="frame" type="int" />
+			<description>
+				返回 [param frame] 指定帧的纹理。该方法会按 GIF 的处置方式从前序帧合成画布，因此访问靠后的帧可能需要先解码前面的帧。索引无效或解码失败时返回空引用。
+			</description>
+		</method>
+		<method name="get_total_duration">
+			<return type="float" />
+			<description>
+				返回所有帧延迟相加后的动画总时长，单位为秒。该值不包含循环次数，也不会考虑 [GIFPlayer] 的播放速度。
+			</description>
+		</method>
+		<method name="load_from_buffer" qualifiers="static">
+			<return type="GIFTexture" />
+			<param index="0" name="buffer" type="PackedByteArray" />
+			<description>
+				从内存字节数组创建 [GIFTexture]。数组必须包含完整 GIF 文件数据。解析失败时返回空引用。适合加载网络下载、加密包或自定义容器中的 GIF 数据。
+			</description>
+		</method>
+		<method name="load_from_file" qualifiers="static">
+			<return type="GIFTexture" />
+			<param index="0" name="path" type="String" />
+			<description>
+				从 [param path] 指定文件创建 [GIFTexture]。路径通过 Godot 的 [FileAccess] 读取，因此支持 [code]res://[/code]、[code]user://[/code] 和导出的 PCK 资源。打开或解析失败时返回空引用。
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="data" type="PackedByteArray" setter="set_data" getter="get_data" default="PackedByteArray()">
+			原始 GIF 文件数据。设置该属性会清空已缓存的帧纹理和元数据，并把当前帧重置为 0。数据会随资源保存，导入器生成的 [GIFTexture] 也使用该属性保存源 GIF 字节。
+		</member>
+		<member name="frame" type="int" setter="set_frame" getter="get_frame" default="0">
+			当前显示的帧索引，起始值为 0。设置该属性只改变纹理当前帧，不会自动推进时间；需要自动播放时请使用 [GIFPlayer]。索引必须位于 [code]0[/code] 到 [method get_frame_count] [code]- 1[/code] 之间。
+		</member>
+		<member name="metadata/frame_count" type="int" setter="set_metadata_frame_count" getter="get_metadata_frame_count" default="0">
+			导入阶段或手动设置的帧数元数据。通常不需要手动修改；错误的值可能导致帧索引越界或播放不完整。
+		</member>
+		<member name="metadata/frame_delays" type="PackedFloat32Array" setter="set_metadata_frame_delays" getter="get_metadata_frame_delays" default="PackedFloat32Array()">
+			每帧延迟元数据，单位为秒。该数组主要用于导入资源快速获取播放时间；长度应与 [member metadata/frame_count] 一致。
+		</member>
+		<member name="metadata/loop_count" type="int" setter="set_metadata_loop_count" getter="get_metadata_loop_count" default="0">
+			GIF 文件中声明的循环次数。[code]0[/code] 表示无限循环，[code]1[/code] 通常表示播放一次。该值会被 [GIFPlayer] 在 [member GIFPlayer.loop_count] 为负数时使用。
+		</member>
+		<member name="metadata/size" type="Vector2i" setter="set_metadata_size" getter="get_metadata_size" default="Vector2i(0, 0)">
+			GIF 画布尺寸元数据，单位为像素。导入器会自动写入该值；运行时从原始数据解析失败时会保持为零尺寸。
+		</member>
+	</members>
+</class>

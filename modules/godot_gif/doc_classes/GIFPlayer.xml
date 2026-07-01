@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GIFPlayer" inherits="Control" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		用于在 UI 中播放 [GIFTexture] 动画的控件节点。
+	</brief_description>
+	<description>
+		[GIFPlayer] 根据 [GIFTexture] 中记录的帧延迟自动推进动画帧，并在控件矩形内绘制当前帧。它提供与 [TextureRect] 类似的拉伸、翻转和最小尺寸控制，同时支持正放、倒放、乒乓和随机播放。
+		播放只在节点处理帧时推进；如果节点不在场景树中、处理被禁用，或 [member gif] 无效，则不会消耗播放时间。对于大型 GIF，首次访问靠后的帧可能触发多帧合成，建议在 UI 关键路径中避免使用过大的动画。
+		在 C# 中，方法名和属性名会按 Godot 绑定规则转换为 PascalCase，例如 [method set_speed_scale] 对应 [code]SetSpeedScale[/code]，[member play_mode] 对应 [code]PlayMode[/code]。
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_frame">
+			<return type="int" />
+			<description>
+				返回当前显示的帧索引。索引从 0 开始；如果没有设置有效 [member gif]，仍会返回节点内部保存的当前索引。
+			</description>
+		</method>
+		<method name="get_frame_count">
+			<return type="int" />
+			<description>
+				返回当前 [member gif] 的帧数。没有设置 GIF 资源或资源无效时返回 [code]0[/code]。
+			</description>
+		</method>
+		<method name="is_flipped_h">
+			<return type="bool" />
+			<description>
+				返回绘制时是否水平翻转当前帧。
+			</description>
+		</method>
+		<method name="is_flipped_v">
+			<return type="bool" />
+			<description>
+				返回绘制时是否垂直翻转当前帧。
+			</description>
+		</method>
+		<method name="is_paused">
+			<return type="bool" />
+			<description>
+				返回播放是否处于暂停状态。只有节点处于播放中且 [member paused] 为 [code]true[/code] 时才返回 [code]true[/code]。
+			</description>
+		</method>
+		<method name="is_playing">
+			<return type="bool" />
+			<description>
+				返回节点是否处于播放状态。播放完成指定循环次数或调用 [method stop] 后会返回 [code]false[/code]。
+			</description>
+		</method>
+		<method name="play">
+			<return type="void" />
+			<description>
+				开始或恢复播放，并清空内部时间累积。该方法不会强制把帧重置为 0；如需从头开始播放，可先调用 [method set_frame] 或 [method stop]。
+			</description>
+		</method>
+		<method name="set_frame">
+			<return type="void" />
+			<param index="0" name="frame" type="int" />
+			<description>
+				设置当前显示帧并重置内部时间累积。[param frame] 必须是当前 [member gif] 的有效帧索引。该方法不会改变 [member playing] 状态。
+			</description>
+		</method>
+		<method name="stop">
+			<return type="void" />
+			<description>
+				停止播放、取消暂停、把当前帧和循环计数重置为 0，并立即刷新显示。
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="expand_mode" type="int" setter="set_expand_mode" getter="get_expand_mode" enum="GIFPlayer.ExpandMode" default="0">
+			控制控件最小尺寸如何参考 GIF 原始尺寸。容器布局会使用该值决定 [GIFPlayer] 是否保持原始尺寸、忽略尺寸或按宽高约束提供最小尺寸。
+		</member>
+		<member name="flip_h" type="bool" setter="set_flip_h" getter="is_flipped_h" default="false">
+			如果为 [code]true[/code]，绘制当前帧时水平翻转。该属性只影响显示，不修改 [GIFTexture] 的帧数据。
+		</member>
+		<member name="flip_v" type="bool" setter="set_flip_v" getter="is_flipped_v" default="false">
+			如果为 [code]true[/code]，绘制当前帧时垂直翻转。该属性只影响显示，不修改 [GIFTexture] 的帧数据。
+		</member>
+		<member name="gif" type="GIFTexture" setter="set_gif" getter="get_gif">
+			要显示和播放的 GIF 纹理资源。设置新资源会把当前帧、循环计数和乒乓方向重置，并刷新最小尺寸和绘制内容。
+		</member>
+		<member name="loop_count" type="int" setter="set_loop_count" getter="get_loop_count" default="0">
+			播放循环次数。[code]0[/code] 表示无限循环；正数表示完成该次数后停止；负数表示使用 [GIFTexture] 元数据中的循环次数。
+		</member>
+		<member name="paused" type="bool" setter="set_paused" getter="is_paused" default="false">
+			如果为 [code]true[/code]，暂停推进帧但保留当前显示帧。把该属性改回 [code]false[/code] 后会继续从当前帧播放。
+		</member>
+		<member name="play_mode" type="int" setter="set_play_mode" getter="get_play_mode" enum="GIFPlayer.PlayMode" default="0">
+			控制帧推进顺序。随机播放不会按 GIF 原始循环次数自然结束，通常应搭配外部逻辑停止。
+		</member>
+		<member name="playing" type="bool" setter="set_playing" getter="is_playing" default="true">
+			控制节点是否播放。设置为 [code]true[/code] 会调用 [method play]；设置为 [code]false[/code] 会调用 [method stop] 并回到第 0 帧。
+		</member>
+		<member name="speed_scale" type="float" setter="set_speed_scale" getter="get_speed_scale" default="1.0">
+			播放速度倍率。[code]1.0[/code] 为原速，[code]2.0[/code] 为两倍速，[code]0.5[/code] 为半速。小于 0 的值会被钳制为 0。
+		</member>
+		<member name="stretch_mode" type="int" setter="set_stretch_mode" getter="get_stretch_mode" enum="GIFPlayer.StretchMode" default="2">
+			控制当前帧如何绘制到控件矩形中，例如拉伸、平铺、保持原始尺寸、等比适应或等比覆盖。覆盖模式可能裁剪图像边缘。
+		</member>
+	</members>
+	<constants>
+		<constant name="EXPAND_KEEP_SIZE" value="0" enum="ExpandMode">
+			最小尺寸保持 GIF 原始画布尺寸。
+		</constant>
+		<constant name="EXPAND_IGNORE_SIZE" value="1" enum="ExpandMode">
+			忽略 GIF 原始尺寸，最小尺寸为零。
+		</constant>
+		<constant name="EXPAND_FIT_WIDTH" value="2" enum="ExpandMode">
+			最小宽度使用 GIF 原始宽度，高度交由父容器决定。
+		</constant>
+		<constant name="EXPAND_FIT_WIDTH_PROPORTIONAL" value="3" enum="ExpandMode">
+			按 GIF 原始比例提供最小尺寸，适合以宽度约束布局。
+		</constant>
+		<constant name="EXPAND_FIT_HEIGHT" value="4" enum="ExpandMode">
+			最小高度使用 GIF 原始高度，宽度交由父容器决定。
+		</constant>
+		<constant name="EXPAND_FIT_HEIGHT_PROPORTIONAL" value="5" enum="ExpandMode">
+			按 GIF 原始比例提供最小尺寸，适合以高度约束布局。
+		</constant>
+		<constant name="PLAY_MODE_FORWARD" value="0" enum="PlayMode">
+			按帧索引递增顺序播放。
+		</constant>
+		<constant name="PLAY_MODE_BACKWARD" value="1" enum="PlayMode">
+			按帧索引递减顺序播放。
+		</constant>
+		<constant name="PLAY_MODE_PINGPONG" value="2" enum="PlayMode">
+			播放到末尾后反向，再播放回开头。
+		</constant>
+		<constant name="PLAY_MODE_RANDOM" value="3" enum="PlayMode">
+			每次推进时随机选择一帧。
+		</constant>
+		<constant name="STRETCH_SCALE" value="0" enum="StretchMode">
+			把当前帧拉伸到完整控件矩形，不保持原始比例。
+		</constant>
+		<constant name="STRETCH_TILE" value="1" enum="StretchMode">
+			在控件矩形中平铺当前帧。
+		</constant>
+		<constant name="STRETCH_KEEP" value="2" enum="StretchMode">
+			按原始尺寸从控件左上角绘制。
+		</constant>
+		<constant name="STRETCH_KEEP_CENTERED" value="3" enum="StretchMode">
+			按原始尺寸居中绘制。
+		</constant>
+		<constant name="STRETCH_KEEP_ASPECT" value="4" enum="StretchMode">
+			等比缩放以完整放入控件矩形，可能留下空白区域。
+		</constant>
+		<constant name="STRETCH_KEEP_ASPECT_CENTERED" value="5" enum="StretchMode">
+			等比缩放以完整放入控件矩形，并居中绘制。
+		</constant>
+		<constant name="STRETCH_KEEP_ASPECT_COVERED" value="6" enum="StretchMode">
+			等比缩放以覆盖整个控件矩形，可能裁剪图像边缘。
+		</constant>
+	</constants>
+</class>

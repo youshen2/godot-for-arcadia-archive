@@ -86,6 +86,16 @@ Comment: SQLite
 Copyright: SQLite authors
 License: SQLite-PD
 
+Files: modules/godot_gif/*
+Comment: godot-gif
+Copyright: 2026, LuYingYiLong
+License: Expat
+
+Files: modules/godot_gif/thirdparty/giflib-5.2.2/*
+Comment: giflib
+Copyright: 1997, Eric S. Raymond
+License: Expat
+
 Files: modules/gozen/*
 Comment: GDE GoZen
 Copyright: Voylin
