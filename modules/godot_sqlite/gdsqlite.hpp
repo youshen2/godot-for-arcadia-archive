@@ -73,8 +73,16 @@ public:
 	~SQLite();
 
 	// Functions.
+	bool open(const String &p_path = String());
+	bool open_read_only(const String &p_path = String());
 	bool open_db();
+	bool close();
 	bool close_db();
+	bool is_open() const;
+	bool execute(const String &p_query, const Variant &p_param_bindings = Variant());
+	TypedArray<Dictionary> fetch_all(const String &p_query, const Variant &p_param_bindings = Variant());
+	Dictionary fetch_one(const String &p_query, const Variant &p_param_bindings = Variant());
+	String get_last_error() const;
 	bool query(const String &p_query);
 	bool query_with_bindings(const String &p_query, Array param_bindings);
 	bool query_with_named_bindings(const String &p_query, Dictionary param_bindings);

@@ -5,7 +5,117 @@
 	</brief_description>
 	<description>
 		[SQLite] 提供面向脚本的 SQLite 数据库连接、SQL 查询、参数绑定、表结构辅助创建、JSON 导入导出和数据库备份接口。每个 [SQLite] 实例持有一个数据库连接；同一个数据库文件可以由多个实例同时打开，但并发写入仍遵循 SQLite 自身的锁和事务规则。
-		默认情况下，[member path] 会被转换为全局文件路径并以读写模式打开。设置 [member read_only] 后会使用 Godot 文件访问 API 读取数据库，可用于读取打包在 PCK 内的数据库，但只读模式不支持内存数据库。向 SQL 传入用户数据时应优先使用 [method query_with_bindings] 或 [method query_with_named_bindings]，避免手动拼接值导致 SQL 注入或 BLOB 数据写入失败。
+		推荐使用 [method open]、[method close]、[method execute]、[method fetch_all] 和 [method fetch_one] 这组更直接的接口完成常见读写；[method open_db]、[method close_db]、[method query]、[method query_with_bindings] 和 [method query_with_named_bindings] 仍保留用于兼容旧代码或需要显式区分绑定方式的场景。
+		默认情况下，[member path] 会被转换为全局文件路径并以读写模式打开。设置 [member read_only] 后会使用 Godot 文件访问 API 读取数据库，可用于读取打包在 PCK 内的数据库，但只读模式不支持内存数据库。向 SQL 传入用户数据时应优先使用 [method execute]、[method fetch_all] 或 [method fetch_one] 的参数绑定，避免手动拼接值导致 SQL 注入或 BLOB 数据写入失败。
+		在 C# 中，方法名和属性名会按 Godot 绑定规则转换为 PascalCase，例如 [method open] 对应 [code]Open[/code]，[method fetch_all] 对应 [code]FetchAll[/code]。
+		[b]示例：打开数据库、建表、写入并查询[/b]
+		[codeblocks]
+		[gdscript]
+		func save_player_score(player_name: String, score: int) -> void:
+			var db = SQLite.new()
+			if not db.open("user://scores"):
+				push_error(db.get_last_error())
+				return
+
+			db.execute("""
+				CREATE TABLE IF NOT EXISTS scores (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					name TEXT NOT NULL,
+					score INTEGER NOT NULL,
+					created_at TEXT DEFAULT CURRENT_TIMESTAMP
+				);
+			""")
+			db.execute("INSERT INTO scores (name, score) VALUES (?, ?);", [player_name, score])
+
+			var rows = db.fetch_all(
+					"SELECT name, score FROM scores WHERE score &gt;= :min_score ORDER BY score DESC LIMIT 10;",
+					{ "min_score": 100 }
+			)
+			for row in rows:
+				print("%s: %d" % [row["name"], row["score"]])
+
+			db.close()
+		[/gdscript]
+		[csharp]
+		public void SavePlayerScore(string playerName, long score)
+		{
+			var db = new SQLite();
+			if (!db.Open("user://scores"))
+			{
+				GD.PushError(db.GetLastError());
+				return;
+			}
+
+			db.Execute("CREATE TABLE IF NOT EXISTS scores (" +
+					"id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+					"name TEXT NOT NULL, " +
+					"score INTEGER NOT NULL, " +
+					"created_at TEXT DEFAULT CURRENT_TIMESTAMP);");
+			db.Execute(
+					"INSERT INTO scores (name, score) VALUES (?, ?);",
+					new Godot.Collections.Array { playerName, score });
+
+			var rows = db.FetchAll(
+					"SELECT name, score FROM scores WHERE score &gt;= :min_score ORDER BY score DESC LIMIT 10;",
+					new Godot.Collections.Dictionary { { "min_score", 100 } });
+			foreach (Godot.Collections.Dictionary row in rows)
+			{
+				GD.Print($"{row["name"]}: {row["score"]}");
+			}
+
+			db.Close();
+		}
+		[/csharp]
+		[/codeblocks]
+		[b]示例：读取打包数据库并备份用户数据库[/b]
+		[codeblocks]
+		[gdscript]
+		func load_catalog_title(item_id: int) -> String:
+			var catalog = SQLite.new()
+			if not catalog.open_read_only("res://data/catalog.db"):
+				push_error(catalog.get_last_error())
+				return ""
+
+			var row = catalog.fetch_one("SELECT title FROM items WHERE id = ?;", [item_id])
+			catalog.close()
+			return row.get("title", "")
+
+		func backup_save_data() -> void:
+			var save_db = SQLite.new()
+			if save_db.open("user://save"):
+				save_db.backup_to("user://save_backup.db")
+				save_db.export_to_json("user://save_export.json")
+				save_db.close()
+		[/gdscript]
+		[csharp]
+		public string LoadCatalogTitle(long itemId)
+		{
+			var catalog = new SQLite();
+			if (!catalog.OpenReadOnly("res://data/catalog.db"))
+			{
+				GD.PushError(catalog.GetLastError());
+				return "";
+			}
+
+			var row = catalog.FetchOne(
+					"SELECT title FROM items WHERE id = ?;",
+					new Godot.Collections.Array { itemId });
+			catalog.Close();
+			return row.ContainsKey("title") ? row["title"].ToString() : "";
+		}
+
+		public void BackupSaveData()
+		{
+			var saveDb = new SQLite();
+			if (saveDb.Open("user://save"))
+			{
+				saveDb.BackupTo("user://save_backup.db");
+				saveDb.ExportToJson("user://save_export.json");
+				saveDb.Close();
+			}
+		}
+		[/csharp]
+		[/codeblocks]
 	</description>
 	<tutorials>
 	</tutorials>
@@ -15,6 +125,12 @@
 			<param index="0" name="destination" type="String" />
 			<description>
 				将当前打开的数据库备份到 [param destination] 指定的路径。路径会通过 [ProjectSettings.globalize_path] 转换。返回 [code]true[/code] 表示备份成功；如果数据库未打开、目标路径无法打开或 SQLite 备份过程失败，返回 [code]false[/code]。
+			</description>
+		</method>
+		<method name="close">
+			<return type="bool" />
+			<description>
+				关闭当前数据库连接。该方法是 [method close_db] 的便捷别名，适合和 [method open] 成对使用。返回 [code]true[/code] 表示成功关闭；如果没有打开的连接或 SQLite 拒绝关闭连接，返回 [code]false[/code]。
 			</description>
 		</method>
 		<method name="close_db">
@@ -45,6 +161,44 @@
 			<param index="1" name="table_data" type="Dictionary" />
 			<description>
 				根据 [param table_data] 创建表。[param table_data] 的每个键是列名，每个值是列定义字典。列定义必须包含 [code]data_type[/code]，支持 [code]int[/code]、[code]real[/code]、[code]text[/code]、[code]char(n)[/code] 和 [code]blob[/code]；可选键包括 [code]not_null[/code]、[code]unique[/code]、[code]default[/code]、[code]primary_key[/code]、[code]auto_increment[/code] 和 [code]foreign_key[/code]。返回 [code]false[/code] 表示表定义无效或 SQL 执行失败。
+				[b]示例：使用字典描述表结构[/b]
+				[codeblocks]
+				[gdscript]
+				db.create_table("players", {
+					"id": {
+						"data_type": "int",
+						"primary_key": true,
+						"auto_increment": true,
+					},
+					"name": {
+						"data_type": "text",
+						"not_null": true,
+					},
+					"score": {
+						"data_type": "int",
+						"default": 0,
+					},
+				})
+				[/gdscript]
+				[csharp]
+				var table = new Godot.Collections.Dictionary {
+					{ "id", new Godot.Collections.Dictionary {
+						{ "data_type", "int" },
+						{ "primary_key", true },
+						{ "auto_increment", true },
+					} },
+					{ "name", new Godot.Collections.Dictionary {
+						{ "data_type", "text" },
+						{ "not_null", true },
+					} },
+					{ "score", new Godot.Collections.Dictionary {
+						{ "data_type", "int" },
+						{ "default", 0 },
+					} },
+				};
+				db.CreateTable("players", table);
+				[/csharp]
+				[/codeblocks]
 			</description>
 		</method>
 		<method name="delete_rows">
@@ -69,6 +223,35 @@
 				启用或禁用 SQLite 扩展加载能力，返回 SQLite 结果码。扩展加载默认关闭；仅应在加载可信本地扩展前临时开启，并在完成后立即关闭，避免 SQL 注入触发任意扩展加载。
 			</description>
 		</method>
+		<method name="execute">
+			<return type="bool" />
+			<param index="0" name="query_string" type="String" />
+			<param index="1" name="param_bindings" type="Variant" default="null" />
+			<description>
+				执行 [param query_string] 中的 SQL，并根据 [param param_bindings] 的类型自动选择绑定方式。[param param_bindings] 为 [code]null[/code] 时不绑定参数；为 [Array] 时按顺序绑定到 [code]?[/code] 占位符；为 [Dictionary] 时按命名参数绑定，字典键可以写成 [code]"name"[/code]，也可以写成 SQL 中的 [code]":name"[/code]、[code]"@name"[/code]、[code]"$name"[/code] 或 [code]"?name"[/code]。查询结果会写入 [member query_result]。返回 [code]false[/code] 时可通过 [method get_last_error] 或 [member error_message] 查看最近错误。
+				[b]示例：位置参数和命名参数[/b]
+				[codeblocks]
+				[gdscript]
+				db.execute("INSERT INTO players (name, score) VALUES (?, ?);", ["Ada", 120])
+				db.execute(
+						"UPDATE players SET score = :score WHERE name = :name;",
+						{ "score": 140, ":name": "Ada" }
+				)
+				[/gdscript]
+				[csharp]
+				db.Execute(
+						"INSERT INTO players (name, score) VALUES (?, ?);",
+						new Godot.Collections.Array { "Ada", 120 });
+				db.Execute(
+						"UPDATE players SET score = :score WHERE name = :name;",
+						new Godot.Collections.Dictionary {
+							{ "score", 140 },
+							{ ":name", "Ada" },
+						});
+				[/csharp]
+				[/codeblocks]
+			</description>
+		</method>
 		<method name="export_to_buffer">
 			<return type="PackedByteArray" />
 			<description>
@@ -82,10 +265,32 @@
 				将当前数据库结构和数据导出到 [param export_path] 指定的 JSON 文件。路径会被全局化；如果无法写入文件或数据库查询失败，返回 [code]false[/code]。
 			</description>
 		</method>
+		<method name="fetch_all">
+			<return type="Dictionary[]" />
+			<param index="0" name="query_string" type="String" />
+			<param index="1" name="param_bindings" type="Variant" default="null" />
+			<description>
+				执行查询并返回所有结果行。参数绑定规则与 [method execute] 相同。返回值是结果数组的拷贝，每一行是一个字典，键为列名，值为对应列值；查询失败或没有结果行时返回空数组。需要区分失败和空结果时，可检查 [method execute] 的返回值或读取 [method get_last_error]。
+			</description>
+		</method>
+		<method name="fetch_one">
+			<return type="Dictionary" />
+			<param index="0" name="query_string" type="String" />
+			<param index="1" name="param_bindings" type="Variant" default="null" />
+			<description>
+				执行查询并返回第一行结果。参数绑定规则与 [method execute] 相同。没有结果行或查询失败时返回空字典；如果需要判断失败原因，请读取 [method get_last_error] 或先调用 [method execute] 后检查 [member query_result]。该方法仍会执行完整 SQL；只需要一行时，建议在 SQL 中加入 [code]LIMIT 1[/code]。
+			</description>
+		</method>
 		<method name="get_autocommit">
 			<return type="int" />
 			<description>
 				返回当前连接是否处于 SQLite 自动提交模式。返回非零值表示自动提交已开启；返回 [code]0[/code] 表示当前处于显式事务中或数据库未打开。
+			</description>
+		</method>
+		<method name="get_last_error">
+			<return type="String" />
+			<description>
+				返回最近一次 SQLite 操作记录的错误消息。该方法是读取 [member error_message] 的便捷方式，适合在调用返回 [code]false[/code] 的方法后向用户显示或写入日志。成功操作不一定会清空该值，因此应只把它当作最近失败的辅助信息。
 			</description>
 		</method>
 		<method name="get_query_result_by_reference">
@@ -122,6 +327,27 @@
 			<param index="1" name="row_array" type="Array" />
 			<description>
 				批量插入多行数据。[param row_array] 中每个元素都应是与 [method insert_row] 相同格式的字典。任意一行失败都会使方法返回 [code]false[/code]。
+				[b]示例：一次写入多行[/b]
+				[codeblocks]
+				[gdscript]
+				db.insert_rows("players", [
+					{ "name": "Ada", "score": 120 },
+					{ "name": "Lin", "score": 95 },
+				])
+				[/gdscript]
+				[csharp]
+				db.InsertRows("players", new Godot.Collections.Array {
+					new Godot.Collections.Dictionary { { "name", "Ada" }, { "score", 120 } },
+					new Godot.Collections.Dictionary { { "name", "Lin" }, { "score", 95 } },
+				});
+				[/csharp]
+				[/codeblocks]
+			</description>
+		</method>
+		<method name="is_open">
+			<return type="bool" />
+			<description>
+				返回当前 [SQLite] 实例是否持有已打开的数据库连接。该方法只反映本实例的连接状态，不检查数据库文件是否仍然存在，也不代表其它实例或进程能否写入同一数据库。
 			</description>
 		</method>
 		<method name="load_extension">
@@ -132,17 +358,31 @@
 				加载 [param extension_path] 指向的 SQLite 扩展，并调用 [param entrypoint] 作为初始化函数。该方法只在调用期间临时启用 C API 扩展加载，结束后会关闭。只能加载可信二进制扩展；移动平台或沙箱平台可能不允许动态库加载。
 			</description>
 		</method>
+		<method name="open">
+			<return type="bool" />
+			<param index="0" name="path" type="String" default="&quot;&quot;" />
+			<description>
+				打开数据库连接。传入非空 [param path] 时会先更新 [member path]，然后按当前 [member read_only]、[member default_extension] 和 [member foreign_keys] 设置打开数据库；传入空字符串时使用已有 [member path]。该方法是 [method open_db] 的便捷入口，不会自动改变 [member read_only]。成功返回 [code]true[/code]；失败时返回 [code]false[/code] 并更新 [member error_message]。
+			</description>
+		</method>
 		<method name="open_db">
 			<return type="bool" />
 			<description>
 				按当前 [member path]、[member read_only]、[member default_extension] 和 [member foreign_keys] 设置打开数据库。成功返回 [code]true[/code]；如果连接已经打开、路径无效、只读内存数据库或 SQLite 打开失败，返回 [code]false[/code]。
 			</description>
 		</method>
+		<method name="open_read_only">
+			<return type="bool" />
+			<param index="0" name="path" type="String" default="&quot;&quot;" />
+			<description>
+				以只读模式打开数据库。传入非空 [param path] 时会先更新 [member path]，然后设置 [member read_only] 为 [code]true[/code] 并打开连接。只读模式可读取打包资源，但不能创建或写入数据库，也不支持 [code]:memory:[/code]。如果之后需要重新以读写模式打开，请在关闭后把 [member read_only] 设回 [code]false[/code]。
+			</description>
+		</method>
 		<method name="query">
 			<return type="bool" />
 			<param index="0" name="query_string" type="String" />
 			<description>
-				直接执行 [param query_string] 中的 SQL。查询结果会写入 [member query_result] 和 [method get_query_result_by_reference] 返回的数组。用户输入不应直接拼接到 SQL 中；需要传值时请使用参数绑定方法。
+				直接执行 [param query_string] 中的 SQL。查询结果会写入 [member query_result] 和 [method get_query_result_by_reference] 返回的数组。用户输入不应直接拼接到 SQL 中；新代码通常应优先使用 [method execute]、[method fetch_all] 或 [method fetch_one] 并通过参数绑定传值。
 			</description>
 		</method>
 		<method name="query_with_bindings">
@@ -158,7 +398,7 @@
 			<param index="0" name="query_string" type="String" />
 			<param index="1" name="param_bindings" type="Dictionary" />
 			<description>
-				执行带命名参数的 SQL。[param param_bindings] 的键应为不带前缀的参数名，SQL 中可使用 [code]:name[/code]、[code]@name[/code]、[code]$name[/code] 或 [code]?name[/code]。缺少任意命名参数都会导致执行失败。
+				执行带命名参数的 SQL。SQL 中可使用 [code]:name[/code]、[code]@name[/code]、[code]$name[/code] 或 [code]?name[/code]。[param param_bindings] 的键既可以是不带前缀的 [code]"name"[/code]，也可以是与 SQL 中一致的 [code]":name"[/code]、[code]"@name"[/code]、[code]"$name"[/code] 或 [code]"?name"[/code]。缺少任意命名参数都会导致执行失败。
 			</description>
 		</method>
 		<method name="restore_from">
@@ -192,7 +432,7 @@
 			当 [member path] 没有扩展名且不是内存数据库时自动追加的扩展名。设为空字符串可禁用自动追加。
 		</member>
 		<member name="error_message" type="String" setter="set_error_message" getter="get_error_message" default="&quot;&quot;">
-			最近一次 SQLite 操作返回的错误消息。执行成功时通常为空字符串或保留 SQLite 最近状态。
+			最近一次 SQLite 操作返回的错误消息。也可以通过 [method get_last_error] 读取。执行成功时通常为空字符串或保留 SQLite 最近状态，因此更适合作为失败后的辅助诊断信息。
 		</member>
 		<member name="foreign_keys" type="bool" setter="set_foreign_keys" getter="get_foreign_keys" default="false">
 			是否在打开数据库后启用 SQLite 外键检查。必须在调用 [method open_db] 前设置。

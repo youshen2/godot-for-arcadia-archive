@@ -4,8 +4,16 @@ using namespace godot;
 
 void SQLite::_bind_methods() {
 	// Methods.
+	ClassDB::bind_method(D_METHOD("open", "path"), &SQLite::open, DEFVAL(String()));
+	ClassDB::bind_method(D_METHOD("open_read_only", "path"), &SQLite::open_read_only, DEFVAL(String()));
 	ClassDB::bind_method(D_METHOD("open_db"), &SQLite::open_db);
+	ClassDB::bind_method(D_METHOD("close"), &SQLite::close);
 	ClassDB::bind_method(D_METHOD("close_db"), &SQLite::close_db);
+	ClassDB::bind_method(D_METHOD("is_open"), &SQLite::is_open);
+	ClassDB::bind_method(D_METHOD("execute", "query_string", "param_bindings"), &SQLite::execute, DEFVAL(Variant()));
+	ClassDB::bind_method(D_METHOD("fetch_all", "query_string", "param_bindings"), &SQLite::fetch_all, DEFVAL(Variant()));
+	ClassDB::bind_method(D_METHOD("fetch_one", "query_string", "param_bindings"), &SQLite::fetch_one, DEFVAL(Variant()));
+	ClassDB::bind_method(D_METHOD("get_last_error"), &SQLite::get_last_error);
 	ClassDB::bind_method(D_METHOD("query", "query_string"), &SQLite::query);
 	ClassDB::bind_method(D_METHOD("query_with_bindings", "query_string", "param_bindings"), &SQLite::query_with_bindings);
 	ClassDB::bind_method(D_METHOD("query_with_named_bindings", "query_string", "param_bindings"), &SQLite::query_with_named_bindings);
@@ -128,6 +136,21 @@ SQLite::~SQLite() {
 	}
 }
 
+bool SQLite::open(const String &p_path) {
+	if (!p_path.is_empty()) {
+		path = p_path;
+	}
+	return open_db();
+}
+
+bool SQLite::open_read_only(const String &p_path) {
+	if (!p_path.is_empty()) {
+		path = p_path;
+	}
+	read_only = true;
+	return open_db();
+}
+
 bool SQLite::open_db() {
 	if (db) {
 		ERR_PRINT("GDSQLite Error: Can't open database if connection is already open!");
@@ -204,6 +227,14 @@ bool SQLite::close_db() {
 	return false;
 }
 
+bool SQLite::close() {
+	return close_db();
+}
+
+bool SQLite::is_open() const {
+	return db != nullptr;
+}
+
 String SQLite::normalize_path(const String p_path, const bool p_read_only) const {
 	if (p_read_only) {
 		return p_path;
@@ -216,11 +247,52 @@ String SQLite::normalize_path(const String p_path, const bool p_read_only) const
 	return ProjectSettings::get_singleton()->globalize_path(p_path.strip_edges());
 }
 
+bool SQLite::execute(const String &p_query, const Variant &p_param_bindings) {
+	switch (p_param_bindings.get_type()) {
+		case Variant::NIL:
+			return query(p_query);
+		case Variant::ARRAY:
+			return query_with_bindings(p_query, (Array)p_param_bindings);
+		case Variant::DICTIONARY:
+			return query_with_named_bindings(p_query, (Dictionary)p_param_bindings);
+		default:
+			error_message = "param_bindings must be null, Array, or Dictionary.";
+			ERR_PRINT("GDSQLite Error: " + error_message);
+			return false;
+	}
+}
+
+TypedArray<Dictionary> SQLite::fetch_all(const String &p_query, const Variant &p_param_bindings) {
+	if (!execute(p_query, p_param_bindings)) {
+		return TypedArray<Dictionary>();
+	}
+	return get_query_result();
+}
+
+Dictionary SQLite::fetch_one(const String &p_query, const Variant &p_param_bindings) {
+	TypedArray<Dictionary> rows = fetch_all(p_query, p_param_bindings);
+	if (rows.size() == 0) {
+		return Dictionary();
+	}
+	return (Dictionary)rows[0];
+}
+
+String SQLite::get_last_error() const {
+	return error_message;
+}
+
 bool SQLite::query(const String &p_query) {
 	return query_with_bindings(p_query, Array());
 }
 
 bool SQLite::prepare_statement(const CharString &p_query, sqlite3_stmt **out_stmt, const char** pzTail) {
+	if (!db) {
+		query_result.clear();
+		error_message = "Database is not open.";
+		ERR_PRINT("GDSQLite Error: " + error_message);
+		return false;
+	}
+
     if (verbosity_level > VerbosityLevel::NORMAL) {
         UtilityFunctions::print(p_query.get_data());
     }
@@ -423,16 +495,19 @@ bool SQLite::query_with_named_bindings(const String &p_query, Dictionary param_b
 			sqlite3_finalize(stmt);
 			return false;
 		}
-		/* Sqlite will return the parameter name prefixed for example ?, :, $, @ but we want user to just pass in the name itself */
-		const char *non_prefixed_name = param_name + 1;
+		/* SQLite returns the parameter name with its prefix (?, :, $, @). Accept both the SQL spelling and the unprefixed spelling. */
+		String prefixed_name = String::utf8(param_name);
+		String non_prefixed_name = prefixed_name.substr(1);
 		Variant binding_value;
 		/* This has side effect of rechecking the dictionary for same name if its used more than once */
 		if (param_bindings.has(non_prefixed_name)) {
 			binding_value = param_bindings[non_prefixed_name];
+		} else if (param_bindings.has(prefixed_name)) {
+			binding_value = param_bindings[prefixed_name];
 		} else {
 			ERR_PRINT(vformat(
 				"GDSQLite Error: Insufficient parameter names to satisfy bindings in statement! Missing parameter: %s",
-				String::utf8(non_prefixed_name)
+				non_prefixed_name
 			));
 			sqlite3_finalize(stmt);
 			return false;
