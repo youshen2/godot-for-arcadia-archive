@@ -2413,6 +2413,9 @@ msgstr "终端模拟器参数"
 msgid "Directories"
 msgstr "目录"
 
+msgid "Excluded Directories"
+msgstr "屏蔽目录"
+
 msgid "Autoscan Project Path"
 msgstr "自动扫描项目路径"
 

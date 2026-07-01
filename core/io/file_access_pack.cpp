@@ -54,7 +54,7 @@ Error PackedData::add_pack(const String &p_path, bool p_replace_files, uint64_t 
 	return ERR_FILE_UNRECOGNIZED;
 }
 
-void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64_t p_ofs, uint64_t p_size, const uint8_t *p_md5, PackSource *p_src, bool p_replace_files, bool p_encrypted, bool p_bundle, bool p_delta, const String &p_salt) {
+void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64_t p_ofs, uint64_t p_size, const uint8_t *p_md5, PackSource *p_src, bool p_replace_files, bool p_encrypted, bool p_bundle, bool p_delta, const String &p_salt, bool p_skip_pack) {
 	String simplified_path = p_path.simplify_path().trim_prefix("res://");
 	PathMD5 pmd5(simplified_path.md5_buffer());
 
@@ -64,6 +64,7 @@ void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64
 	pf.encrypted = p_encrypted;
 	pf.bundle = p_bundle;
 	pf.delta = p_delta;
+	pf.skip_pack = p_skip_pack;
 	pf.pack = p_pkg_path;
 	pf.salt = p_salt;
 	pf.offset = p_ofs;
@@ -563,7 +564,12 @@ FileAccessPack::FileAccessPack(const String &p_path, const PackedData::PackedFil
 		off = 0; // For the sparse pack offset is always zero.
 	} else {
 		Error err = OK;
-		f = FileAccess::open(pf.pack, FileAccess::READ, &err);
+		if (pf.skip_pack) {
+			f = FileAccess::open(pf.pack, FileAccess::READ | FileAccess::SKIP_PACK, &err);
+		}
+		if (f.is_null()) {
+			f = FileAccess::open(pf.pack, FileAccess::READ, &err);
+		}
 		ERR_FAIL_COND_MSG(err != OK, vformat(R"(Can't open pack-referenced file "%s" from pack "%s" due to error "%s".)", p_path, pf.pack, error_names[err]));
 		f->seek(pf.offset);
 		off = pf.offset;

@@ -187,6 +187,7 @@ class EditorFileSystem : public Node {
 	bool importing = false;
 	bool first_scan = true;
 	bool scan_changes_pending = false;
+	bool scan_after_excluded_directories_changed = false;
 	float scan_total;
 	String filesystem_settings_version_for_import;
 	bool revalidate_import_files = false;
@@ -256,6 +257,8 @@ class EditorFileSystem : public Node {
 	HashSet<String> other_file_extensions;
 	HashSet<String> valid_extensions;
 	HashSet<String> import_extensions;
+	Mutex excluded_directories_mutex;
+	Vector<String> excluded_directories;
 
 	static int _scan_new_dir(ScannedDirectory *p_dir, Ref<DirAccess> &da);
 	void _process_file_system(const ScannedDirectory *p_scan_dir, EditorFileSystemDirectory *p_dir, ScanProgress &p_progress, HashSet<String> *p_processed_files);
@@ -372,6 +375,11 @@ class EditorFileSystem : public Node {
 	String _get_file_by_class_name(EditorFileSystemDirectory *p_dir, const String &p_class_name, EditorFileSystemDirectory::FileInfo *&r_file_info);
 
 	void _register_global_class_script(const String &p_search_path, const String &p_target_path, const ScriptClassInfoUpdate &p_script_update);
+	void _project_settings_changed();
+
+	static String _normalize_excluded_directory_path(const String &p_path);
+	static Vector<String> _get_project_excluded_directories();
+	static bool _is_path_in_excluded_directories(const String &p_path, const Vector<String> &p_excluded_directories);
 
 protected:
 	void _notification(int p_what);

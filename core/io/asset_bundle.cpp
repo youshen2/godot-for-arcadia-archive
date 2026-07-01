@@ -32,12 +32,57 @@
 
 #include "core/config/project_settings.h"
 #include "core/crypto/hash_calculator.h"
+#include "core/crypto/hashing_context.h"
 #include "core/error/error_macros.h"
 #include "core/io/file_access.h"
+#include "core/io/file_access_pack.h"
 #include "core/io/json.h"
 #include "core/io/resource_loader.h"
 #include "core/math/math_funcs.h"
 #include "core/object/class_db.h"
+
+static String _asset_bundle_hash_file_access_hex(Ref<FileAccess> p_file, HashingContext::HashType p_hash_type, Error &r_error) {
+	r_error = OK;
+	ERR_FAIL_COND_V(p_file.is_null() || !p_file->is_open(), String());
+
+	const uint64_t file_size = p_file->get_length();
+	if (file_size == 0) {
+		PackedByteArray empty;
+		return HashCalculator::hash_bytes_hex(p_hash_type, empty);
+	}
+
+	Ref<HashingContext> hashing;
+	hashing.instantiate();
+	ERR_FAIL_COND_V(hashing.is_null(), String());
+	r_error = hashing->start(p_hash_type);
+	ERR_FAIL_COND_V(r_error != OK, String());
+
+	PackedByteArray buffer;
+	uint64_t processed_size = 0;
+	while (processed_size < file_size) {
+		const uint64_t remaining = file_size - processed_size;
+		const int64_t to_read = int64_t(MIN(remaining, uint64_t(HashCalculator::DEFAULT_CHUNK_SIZE)));
+		buffer.resize(int(to_read));
+		const uint64_t bytes_read = p_file->get_buffer(buffer.ptrw(), to_read);
+		if (bytes_read != uint64_t(to_read)) {
+			r_error = p_file->get_error();
+			if (r_error == OK || r_error == ERR_FILE_EOF) {
+				r_error = ERR_FILE_CANT_READ;
+			}
+			return String();
+		}
+
+		r_error = hashing->update(buffer);
+		if (r_error != OK) {
+			return String();
+		}
+		processed_size += bytes_read;
+	}
+
+	PackedByteArray hash = hashing->finish();
+	ERR_FAIL_COND_V(hash.is_empty(), String());
+	return String::hex_encode_buffer(hash.ptr(), hash.size());
+}
 
 bool AssetBundle::_variant_is_string_like(const Variant &p_value) {
 	return p_value.get_type() == Variant::STRING || p_value.get_type() == Variant::STRING_NAME || p_value.get_type() == Variant::NODE_PATH;
@@ -84,6 +129,19 @@ int64_t AssetBundle::_get_dictionary_int64(const Dictionary &p_dictionary, const
 	}
 
 	return int64_t(value);
+}
+
+bool AssetBundle::_get_dictionary_bool(const Dictionary &p_dictionary, const String &p_key, bool p_default) {
+	if (!p_dictionary.has(p_key)) {
+		return p_default;
+	}
+
+	Variant value = p_dictionary[p_key];
+	if (value.get_type() != Variant::BOOL) {
+		return p_default;
+	}
+
+	return bool(value);
 }
 
 PackedStringArray AssetBundle::_get_dictionary_string_array(const Dictionary &p_dictionary, const String &p_key) {
@@ -204,10 +262,50 @@ Dictionary AssetBundle::_bundle_chunks_to_map(const Dictionary &p_bundle) {
 
 		Dictionary chunk = chunks[i];
 		const String hash = _get_dictionary_string(chunk, "hash");
+		const String packed_hash = _get_dictionary_string(chunk, "packed_hash");
 		const String path = _normalize_portable_path(_get_dictionary_string(chunk, "path"));
 		const String chunk_path = _normalize_portable_path(_get_dictionary_string(chunk, "chunk"));
 		if (!path.is_empty() || !chunk_path.is_empty() || !hash.is_empty()) {
-			result[path + "::" + chunk_path + "::" + hash] = chunk;
+			const bool physical_chunk = !packed_hash.is_empty() || _get_dictionary_int64(chunk, "packed_size", 0) > 0 || (chunk.has("files") && chunk["files"].get_type() == Variant::ARRAY);
+			const String chunk_key = physical_chunk ? (chunk_path + "::" + (!packed_hash.is_empty() ? packed_hash : hash)) : (path + "::" + chunk_path + "::" + hash);
+
+			Dictionary normalized_chunk = chunk.duplicate(true);
+			normalized_chunk["chunk_key"] = chunk_key;
+			if (normalized_chunk.has("files") && normalized_chunk["files"].get_type() == Variant::ARRAY) {
+				Array files = normalized_chunk["files"];
+				normalized_chunk["file_count"] = files.size();
+			}
+
+			if (physical_chunk && result.has(chunk_key) && !(normalized_chunk.has("files") && normalized_chunk["files"].get_type() == Variant::ARRAY)) {
+				Dictionary existing = result[chunk_key];
+				Array files;
+				if (existing.has("files") && existing["files"].get_type() == Variant::ARRAY) {
+					files = existing["files"];
+				} else {
+					Dictionary existing_file = existing.duplicate(true);
+					existing_file.erase("chunk_key");
+					existing_file.erase("file_count");
+					files.push_back(existing_file);
+				}
+
+				Dictionary file = normalized_chunk.duplicate(true);
+				file.erase("chunk_key");
+				file.erase("file_count");
+				files.push_back(file);
+
+				existing["files"] = files;
+				existing["file_count"] = files.size();
+				existing["chunk_key"] = chunk_key;
+				if (_get_dictionary_int64(existing, "packed_size", 0) == 0 && _get_dictionary_int64(normalized_chunk, "packed_size", 0) > 0) {
+					existing["packed_size"] = normalized_chunk["packed_size"];
+				}
+				if (_get_dictionary_string(existing, "packed_hash").is_empty() && !packed_hash.is_empty()) {
+					existing["packed_hash"] = packed_hash;
+				}
+				result[chunk_key] = existing;
+			} else {
+				result[chunk_key] = normalized_chunk;
+			}
 		}
 	}
 
@@ -413,18 +511,34 @@ Error AssetBundle::_parse_bundle_resources(const Variant &p_resources, BundleInf
 			entry.path = _normalize_portable_path(String(value));
 		} else if (value.get_type() == Variant::DICTIONARY) {
 			Dictionary resource_dictionary = value;
-			entry.path = _normalize_portable_path(_get_dictionary_string(resource_dictionary, "path"));
-			if (entry.path.is_empty()) {
-				entry.path = _normalize_portable_path(_get_dictionary_string(resource_dictionary, "resource"));
+			if (resource_dictionary.has("files") && resource_dictionary["files"].get_type() == Variant::ARRAY) {
+				ResourceEntry hot_replace_entry;
+				hot_replace_entry.path = _normalize_portable_path(_get_dictionary_string(resource_dictionary, "path"));
+				if (!hot_replace_entry.path.is_empty()) {
+					hot_replace_entry.type = _get_dictionary_string(resource_dictionary, "type");
+					r_bundle.hot_replace_resources.push_back(hot_replace_entry);
+				}
+
+				const String inherited_chunk = _normalize_portable_path(_get_dictionary_string(resource_dictionary, "chunk"));
+				const bool inherited_encrypted = _get_dictionary_bool(resource_dictionary, "encrypted", false);
+				Array files = resource_dictionary["files"];
+				for (int j = 0; j < files.size(); j++) {
+					if (files[j].get_type() != Variant::DICTIONARY) {
+						return _set_error(ERR_INVALID_DATA, vformat("AssetBundle manifest bundle '%s' grouped chunk files must be dictionaries.", r_bundle.name));
+					}
+					Error err = _parse_bundle_resource_dictionary(files[j], inherited_chunk, inherited_encrypted, r_bundle);
+					if (err != OK) {
+						return err;
+					}
+				}
+				continue;
+			} else {
+				Error err = _parse_bundle_resource_dictionary(resource_dictionary, String(), false, r_bundle);
+				if (err != OK) {
+					return err;
+				}
+				continue;
 			}
-			entry.type = _get_dictionary_string(resource_dictionary, "type");
-			if (entry.type.is_empty()) {
-				entry.type = _get_dictionary_string(resource_dictionary, "type_hint");
-			}
-			entry.chunk = _normalize_portable_path(_get_dictionary_string(resource_dictionary, "chunk"));
-			entry.hash = _get_dictionary_string(resource_dictionary, "hash");
-			entry.md5 = _get_dictionary_string(resource_dictionary, "md5");
-			entry.size = _get_dictionary_int64(resource_dictionary, "size", 0);
 		} else {
 			return _set_error(ERR_INVALID_DATA, vformat("AssetBundle manifest bundle '%s' has a resource entry that is not a path string or dictionary.", r_bundle.name));
 		}
@@ -436,6 +550,34 @@ Error AssetBundle::_parse_bundle_resources(const Variant &p_resources, BundleInf
 		r_bundle.resources.push_back(entry);
 	}
 
+	return OK;
+}
+
+Error AssetBundle::_parse_bundle_resource_dictionary(const Dictionary &p_resource, const String &p_inherited_chunk, bool p_inherited_encrypted, BundleInfo &r_bundle) {
+	ResourceEntry entry;
+	entry.path = _normalize_portable_path(_get_dictionary_string(p_resource, "path"));
+	if (entry.path.is_empty()) {
+		entry.path = _normalize_portable_path(_get_dictionary_string(p_resource, "resource"));
+	}
+	entry.type = _get_dictionary_string(p_resource, "type");
+	if (entry.type.is_empty()) {
+		entry.type = _get_dictionary_string(p_resource, "type_hint");
+	}
+	entry.chunk = _normalize_portable_path(_get_dictionary_string(p_resource, "chunk", p_inherited_chunk));
+	entry.hash = _get_dictionary_string(p_resource, "hash");
+	entry.md5 = _get_dictionary_string(p_resource, "md5");
+	entry.size = _get_dictionary_int64(p_resource, "size", 0);
+	entry.offset = _get_dictionary_int64(p_resource, "offset", 0);
+	entry.encrypted = _get_dictionary_bool(p_resource, "encrypted", p_inherited_encrypted);
+	entry.file_only = _get_dictionary_bool(p_resource, "file_only", false);
+	entry.packed_size = _get_dictionary_int64(p_resource, "packed_size", 0);
+	entry.packed_hash = _get_dictionary_string(p_resource, "packed_hash");
+
+	if (entry.path.is_empty()) {
+		return _set_error(ERR_INVALID_DATA, vformat("AssetBundle manifest bundle '%s' has a resource entry without a path.", r_bundle.name));
+	}
+
+	r_bundle.resources.push_back(entry);
 	return OK;
 }
 
@@ -487,6 +629,11 @@ Dictionary AssetBundle::_resource_entry_to_dictionary(const BundleInfo &p_bundle
 	resource["hash"] = p_entry.hash;
 	resource["md5"] = p_entry.md5;
 	resource["size"] = p_entry.size;
+	resource["offset"] = p_entry.offset;
+	resource["encrypted"] = p_entry.encrypted;
+	resource["file_only"] = p_entry.file_only;
+	resource["packed_size"] = p_entry.packed_size;
+	resource["packed_hash"] = p_entry.packed_hash;
 	if (p_include_file_path) {
 		resource["file_path"] = _get_chunk_file_path(p_bundle, p_entry);
 	}
@@ -511,6 +658,12 @@ Dictionary AssetBundle::_bundle_to_dictionary(const BundleInfo &p_bundle) const 
 	}
 	result["resources"] = resources;
 	result["chunks"] = resources;
+
+	PackedStringArray hot_replace_resources;
+	for (const ResourceEntry &entry : p_bundle.hot_replace_resources) {
+		hot_replace_resources.push_back(entry.path);
+	}
+	result["hot_replace_resources"] = hot_replace_resources;
 
 	return result;
 }
@@ -537,7 +690,27 @@ Dictionary AssetBundle::_verify_resource_entry(const BundleInfo &p_bundle, const
 		return result;
 	}
 
-	const int64_t actual_size = FileAccess::get_size(file_path);
+	PackedData::PackedFile packed_file;
+	packed_file.pack = file_path;
+	packed_file.offset = p_entry.offset;
+	packed_file.size = p_entry.size;
+	for (int i = 0; i < 16; i++) {
+		packed_file.md5[i] = 0;
+	}
+	packed_file.src = nullptr;
+	packed_file.encrypted = p_entry.encrypted;
+	packed_file.bundle = false;
+	packed_file.delta = false;
+	packed_file.skip_pack = true;
+
+	Ref<FileAccess> file(memnew(FileAccessPack(p_entry.path, packed_file)));
+	if (file.is_null() || !file->is_open()) {
+		result["error"] = p_entry.encrypted ? ERR_FILE_CORRUPT : ERR_FILE_CANT_READ;
+		result["error_message"] = vformat("Could not open chunk '%s' for resource '%s'.", file_path, p_entry.path);
+		return result;
+	}
+
+	const int64_t actual_size = file->get_length();
 	result["actual_size"] = actual_size;
 	if (p_entry.size > 0 && actual_size != p_entry.size) {
 		result["error"] = ERR_FILE_CORRUPT;
@@ -546,10 +719,12 @@ Dictionary AssetBundle::_verify_resource_entry(const BundleInfo &p_bundle, const
 	}
 
 	if (p_verify_hash && !p_entry.hash.is_empty()) {
-		const String actual_hash = HashCalculator::hash_file_hex(HashingContext::HASH_SHA256, file_path);
+		Error hash_error = OK;
+		file->seek(0);
+		const String actual_hash = _asset_bundle_hash_file_access_hex(file, HashingContext::HASH_SHA256, hash_error);
 		result["actual_hash"] = actual_hash;
-		if (actual_hash.is_empty()) {
-			result["error"] = ERR_FILE_CANT_READ;
+		if (hash_error != OK || actual_hash.is_empty()) {
+			result["error"] = hash_error != OK ? hash_error : ERR_FILE_CANT_READ;
 			result["error_message"] = vformat("Could not calculate SHA-256 for chunk '%s'.", file_path);
 			return result;
 		}
@@ -561,10 +736,12 @@ Dictionary AssetBundle::_verify_resource_entry(const BundleInfo &p_bundle, const
 	}
 
 	if (p_verify_md5 && !p_entry.md5.is_empty()) {
-		const String actual_md5 = HashCalculator::hash_file_hex(HashingContext::HASH_MD5, file_path);
+		Error hash_error = OK;
+		file->seek(0);
+		const String actual_md5 = _asset_bundle_hash_file_access_hex(file, HashingContext::HASH_MD5, hash_error);
 		result["actual_md5"] = actual_md5;
-		if (actual_md5.is_empty()) {
-			result["error"] = ERR_FILE_CANT_READ;
+		if (hash_error != OK || actual_md5.is_empty()) {
+			result["error"] = hash_error != OK ? hash_error : ERR_FILE_CANT_READ;
 			result["error_message"] = vformat("Could not calculate MD5 for chunk '%s'.", file_path);
 			return result;
 		}
@@ -631,6 +808,11 @@ Error AssetBundle::_setup_load_request(const PackedStringArray &p_bundle_names, 
 	for (const String &bundle_name : pending_bundles) {
 		const BundleInfo &bundle = bundles[bundle_name];
 		for (const ResourceEntry &entry : bundle.resources) {
+			if (!entry.file_only) {
+				pending_resources.push_back(entry);
+			}
+		}
+		for (const ResourceEntry &entry : bundle.hot_replace_resources) {
 			pending_resources.push_back(entry);
 		}
 	}
@@ -837,6 +1019,9 @@ PackedStringArray AssetBundle::get_bundle_resources(const String &p_bundle_name)
 	for (const ResourceEntry &entry : bundle->resources) {
 		result.push_back(entry.path);
 	}
+	for (const ResourceEntry &entry : bundle->hot_replace_resources) {
+		result.push_back(entry.path);
+	}
 	return result;
 }
 
@@ -875,10 +1060,12 @@ PackedStringArray AssetBundle::get_bundle_chunk_file_paths(const String &p_bundl
 		return result;
 	}
 
+	HashSet<String> seen;
 	for (const ResourceEntry &entry : bundle->resources) {
 		const String file_path = _get_chunk_file_path(*bundle, entry);
-		if (!file_path.is_empty()) {
+		if (!file_path.is_empty() && !seen.has(file_path)) {
 			result.push_back(file_path);
+			seen.insert(file_path);
 		}
 	}
 	return result;
@@ -916,6 +1103,11 @@ bool AssetBundle::has_bundle_resource(const String &p_bundle_name, const String 
 			return true;
 		}
 	}
+	for (const ResourceEntry &entry : bundle->hot_replace_resources) {
+		if (_normalize_resource_path(entry.path) == resource_path) {
+			return true;
+		}
+	}
 	return false;
 }
 
@@ -928,11 +1120,23 @@ PackedStringArray AssetBundle::get_resource_bundles(const String &p_resource_pat
 			continue;
 		}
 
+		bool found = false;
 		for (const ResourceEntry &entry : bundle->resources) {
 			if (_normalize_resource_path(entry.path) == resource_path) {
-				result.push_back(bundle_name);
+				found = true;
 				break;
 			}
+		}
+		if (!found) {
+			for (const ResourceEntry &entry : bundle->hot_replace_resources) {
+				if (_normalize_resource_path(entry.path) == resource_path) {
+					found = true;
+					break;
+				}
+			}
+		}
+		if (found) {
+			result.push_back(bundle_name);
 		}
 	}
 	return result;
@@ -945,11 +1149,13 @@ PackedStringArray AssetBundle::get_missing_chunks(const String &p_bundle_name) c
 		return result;
 	}
 
+	HashSet<String> seen;
 	for (const ResourceEntry &entry : bundle->resources) {
 		const String file_path = _get_chunk_file_path(*bundle, entry);
-		if (!file_path.is_empty() && !FileAccess::exists(file_path)) {
+		if (!file_path.is_empty() && !seen.has(file_path) && !FileAccess::exists(file_path)) {
 			result.push_back(file_path);
 		}
+		seen.insert(file_path);
 	}
 	return result;
 }
@@ -1082,7 +1288,18 @@ Dictionary AssetBundle::get_manifest_diff(const String &p_other_manifest_path) c
 			Dictionary chunk = remote_chunks[remote_chunk_key];
 			chunk["bundle"] = remote_name;
 			download_chunks.push_back(chunk);
-			total_download_size += _get_dictionary_int64(chunk, "size", 0);
+			total_download_size += _get_dictionary_int64(chunk, "packed_size", _get_dictionary_int64(chunk, "size", 0));
+		}
+
+		Vector<String> local_chunk_keys = _dictionary_string_keys_sorted(local_chunks);
+		for (const String &local_chunk_key : local_chunk_keys) {
+			if (remote_chunks.has(local_chunk_key)) {
+				continue;
+			}
+
+			Dictionary chunk = local_chunks[local_chunk_key];
+			chunk["bundle"] = remote_name;
+			removed_chunks.push_back(chunk);
 		}
 	}
 

@@ -58,6 +58,11 @@ private:
 		String hash;
 		String md5;
 		int64_t size = 0;
+		int64_t offset = 0;
+		bool encrypted = false;
+		bool file_only = false;
+		int64_t packed_size = 0;
+		String packed_hash;
 	};
 
 	struct BundleInfo {
@@ -70,6 +75,7 @@ private:
 		int offset = 0;
 		PackedStringArray dependencies;
 		Vector<ResourceEntry> resources;
+		Vector<ResourceEntry> hot_replace_resources;
 	};
 
 	String manifest_path;
@@ -98,6 +104,7 @@ private:
 	static String _get_dictionary_string(const Dictionary &p_dictionary, const String &p_key, const String &p_default = String());
 	static int _get_dictionary_int(const Dictionary &p_dictionary, const String &p_key, int p_default = 0);
 	static int64_t _get_dictionary_int64(const Dictionary &p_dictionary, const String &p_key, int64_t p_default = 0);
+	static bool _get_dictionary_bool(const Dictionary &p_dictionary, const String &p_key, bool p_default = false);
 	static PackedStringArray _get_dictionary_string_array(const Dictionary &p_dictionary, const String &p_key);
 	static Dictionary _read_manifest_dictionary(const String &p_manifest_path, Error &r_error, String &r_error_message);
 	static Variant _canonicalize_manifest_value(const Variant &p_value);
@@ -110,6 +117,7 @@ private:
 	Error _parse_manifest_dictionary(const Dictionary &p_manifest);
 	Error _parse_bundle_dictionary(const Dictionary &p_bundle, const String &p_fallback_name, BundleInfo &r_bundle);
 	Error _parse_bundle_resources(const Variant &p_resources, BundleInfo &r_bundle);
+	Error _parse_bundle_resource_dictionary(const Dictionary &p_resource, const String &p_inherited_chunk, bool p_inherited_encrypted, BundleInfo &r_bundle);
 	String _resolve_bundle_path(const String &p_path) const;
 	String _normalize_resource_path(const String &p_path) const;
 	String _get_bundle_base_dir(const BundleInfo &p_bundle) const;

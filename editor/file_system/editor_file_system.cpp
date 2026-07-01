@@ -59,6 +59,21 @@ EditorFileSystem::ScannedDirectory *EditorFileSystem::first_scan_root_dir = null
 
 //the name is the version, to keep compatibility with different versions of Godot
 #define CACHE_FILE_NAME "filesystem_cache10"
+#define EXCLUDED_DIRECTORIES_SETTING "editor/file_system/excluded_directories"
+
+static bool _string_vector_equal(const Vector<String> &p_left, const Vector<String> &p_right) {
+	if (p_left.size() != p_right.size()) {
+		return false;
+	}
+
+	for (int i = 0; i < p_left.size(); i++) {
+		if (p_left[i] != p_right[i]) {
+			return false;
+		}
+	}
+
+	return true;
+}
 
 int EditorFileSystemDirectory::find_file_index(const String &p_file) const {
 	for (int i = 0; i < files.size(); i++) {
@@ -1824,7 +1839,11 @@ void EditorFileSystem::_notification(int p_what) {
 					emit_signal(SNAME("sources_changed"), sources_changed.size() > 0);
 				}
 
-				if (done_importing && scan_changes_pending) {
+				if (scan_after_excluded_directories_changed && !scanning && !scanning_changes && !thread.is_started() && !thread_sources.is_started()) {
+					scan_after_excluded_directories_changed = false;
+					scan_changes_pending = false;
+					callable_mp(this, &EditorFileSystem::scan).call_deferred();
+				} else if (done_importing && scan_changes_pending) {
 					scan_changes_pending = false;
 					scan_changes();
 				}
@@ -3473,21 +3492,104 @@ Ref<Resource> EditorFileSystem::_load_resource_on_startup(ResourceFormatImporter
 	return p_importer->load_internal(p_path, r_error, p_use_sub_threads, r_progress, p_cache_mode, false);
 }
 
+String EditorFileSystem::_normalize_excluded_directory_path(const String &p_path) {
+	String path = p_path.strip_edges().replace("\\", "/");
+	if (path.is_empty()) {
+		return String();
+	}
+
+	if (path.is_relative_path()) {
+		path = String("res://").path_join(path);
+	} else {
+		path = ProjectSettings::get_singleton()->localize_path(path);
+	}
+
+	path = path.replace("\\", "/").simplify_path();
+	while (path.ends_with("/") && path != "res://") {
+		path = path.trim_suffix("/");
+	}
+
+	if (path != "res://" && path.begins_with("res://")) {
+		return path;
+	}
+
+	return String();
+}
+
+Vector<String> EditorFileSystem::_get_project_excluded_directories() {
+	PackedStringArray configured_directories = ProjectSettings::get_singleton()->get_setting(EXCLUDED_DIRECTORIES_SETTING, PackedStringArray());
+
+	Vector<String> excluded;
+	for (int i = 0; i < configured_directories.size(); i++) {
+		const String path = _normalize_excluded_directory_path(configured_directories[i]);
+		if (!path.is_empty() && excluded.find(path) == -1) {
+			excluded.push_back(path);
+		}
+	}
+	excluded.sort();
+
+	return excluded;
+}
+
+bool EditorFileSystem::_is_path_in_excluded_directories(const String &p_path, const Vector<String> &p_excluded_directories) {
+	const String path = _normalize_excluded_directory_path(p_path);
+	if (path.is_empty()) {
+		return false;
+	}
+
+	for (const String &excluded_path : p_excluded_directories) {
+		if (path == excluded_path || path.begins_with(excluded_path + "/")) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 bool EditorFileSystem::_should_skip_directory(const String &p_path) {
+	String path = p_path.replace("\\", "/");
+	if (path.is_empty()) {
+		return false;
+	}
+	if (path.is_absolute_path()) {
+		path = ProjectSettings::get_singleton()->localize_path(path);
+	}
+	path = path.replace("\\", "/").simplify_path();
+	while (path.ends_with("/") && path != "res://") {
+		path = path.trim_suffix("/");
+	}
+
+	if (path == "res://") {
+		return false;
+	}
+
 	String project_data_path = ProjectSettings::get_singleton()->get_project_data_path();
-	if (p_path == project_data_path || p_path.begins_with(project_data_path + "/")) {
+	if (path == project_data_path || path.begins_with(project_data_path + "/")) {
 		return true;
 	}
 
-	if (FileAccess::exists(p_path.path_join("project.godot"))) {
+	EditorFileSystem *efs = EditorFileSystem::get_singleton();
+	if (efs != nullptr) {
+		MutexLock excluded_directories_lock(efs->excluded_directories_mutex);
+		if (_is_path_in_excluded_directories(path, efs->excluded_directories)) {
+			return true;
+		}
+	} else {
+		const Vector<String> excluded = _get_project_excluded_directories();
+		if (_is_path_in_excluded_directories(path, excluded)) {
+			return true;
+		}
+	}
+
+	if (FileAccess::exists(path.path_join("project.godot"))) {
 		// Skip if another project inside this.
 		if (EditorFileSystem::get_singleton() == nullptr || EditorFileSystem::get_singleton()->first_scan) {
-			WARN_PRINT_ONCE(vformat("Detected another project.godot at %s. The folder will be ignored.", p_path));
+			WARN_PRINT_ONCE(vformat("Detected another project.godot at %s. The folder will be ignored.", path));
 		}
 		return true;
 	}
 
-	if (FileAccess::exists(p_path.path_join(".gdignore"))) {
+	if (FileAccess::exists(path.path_join(".gdignore"))) {
 		// Skip if a `.gdignore` file is inside this.
 		return true;
 	}
@@ -3782,12 +3884,37 @@ void EditorFileSystem::remove_import_format_support_query(Ref<EditorFileSystemIm
 	import_support_queries.erase(p_query);
 }
 
+void EditorFileSystem::_project_settings_changed() {
+	const Vector<String> new_excluded_directories = _get_project_excluded_directories();
+	bool changed = false;
+	{
+		MutexLock excluded_directories_lock(excluded_directories_mutex);
+		if (!_string_vector_equal(excluded_directories, new_excluded_directories)) {
+			excluded_directories = new_excluded_directories;
+			changed = true;
+		}
+	}
+
+	if (changed && !first_scan) {
+		if (scanning || scanning_changes || thread.is_started() || thread_sources.is_started()) {
+			scan_after_excluded_directories_changed = true;
+			set_process(true);
+		} else {
+			callable_mp(this, &EditorFileSystem::scan).call_deferred();
+		}
+	}
+}
+
 EditorFileSystem::EditorFileSystem() {
 #if defined(THREADS_ENABLED) && !defined(WEB_ENABLED)
 	// On web, threaded scanning blocks the browser's event loop, causing freezes.
 	// See GH-112072 for details.
 	use_threads = true;
 #endif
+
+	GLOBAL_DEF(PropertyInfo(Variant::PACKED_STRING_ARRAY, EXCLUDED_DIRECTORIES_SETTING), PackedStringArray());
+	excluded_directories = _get_project_excluded_directories();
+	ProjectSettings::get_singleton()->connect("settings_changed", callable_mp(this, &EditorFileSystem::_project_settings_changed));
 
 	ResourceLoader::import = _resource_import;
 	reimport_on_missing_imported_files = GLOBAL_GET("editor/import/reimport_missing_imported_files");

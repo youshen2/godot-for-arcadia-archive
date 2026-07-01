@@ -880,10 +880,6 @@ void VideoStreamFFmpeg::set_file(const String &p_file) {
 	emit_changed();
 }
 
-String VideoStreamFFmpeg::get_file() const {
-	return file;
-}
-
 void VideoStreamFFmpeg::set_headers(const String &p_headers) {
 	if (headers == p_headers) {
 		return;
@@ -982,8 +978,6 @@ double VideoStreamFFmpeg::get_duration() const {
 }
 
 void VideoStreamFFmpeg::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("set_file", "file"), &VideoStreamFFmpeg::set_file);
-	ClassDB::bind_method(D_METHOD("get_file"), &VideoStreamFFmpeg::get_file);
 	ClassDB::bind_method(D_METHOD("set_headers", "headers"), &VideoStreamFFmpeg::set_headers);
 	ClassDB::bind_method(D_METHOD("get_headers"), &VideoStreamFFmpeg::get_headers);
 	ClassDB::bind_method(D_METHOD("get_video_streams"), &VideoStreamFFmpeg::get_video_streams);
@@ -996,7 +990,6 @@ void VideoStreamFFmpeg::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_chapter_metadata", "chapter_index"), &VideoStreamFFmpeg::get_chapter_metadata);
 	ClassDB::bind_method(D_METHOD("get_duration"), &VideoStreamFFmpeg::get_duration);
 
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "file"), "set_file", "get_file");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "headers"), "set_headers", "get_headers");
 }
 

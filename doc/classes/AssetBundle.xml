@@ -4,7 +4,7 @@
 		读取资源包清单并按清单挂载、热替换和加载资源。
 	</brief_description>
 	<description>
-		[AssetBundle] 是运行时资源包加载器，用于读取 JSON manifest，查询其中声明的 bundle、版本、依赖和资源路径，并按清单挂载目录型 AssetBundle。AssetBundle 不是 PCK 文件，而是一个包含 [code]bundle.json[/code] 与若干随机名 chunk 文件的目录；每个 chunk 在 [code]bundle.json[/code] 中映射回一个 [code]res://[/code] 资源路径。挂载后资源仍通过普通 [ResourceLoader] 读取。
+		[AssetBundle] 是运行时资源包加载器，用于读取 JSON manifest，查询其中声明的 bundle、版本、依赖和资源路径，并按清单挂载目录型 AssetBundle。AssetBundle 不是 PCK 文件，而是一个包含 [code]bundle.json[/code] 与若干随机名 chunk 文件的目录；每个 chunk 在 [code]bundle.json[/code] 中映射回一个或多个 [code]res://[/code] 资源路径。挂载后资源仍通过普通 [ResourceLoader] 读取。
 		manifest 顶层应包含 [code]version[/code] 以及 [code]bundles[/code] 或 [code]packages[/code]。每个 bundle 至少需要 [code]name[/code] 和 [code]path[/code]，[code]path[/code] 通常指向包含 [code]bundle.json[/code] 的目录；可选字段包括 [code]version[/code]、[code]hash[/code]、[code]size[/code]、[code]dependencies[/code] 和 [code]chunks[/code]。相对 [code]path[/code] 会按 manifest 文件所在目录解析。
 		[codeblock]
 		{
@@ -23,15 +23,66 @@
 		                    "chunk": "92/0b/1c2d3e4f5678901234567890abcd.ab",
 		                    "hash": "资源内容的 SHA-256",
 		                    "md5": "资源内容的 MD5",
-		                    "size": 4096
+		                    "size": 4096,
+		                    "offset": 0,
+		                    "encrypted": false,
+		                    "file_only": false,
+		                    "packed_size": 4096
+		                },
+		                {
+		                    "path": "res://data/items.json",
+		                    "type": "JSON",
+		                    "chunk": "12/34/567890abcdef1234567890abcdef.ab",
+		                    "hash": "JSON 文件内容的 SHA-256",
+		                    "md5": "JSON 文件内容的 MD5",
+		                    "size": 1024,
+		                    "offset": 0,
+		                    "encrypted": false,
+		                    "file_only": true,
+		                    "packed_size": 1024
+		                },
+		                {
+		                    "path": "res://textures/hero.png",
+		                    "type": "CompressedTexture2D",
+		                    "chunk": "33/44/556677889900aabbccddeeff0011.ab",
+		                    "hash": "分组 chunk 内容的 SHA-256",
+		                    "size": 8192,
+		                    "plain_size": 4096,
+		                    "packed_hash": "chunk 文件的 SHA-256",
+		                    "packed_size": 8192,
+		                    "encrypted": true,
+		                    "files": [
+		                        {
+		                            "path": "res://textures/hero.png.import",
+		                            "type": "TextFile",
+		                            "hash": ".import 文件内容的 SHA-256",
+		                            "md5": ".import 文件内容的 MD5",
+		                            "size": 512,
+		                            "offset": 0,
+		                            "encrypted": true,
+		                            "file_only": true
+		                        },
+		                        {
+		                            "path": "res://.godot/imported/hero.png-1234567890abcdef.ctex",
+		                            "type": "CompressedTexture2D",
+		                            "hash": "导入产物内容的 SHA-256",
+		                            "md5": "导入产物内容的 MD5",
+		                            "size": 3584,
+		                            "offset": 560,
+		                            "encrypted": true
+		                        }
+		                    ]
 		                }
 		            ]
 		        }
 		    ]
 		}
 		[/codeblock]
+		编辑器 AssetBundle 管理器导出已导入资源时，会把对应的 [code].import[/code] 文件和 [code]res://.godot/imported[/code] 下的导入产物放入同一个 chunk，并且不会把原始源文件内容写入 chunk。这样运行时仍可通过原始资源路径加载资源，同时减少原始素材在 AssetBundle 中的重复分发。未导入到 [code].godot/imported[/code] 的资源，例如普通场景或脚本文件，会继续按原始文件路径作为独立 chunk 导出。
+		[code].import[/code]、[code].txt[/code] 和 [code].json[/code] 文件会作为只需挂载到文件目录的 file-only 条目导出，manifest 中 [code]type[/code] 不会留空。此类条目挂载后可通过 [FileAccess] 读取，但不会在 [code]hot_replace_cached[/code] 流程中主动调用 [ResourceLoader] 重新加载。
+		如果 AssetBundle 管理器启用了 chunk 加密，chunk 条目会使用 AES-256 写入并标记 [code]encrypted[/code]。运行时读取加密条目时使用编译进引擎的脚本加密密钥，规则与加载加密 PCK 相同；密钥不正确或数据损坏时，bundle 挂载或资源读取会直接失败并记录错误。导出时填写的 64 位十六进制密钥必须与目标运行时引擎编译使用的密钥一致。
 		加载 bundle 时会先挂载请求 bundle 及其 manifest 依赖。批量加载时会先完成所有 bundle 挂载，再统一热替换已缓存资源，因此某个资源引用的依赖不必和它放在同一个 bundle 中；只要依赖已经缓存，或位于基础包、已挂载包、同次批量加载的其它包中，就能被普通 [ResourceLoader] 解析。目录型 AssetBundle 使用自定义 pack source 挂载，不受原始 PCK 打包时“包内必须包含完整依赖链”的导出限制影响。
-		当 [code]hot_replace_cached[/code] 为 [code]true[/code] 时，[AssetBundle] 只会对 manifest [code]chunks[/code] 或 [code]resources[/code] 中已经存在于 [code]ResourceCache[/code] 的路径执行 [constant CACHE_MODE_REPLACE] 重新加载。该模式会保留旧 [Resource] 对象并把新 bundle 中的数据拷贝进去，因此其它资源或节点持有的引用可以继续指向同一个对象并收到资源的 [code]changed[/code] 通知。外部依赖默认使用复用模式，不会强制深度替换依赖链。未缓存的资源不会被提前加载。若 bundle 以 [code]replace_files[/code] 为 [code]true[/code] 挂载并覆盖了脚本型 Autoload 单例路径，运行中的单例节点会重新加载脚本并重建脚本实例；引擎会尽量恢复脚本存储属性，但不会重新创建节点本身。
+		当 [code]hot_replace_cached[/code] 为 [code]true[/code] 时，[AssetBundle] 只会对 manifest [code]chunks[/code] 或 [code]resources[/code] 中已经存在于 [code]ResourceCache[/code] 且未标记 [code]file_only[/code] 的路径执行 [constant CACHE_MODE_REPLACE] 重新加载。该模式会保留旧 [Resource] 对象并把新 bundle 中的数据拷贝进去，因此其它资源或节点持有的引用可以继续指向同一个对象并收到资源的 [code]changed[/code] 通知。外部依赖默认使用复用模式，不会强制深度替换依赖链。未缓存的资源不会被提前加载。若 bundle 以 [code]replace_files[/code] 为 [code]true[/code] 挂载并覆盖了脚本型 Autoload 单例路径，运行中的单例节点会重新加载脚本并重建脚本实例；引擎会尽量恢复脚本存储属性，但不会重新创建节点本身。
 		同一个 manifest 通过编辑器 AssetBundle 管理器重复导出时，资源列表、chunk 文件名和 JSON 字段顺序会保持稳定：同一路径且内容未变化的资源会得到同一个 chunk 路径，内容变化的资源会得到新的 chunk 路径。项目可使用 [method get_manifest_diff] 比较本地 manifest 与云端或其它 manifest，获取需要下载的 bundle 元数据、chunk 列表、移除列表与总下载大小。
 		校验相关方法内部使用 [HashCalculator] 计算 SHA-256 和 MD5。若需要显示字节级校验进度，可以先用 [method get_bundle_chunk_file_paths] 取出实际 chunk 文件路径，再由项目代码调用 [method HashCalculator.start_files] 分帧读取 [method HashCalculator.get_progress]。manifest 和 chunk 路径在读取时会把反斜杠统一为正斜杠，再交给 Godot 的 [FileAccess] 解析，因此 Windows、macOS、Linux 和移动平台可以使用同一份 manifest。建议 manifest 内的相对 chunk 路径始终使用 [code]/[/code]。
 		[b]注意：[/b]Godot 当前没有公开的单个 pack 卸载接口，[method clear] 只清空此 [AssetBundle] 实例的 manifest 和状态，不会卸载已经挂载的 bundle。热替换 [PackedScene] 资源会更新已缓存的 [PackedScene] 对象，但已经实例化到场景树中的节点不会自动重建；场景型 Autoload 也不会自动重建。后续新的实例化会使用更新后的场景资源。
@@ -94,7 +145,7 @@
 			<return type="Dictionary" />
 			<param index="0" name="bundle_name" type="String" />
 			<description>
-				返回 [param bundle_name] 的完整信息字典，包含 [code]name[/code]、[code]path[/code]、[code]resolved_path[/code]、[code]version[/code]、[code]hash[/code]、[code]size[/code]、[code]dependencies[/code]、[code]resources[/code]、[code]chunks[/code] 和 [code]loaded[/code]。不存在该 bundle 时返回空字典。
+				返回 [param bundle_name] 的完整信息字典，包含 [code]name[/code]、[code]path[/code]、[code]resolved_path[/code]、[code]version[/code]、[code]hash[/code]、[code]size[/code]、[code]dependencies[/code]、[code]resources[/code]、[code]chunks[/code]、[code]hot_replace_resources[/code] 和 [code]loaded[/code]。不存在该 bundle 时返回空字典。[code]hot_replace_resources[/code] 中的路径用于导入型资源的原始路径热替换扫描，不一定对应独立 chunk。
 			</description>
 		</method>
 		<method name="get_bundle_hash" qualifiers="const">
@@ -123,21 +174,21 @@
 			<param index="0" name="bundle_name" type="String" />
 			<param index="1" name="include_file_paths" type="bool" default="false" />
 			<description>
-				返回 [param bundle_name] 中声明的 chunk 字典数组。每个字典包含 [code]path[/code]、[code]type[/code]、[code]chunk[/code]、[code]hash[/code]、[code]md5[/code] 和 [code]size[/code]；当 [param include_file_paths] 为 [code]true[/code] 时，还会包含解析后的本地 [code]file_path[/code]。不存在该 bundle 时返回空数组。
+				返回 [param bundle_name] 中声明的 chunk 字典数组。每个字典包含 [code]path[/code]、[code]type[/code]、[code]chunk[/code]、[code]hash[/code]、[code]md5[/code]、[code]size[/code]、[code]offset[/code]、[code]encrypted[/code]、[code]file_only[/code]、[code]packed_size[/code] 和 [code]packed_hash[/code]；当 [param include_file_paths] 为 [code]true[/code] 时，还会包含解析后的本地 [code]file_path[/code]。导入型资源的分组 chunk 会在读取 manifest 时展开为多个条目，这些条目可能共享同一个 [code]chunk[/code] 但拥有不同 [code]offset[/code]。[code]file_only[/code] 为 [code]true[/code] 的条目只保证挂载到文件目录，不参与热替换加载。不存在该 bundle 时返回空数组。
 			</description>
 		</method>
 		<method name="get_bundle_chunk_file_paths" qualifiers="const">
 			<return type="PackedStringArray" />
 			<param index="0" name="bundle_name" type="String" />
 			<description>
-				返回 [param bundle_name] 所有已声明 chunk 的实际文件路径。该方法适合把结果传给 [HashCalculator] 做带进度的批量校验或下载完成后的文件检查。不存在该 bundle 时返回空数组。
+				返回 [param bundle_name] 所有已声明 chunk 的实际文件路径。同一个 chunk 被多个逻辑文件共享时只返回一次。该方法适合把结果传给 [HashCalculator] 做带进度的批量校验或下载完成后的文件检查。不存在该 bundle 时返回空数组。
 			</description>
 		</method>
 		<method name="get_bundle_resources" qualifiers="const">
 			<return type="PackedStringArray" />
 			<param index="0" name="bundle_name" type="String" />
 			<description>
-				返回 [param bundle_name] 在 manifest [code]chunks[/code] 或 [code]resources[/code] 中声明的资源路径列表。这些路径用于挂载后的热替换扫描；未列入 manifest 的资源仍可在 bundle 挂载后由 [ResourceLoader] 正常加载，但不会被 [AssetBundle] 主动热替换。
+				返回 [param bundle_name] 在 manifest [code]chunks[/code] 或 [code]resources[/code] 中声明的资源路径列表。未标记 [code]file_only[/code] 的路径会用于挂载后的热替换扫描；file-only 路径只保证能通过 [FileAccess] 从挂载后的文件目录读取。未列入 manifest 的资源仍可在 bundle 挂载后由 [ResourceLoader] 正常加载，但不会被 [AssetBundle] 主动热替换。
 			</description>
 		</method>
 		<method name="get_bundle_size" qualifiers="const">
@@ -218,7 +269,7 @@
 			<param index="0" name="other_manifest_path" type="String" />
 			<description>
 				将当前已读取的 manifest 与 [param other_manifest_path] 指向的另一个 manifest 进行比较，并返回便于下载差分的字典。返回值包含 [code]error[/code]、[code]error_message[/code]、[code]current_manifest_version[/code]、[code]other_manifest_version[/code]、[code]added_bundles[/code]、[code]updated_bundles[/code]、[code]removed_bundles[/code]、[code]unchanged_bundles[/code]、[code]download_bundles[/code]、[code]download_chunks[/code]、[code]removed_chunks[/code] 和 [code]total_download_size[/code]。
-				[code]download_bundles[/code] 保存目标 manifest 中新增或变化的 bundle 元数据；[code]download_chunks[/code] 保存本地缺失或内容变化的 chunk 字典，每项额外包含 [code]bundle[/code] 字段；[code]removed_chunks[/code] 保存目标 manifest 不再需要的本地 chunk。比较 chunk 时会同时考虑资源路径、chunk 文件路径和内容哈希，避免不同 manifest 布局下误判为已存在。该方法只读取 manifest，不会访问网络，也不会自动下载或删除文件。
+				[code]download_bundles[/code] 保存目标 manifest 中新增或变化的 bundle 元数据；[code]download_chunks[/code] 保存本地缺失或内容变化的物理 chunk 字典，每项额外包含 [code]bundle[/code] 和 [code]chunk_key[/code] 字段；[code]removed_chunks[/code] 保存目标 manifest 不再需要的本地物理 chunk，包括已删除 bundle 下的 chunk，以及仍存在 bundle 中被移除或被替换的旧 chunk。比较新格式 chunk 时优先使用 [code]chunk[/code] 与 [code]packed_hash[/code] 组成的 [code]chunk_key[/code]，因此同一个 chunk 内的多个逻辑文件不会在差分结果里重复出现。若某个返回项包含多个逻辑文件，会带有 [code]files[/code] 数组和 [code]file_count[/code]；旧格式没有 [code]packed_hash[/code] 时仍按资源路径、chunk 文件路径和内容哈希比较。[code]total_download_size[/code] 优先按 [code]packed_size[/code] 累计，没有该字段时回退到 [code]size[/code]。该方法只读取 manifest，不会访问网络，也不会自动下载或删除文件。
 			</description>
 		</method>
 		<method name="get_manifest_path" qualifiers="const">

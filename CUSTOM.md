@@ -4,7 +4,8 @@
 为引擎增加了如下接口：
 
 - `HashCalculator`：用于Hash、MD5之类的计算，可提供计算进度
-- `AssetBundle`：读取 JSON manifest 并按清单挂载目录型 AssetBundle（`bundle.json` + 随机名 chunk 文件），提供 bundle/版本/chunk 查询、同步或逐步加载进度、已缓存资源热替换、资源加载接口、基于 `HashCalculator` 的完整性校验，以及和其它 manifest 的差分查询；热替换使用 `CACHE_MODE_REPLACE`，可让新包中的资源复用已经缓存、基础包、已挂载包或同次批量加载包中的外部依赖。通过 AssetBundle 或 `ProjectSettings.load_resource_pack()` 以替换模式动态挂载资源包时，脚本型 Autoload 单例会重新加载脚本并重建已有单例节点的脚本实例；该行为不新增脚本 API，GDScript 可直接生效，Mono / C# 仍受运行时程序集热重载能力限制。
+- `ProjectSettings.editor/file_system/excluded_directories`：新增项目级屏蔽目录列表设置。列表中的目录及其子目录不会出现在编辑器文件管理器、导出文件树和 AssetBundle 管理器资源树中，AssetBundle 导出也会跳过旧配置里残留的屏蔽目录资源。该设置不新增脚本方法；GDScript 和 Mono / C# 均可通过 `ProjectSettings` 读取或写入。
+- `AssetBundle`：读取 JSON manifest 并按清单挂载目录型 AssetBundle（`bundle.json` + 随机名 chunk 文件），提供 bundle/版本/chunk 查询、同步或逐步加载进度、已缓存资源热替换、资源加载接口、基于 `HashCalculator` 的完整性校验，以及和其它 manifest 的差分查询；热替换使用 `CACHE_MODE_REPLACE`，可让新包中的资源复用已经缓存、基础包、已挂载包或同次批量加载包中的外部依赖。编辑器 AssetBundle 管理器导出已导入资源时，会把对应 `.import` 与 `res://.godot/imported` 下的导入产物写入同一个 chunk，并且不把原始源文件内容写入 chunk；未导入到 `.godot/imported` 的资源仍按原文件导出。`.import`、`.txt` 和 `.json` 可作为只挂载到文件目录的 file-only 条目导出，manifest 中 `type` 不留空，并且不会参与 cached resource 热替换加载。AssetBundle 管理器支持对 chunk 启用 AES-256 加密，运行时按加载加密 PCK 的规则使用编译进引擎的密钥读取，密钥错误或数据损坏会直接导致挂载或读取失败。通过 AssetBundle 或 `ProjectSettings.load_resource_pack()` 以替换模式动态挂载资源包时，脚本型 Autoload 单例会重新加载脚本并重建已有单例节点的脚本实例；该行为不新增脚本 API，GDScript 可直接生效，Mono / C# 仍受运行时程序集热重载能力限制。
 - `MobilePersistentNotification`：移动端常驻通知和后台主循环单例，可在 Android 使用前台服务通知保持主线程后台运行；iOS 提供受系统限制的后台任务能力。提供 `start`、`update`、`stop`、`is_active`、`is_supported` 接口。
 - `HTTPFileDownloader`：高性能 HTTP/HTTPS 文件下载节点，支持自适应或固定线程数的 Range 分段下载、批量下载、失败自动单连接回退、实时进度/字节数/总字节数/耗时/预计剩余时间/速度查询，以及 GDScript 和 Mono / C# 绑定可见的信号与状态接口。
 - `MarkdownTextLabel`：独立 Markdown 显示控件，基于 md4c 解析 CommonMark/GFM Markdown，提供 `text`、`parse_markdown`、`append_text`、`clear`、纯文本、内容尺寸、链接点击信号、自动换行和 BiDi 排版接口，GDScript 和 Mono / C# 可用。

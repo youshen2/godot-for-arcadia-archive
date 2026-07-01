@@ -160,7 +160,6 @@ public:
 	virtual Ref<VideoStreamPlayback> instantiate_playback() override;
 
 	virtual void set_file(const String &p_file) override;
-	String get_file() const;
 
 	void set_headers(const String &p_headers);
 	String get_headers() const;

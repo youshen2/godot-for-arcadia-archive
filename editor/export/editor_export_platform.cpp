@@ -637,6 +637,10 @@ Ref<EditorExportPreset> EditorExportPlatform::create_preset() {
 }
 
 void EditorExportPlatform::_export_find_resources(EditorFileSystemDirectory *p_dir, HashSet<String> &p_paths) {
+	if (EditorFileSystem::_should_skip_directory(p_dir->get_path())) {
+		return;
+	}
+
 	for (int i = 0; i < p_dir->get_subdir_count(); i++) {
 		_export_find_resources(p_dir->get_subdir(i), p_paths);
 	}
@@ -650,6 +654,10 @@ void EditorExportPlatform::_export_find_resources(EditorFileSystemDirectory *p_d
 }
 
 void EditorExportPlatform::_export_find_customized_resources(const Ref<EditorExportPreset> &p_preset, EditorFileSystemDirectory *p_dir, EditorExportPreset::FileExportMode p_mode, HashSet<String> &p_paths) {
+	if (EditorFileSystem::_should_skip_directory(p_dir->get_path())) {
+		return;
+	}
+
 	for (int i = 0; i < p_dir->get_subdir_count(); i++) {
 		EditorFileSystemDirectory *subdir = p_dir->get_subdir(i);
 		_export_find_customized_resources(p_preset, subdir, p_preset->get_file_export_mode(subdir->get_path(), p_mode), p_paths);

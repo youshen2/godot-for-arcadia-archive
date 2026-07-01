@@ -35,6 +35,7 @@
 #include "core/templates/hash_set.h"
 
 class Button;
+class CheckBox;
 class EditorFileSystemDirectory;
 class EditorFileDialog;
 class ItemList;
@@ -50,10 +51,13 @@ class AssetBundleManagerDialog : public ConfirmationDialog {
 		String name;
 		String version = "1.0.0";
 		String output_path = "res://asset_bundles";
+		bool encryption_enabled = false;
+		String encryption_key;
 		PackedStringArray resources;
 	};
 
 	static constexpr const char *CONFIG_PATH = "res://asset_bundle_manifests.cfg";
+	static constexpr const char *CREDENTIALS_PATH = "res://.godot/asset_bundle_credentials.cfg";
 
 	ItemList *manifest_list = nullptr;
 	Button *add_button = nullptr;
@@ -63,6 +67,9 @@ class AssetBundleManagerDialog : public ConfirmationDialog {
 	LineEdit *output_path_edit = nullptr;
 	Button *output_path_browse_button = nullptr;
 	EditorFileDialog *output_path_dialog = nullptr;
+	CheckBox *encryption_enabled_check = nullptr;
+	LineEdit *encryption_key_edit = nullptr;
+	Button *encryption_key_visibility_button = nullptr;
 	Label *info_label = nullptr;
 	Tree *resource_tree = nullptr;
 	Button *export_button = nullptr;
@@ -89,6 +96,9 @@ class AssetBundleManagerDialog : public ConfirmationDialog {
 	void _manifest_name_changed(const String &p_text);
 	void _manifest_version_changed(const String &p_text);
 	void _manifest_output_changed(const String &p_text);
+	void _manifest_encryption_enabled_toggled(bool p_pressed);
+	void _manifest_encryption_key_changed(const String &p_text);
+	void _manifest_encryption_key_visibility_toggled(bool p_pressed);
 	void _browse_output_path();
 	void _output_path_selected(const String &p_path);
 	void _resource_tree_edited();

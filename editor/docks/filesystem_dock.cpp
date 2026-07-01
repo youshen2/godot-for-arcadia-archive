@@ -228,6 +228,10 @@ Ref<Texture2D> FileSystemDock::_get_tree_item_icon(bool p_is_valid, const String
 }
 
 void FileSystemDock::_create_tree(TreeItem *p_parent, EditorFileSystemDirectory *p_dir, const Vector<String> &p_uncollapsed_paths, const Vector<String> &p_selected_paths) {
+	if (EditorFileSystem::_should_skip_directory(p_dir->get_path())) {
+		return;
+	}
+
 	// Create a tree item for the subdirectory.
 	TreeItem *subdirectory_item = tree->create_item(p_parent);
 	String dname = p_dir->get_name();
@@ -419,6 +423,14 @@ void FileSystemDock::_update_tree(const Vector<String> &p_uncollapsed_paths, boo
 	const int icon_size = get_theme_constant(SNAME("class_icon_size"), EditorStringName(Editor));
 	for (const String &favorite : favorite_paths) {
 		if (!favorite.begins_with("res://")) {
+			continue;
+		}
+
+		String favorite_directory = favorite.ends_with("/") ? favorite : favorite.get_base_dir();
+		if (favorite_directory != "res://") {
+			favorite_directory = favorite_directory.trim_suffix("/");
+		}
+		if (EditorFileSystem::_should_skip_directory(favorite_directory)) {
 			continue;
 		}
 
@@ -974,6 +986,9 @@ void FileSystemDock::_search(EditorFileSystemDirectory *p_path, List<FileInfo> *
 	if (matches->size() > p_max_items) {
 		return;
 	}
+	if (EditorFileSystem::_should_skip_directory(p_path->get_path())) {
+		return;
+	}
 
 	for (int i = 0; i < p_path->get_subdir_count(); i++) {
 		_search(p_path->get_subdir(i), matches, p_max_items);
@@ -1163,6 +1178,10 @@ void FileSystemDock::_update_file_list(bool p_keep_selection, const Vector<Strin
 				for (int i = reversed ? efd->get_subdir_count() - 1 : 0;
 						reversed ? i >= 0 : i < efd->get_subdir_count();
 						reversed ? i-- : i++) {
+					if (EditorFileSystem::_should_skip_directory(efd->get_subdir(i)->get_path())) {
+						continue;
+					}
+
 					String dname = efd->get_subdir(i)->get_name();
 					String dpath = directory.path_join(dname) + "/";
 					bool has_custom_color = assigned_folder_colors.has(dpath);

@@ -2217,6 +2217,9 @@ msgstr "終端機模擬器選項"
 msgid "Directories"
 msgstr "目錄"
 
+msgid "Excluded Directories"
+msgstr "排除目錄"
+
 msgid "Autoscan Project Path"
 msgstr "自動掃描專案路徑"
 
