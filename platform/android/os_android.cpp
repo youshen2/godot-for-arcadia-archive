@@ -468,6 +468,16 @@ bool OS_Android::is_mobile_persistent_notification_active() const {
 	return godot_java->is_mobile_persistent_notification_active();
 }
 
+bool OS_Android::has_mobile_persistent_notification_permission() const {
+	ERR_FAIL_NULL_V(godot_java, false);
+	return godot_java->has_mobile_persistent_notification_permission();
+}
+
+bool OS_Android::request_mobile_persistent_notification_permission() {
+	ERR_FAIL_NULL_V(godot_java, false);
+	return godot_java->request_mobile_persistent_notification_permission();
+}
+
 Error OS_Android::show_mobile_persistent_notification(const String &p_title, const String &p_message) {
 	ERR_FAIL_NULL_V(godot_java, ERR_UNAVAILABLE);
 	if (godot_java->show_mobile_persistent_notification(p_title, p_message)) {

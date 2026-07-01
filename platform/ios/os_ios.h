@@ -51,6 +51,8 @@ public:
 	virtual String get_name() const override;
 	virtual bool is_mobile_persistent_notification_supported() const override;
 	virtual bool is_mobile_persistent_notification_active() const override;
+	virtual bool has_mobile_persistent_notification_permission() const override;
+	virtual bool request_mobile_persistent_notification_permission() override;
 	virtual Error show_mobile_persistent_notification(const String &p_title, const String &p_message) override;
 	virtual Error update_mobile_persistent_notification(const String &p_title, const String &p_message) override;
 	virtual void hide_mobile_persistent_notification() override;

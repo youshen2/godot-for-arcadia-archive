@@ -103,6 +103,7 @@ platform/web/node_modules/
 
 # Misc
 *.debug
+/error.log
 
 #############################
 ### IDE and tool specific ###

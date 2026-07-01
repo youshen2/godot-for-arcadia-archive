@@ -100,6 +100,8 @@ private:
 	jmethodID _update_mobile_persistent_notification = nullptr;
 	jmethodID _hide_mobile_persistent_notification = nullptr;
 	jmethodID _is_mobile_persistent_notification_active = nullptr;
+	jmethodID _has_mobile_persistent_notification_permission = nullptr;
+	jmethodID _request_mobile_persistent_notification_permission = nullptr;
 
 public:
 	GodotJavaWrapper(JNIEnv *p_env, jobject p_godot_native_bridge);
@@ -175,4 +177,6 @@ public:
 	bool update_mobile_persistent_notification(const String &p_title, const String &p_message);
 	void hide_mobile_persistent_notification();
 	bool is_mobile_persistent_notification_active() const;
+	bool has_mobile_persistent_notification_permission() const;
+	bool request_mobile_persistent_notification_permission();
 };

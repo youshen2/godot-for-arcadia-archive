@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		1F1575721F582BE20003B888 /* dylibs in Resources */ = {isa = PBXBuildFile; fileRef = 1F1575711F582BE20003B888 /* dylibs */; };
+		8A1D6B1A2E0B8A0D00F4C421 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8A1D6B192E0B8A0D00F4C421 /* UserNotifications.framework */; };
 		DEADBEEF2F582BE20003B888 /* $binary.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = DEADBEEF1F582BE20003B888 /* $binary.xcframework */; };
 		$modules_buildfile
 		90B4C2B62680C7E90039117A /* dummy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90B4C2B52680C7E90039117A /* dummy.swift */; };
@@ -36,6 +37,7 @@
 
 /* Begin PBXFileReference section */
 		1F1575711F582BE20003B888 /* dylibs */ = {isa = PBXFileReference; lastKnownFileType = folder; name = dylibs; path = "$binary/dylibs"; sourceTree = "<group>"; };
+		8A1D6B192E0B8A0D00F4C421 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		DEADBEEF1F582BE20003B888 /* $binary.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = godot; path = "$binary.xcframework"; sourceTree = "<group>"; };
 		$modules_fileref
 		90B4C2AA2680BC560039117A /* dummy.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "dummy.h"; sourceTree = "<group>"; };
@@ -61,6 +63,7 @@
 			buildActionMask = 2147483647;
 			files = (
                 $moltenvk_buildphase
+				8A1D6B1A2E0B8A0D00F4C421 /* UserNotifications.framework in Frameworks */,
 				DEADBEEF2F582BE20003B888 /* $binary.xcframework */,
 				$modules_buildphase
 				$additional_pbx_frameworks_build
@@ -95,6 +98,7 @@
 			isa = PBXGroup;
 			children = (
                 $moltenvk_buildgrp
+				8A1D6B192E0B8A0D00F4C421 /* UserNotifications.framework */,
 				DEADBEEF1F582BE20003B888 /* $binary.xcframework */,
 				$modules_buildgrp
 				$additional_pbx_frameworks_refs

@@ -230,6 +230,8 @@ public:
 
 	virtual bool is_mobile_persistent_notification_supported() const { return false; }
 	virtual bool is_mobile_persistent_notification_active() const { return false; }
+	virtual bool has_mobile_persistent_notification_permission() const { return false; }
+	virtual bool request_mobile_persistent_notification_permission() { return false; }
 	virtual Error show_mobile_persistent_notification(const String &p_title, const String &p_message) { return ERR_UNAVAILABLE; }
 	virtual Error update_mobile_persistent_notification(const String &p_title, const String &p_message) { return ERR_UNAVAILABLE; }
 	virtual void hide_mobile_persistent_notification() {}

@@ -46,6 +46,8 @@ public:
 
 	bool is_supported() const;
 	bool is_active() const;
+	bool has_notification_permission() const;
+	bool request_notification_permission();
 	Error start(const String &p_title, const String &p_message);
 	Error update(const String &p_title, const String &p_message);
 	void stop();

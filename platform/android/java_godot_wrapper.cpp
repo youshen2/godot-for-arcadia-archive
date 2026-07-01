@@ -108,6 +108,8 @@ GodotJavaWrapper::GodotJavaWrapper(JNIEnv *p_env, jobject p_godot_native_bridge)
 	_update_mobile_persistent_notification = p_env->GetMethodID(godot_native_bridge_class, "nativeUpdateMobilePersistentNotification", "(Ljava/lang/String;Ljava/lang/String;)Z");
 	_hide_mobile_persistent_notification = p_env->GetMethodID(godot_native_bridge_class, "nativeHideMobilePersistentNotification", "()V");
 	_is_mobile_persistent_notification_active = p_env->GetMethodID(godot_native_bridge_class, "nativeIsMobilePersistentNotificationActive", "()Z");
+	_has_mobile_persistent_notification_permission = p_env->GetMethodID(godot_native_bridge_class, "nativeHasMobilePersistentNotificationPermission", "()Z");
+	_request_mobile_persistent_notification_permission = p_env->GetMethodID(godot_native_bridge_class, "nativeRequestMobilePersistentNotificationPermission", "()Z");
 }
 
 GodotJavaWrapper::~GodotJavaWrapper() {
@@ -803,6 +805,24 @@ bool GodotJavaWrapper::is_mobile_persistent_notification_active() const {
 		JNIEnv *env = get_jni_env();
 		ERR_FAIL_NULL_V(env, false);
 		return env->CallBooleanMethod(godot_native_bridge, _is_mobile_persistent_notification_active);
+	}
+	return false;
+}
+
+bool GodotJavaWrapper::has_mobile_persistent_notification_permission() const {
+	if (_has_mobile_persistent_notification_permission) {
+		JNIEnv *env = get_jni_env();
+		ERR_FAIL_NULL_V(env, false);
+		return env->CallBooleanMethod(godot_native_bridge, _has_mobile_persistent_notification_permission);
+	}
+	return false;
+}
+
+bool GodotJavaWrapper::request_mobile_persistent_notification_permission() {
+	if (_request_mobile_persistent_notification_permission) {
+		JNIEnv *env = get_jni_env();
+		ERR_FAIL_NULL_V(env, false);
+		return env->CallBooleanMethod(godot_native_bridge, _request_mobile_persistent_notification_permission);
 	}
 	return false;
 }

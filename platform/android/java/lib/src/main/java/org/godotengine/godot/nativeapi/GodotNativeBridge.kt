@@ -119,6 +119,10 @@ internal class GodotNativeBridge(private val godot: Godot) {
 
 	private fun nativeIsMobilePersistentNotificationActive() = godot.isMobilePersistentNotificationActive()
 
+	private fun nativeHasMobilePersistentNotificationPermission() = godot.hasMobilePersistentNotificationPermission()
+
+	private fun nativeRequestMobilePersistentNotificationPermission() = godot.requestMobilePersistentNotificationPermission()
+
 	private fun restart() { godot.primaryHost?.onGodotRestartRequested(godot) }
 
 	private fun alert(message: String, title: String) {

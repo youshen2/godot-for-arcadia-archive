@@ -43,6 +43,14 @@ bool MobilePersistentNotification::is_active() const {
 	return OS::get_singleton()->is_mobile_persistent_notification_active();
 }
 
+bool MobilePersistentNotification::has_notification_permission() const {
+	return OS::get_singleton()->has_mobile_persistent_notification_permission();
+}
+
+bool MobilePersistentNotification::request_notification_permission() {
+	return OS::get_singleton()->request_mobile_persistent_notification_permission();
+}
+
 Error MobilePersistentNotification::start(const String &p_title, const String &p_message) {
 	return OS::get_singleton()->show_mobile_persistent_notification(p_title, p_message);
 }
@@ -62,6 +70,8 @@ void MobilePersistentNotification::stop() {
 void MobilePersistentNotification::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_supported"), &MobilePersistentNotification::is_supported);
 	ClassDB::bind_method(D_METHOD("is_active"), &MobilePersistentNotification::is_active);
+	ClassDB::bind_method(D_METHOD("has_notification_permission"), &MobilePersistentNotification::has_notification_permission);
+	ClassDB::bind_method(D_METHOD("request_notification_permission"), &MobilePersistentNotification::request_notification_permission);
 	ClassDB::bind_method(D_METHOD("start", "title", "message"), &MobilePersistentNotification::start);
 	ClassDB::bind_method(D_METHOD("update", "title", "message"), &MobilePersistentNotification::update);
 	ClassDB::bind_method(D_METHOD("stop"), &MobilePersistentNotification::stop);

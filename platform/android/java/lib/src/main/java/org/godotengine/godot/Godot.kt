@@ -30,6 +30,7 @@
 
 package org.godotengine.godot
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.*
@@ -47,6 +48,8 @@ import android.view.*
 import android.widget.FrameLayout
 import androidx.annotation.Keep
 import androidx.annotation.StringRes
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.toColorInt
 import androidx.core.view.ViewCompat
@@ -678,6 +681,30 @@ class Godot private constructor(val context: Context) {
 	}
 
 	fun isMobilePersistentNotificationActive() = MobilePersistentNotificationService.isActive()
+
+	fun hasMobilePersistentNotificationPermission(): Boolean {
+		if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+			return false
+		}
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+			return true
+		}
+		return ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+	}
+
+	fun requestMobilePersistentNotificationPermission(): Boolean {
+		if (hasMobilePersistentNotificationPermission()) {
+			return true
+		}
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+			return false
+		}
+		if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+			return false
+		}
+		val activity = getActivity() ?: return false
+		return requestPermission(Manifest.permission.POST_NOTIFICATIONS, activity)
+	}
 
 	fun onStart(host: GodotHost) {
 		Log.v(TAG, "OnStart: $host")

@@ -30,9 +30,40 @@
 
 #import "os_ios.h"
 
+#include "core/os/main_loop.h"
+#include "core/string/string_name.h"
+
 #import "display_server_ios.h"
 
 #ifdef IOS_ENABLED
+
+#import <UserNotifications/UserNotifications.h>
+
+static const char *IOS_NOTIFICATION_PERMISSION = "appleembedded.permission.NOTIFICATIONS";
+
+static bool _is_ios_notification_authorization_status_granted(UNAuthorizationStatus p_status) {
+	switch (p_status) {
+		case UNAuthorizationStatusAuthorized:
+		case UNAuthorizationStatusProvisional:
+		case UNAuthorizationStatusEphemeral:
+			return true;
+		default:
+			return false;
+	}
+}
+
+static UNAuthorizationStatus _get_ios_notification_authorization_status() {
+	__block UNAuthorizationStatus status = UNAuthorizationStatusNotDetermined;
+	dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+	[[UNUserNotificationCenter currentNotificationCenter] getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
+		status = settings.authorizationStatus;
+		dispatch_semaphore_signal(semaphore);
+	}];
+	if (dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) != 0) {
+		return UNAuthorizationStatusDenied;
+	}
+	return status;
+}
 
 OS_IOS *OS_IOS::get_singleton() {
 	return (OS_IOS *)OS_AppleEmbedded::get_singleton();
@@ -55,6 +86,30 @@ bool OS_IOS::is_mobile_persistent_notification_supported() const {
 
 bool OS_IOS::is_mobile_persistent_notification_active() const {
 	return mobile_persistent_notification_active;
+}
+
+bool OS_IOS::has_mobile_persistent_notification_permission() const {
+	return _is_ios_notification_authorization_status_granted(_get_ios_notification_authorization_status());
+}
+
+bool OS_IOS::request_mobile_persistent_notification_permission() {
+	UNAuthorizationStatus status = _get_ios_notification_authorization_status();
+	if (_is_ios_notification_authorization_status_granted(status)) {
+		return true;
+	}
+	if (status == UNAuthorizationStatusDenied) {
+		return false;
+	}
+
+	UNAuthorizationOptions options = UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge;
+	[[UNUserNotificationCenter currentNotificationCenter] requestAuthorizationWithOptions:options completionHandler:^(BOOL granted, NSError *p_error) {
+		(void)p_error;
+		OS_IOS *os_ios = OS_IOS::get_singleton();
+		if (os_ios && os_ios->get_main_loop()) {
+			os_ios->get_main_loop()->emit_signal(SNAME("on_request_permissions_result"), String(IOS_NOTIFICATION_PERMISSION), (bool)granted);
+		}
+	}];
+	return false;
 }
 
 Error OS_IOS::show_mobile_persistent_notification(const String &p_title, const String &p_message) {
