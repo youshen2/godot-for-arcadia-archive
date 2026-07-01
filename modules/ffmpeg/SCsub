@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 
 import os
+import platform
 import shlex
 import subprocess
+import sys
 
 Import("env")
 Import("env_modules")
@@ -113,6 +115,157 @@ def ffmpeg_platform_flags():
     return ["--arch=%s" % arch]
 
 
+def ffmpeg_subst(value):
+    return env.subst(str(value))
+
+
+def ffmpeg_tool_option(option, key):
+    tool = env.get(key, "")
+    if not tool:
+        return []
+    return ["--%s=%s" % (option, ffmpeg_subst(tool))]
+
+
+def ffmpeg_sibling_tool(tool, replacements):
+    if not tool:
+        return ""
+
+    directory = os.path.dirname(tool)
+    basename = os.path.basename(tool)
+    for old_suffix, new_suffix in replacements:
+        if basename.endswith(old_suffix):
+            return os.path.join(directory, basename[: -len(old_suffix)] + new_suffix)
+    return ""
+
+
+def ffmpeg_join_flags(flags):
+    return " ".join(shlex.quote(flag) for flag in flags)
+
+
+def ffmpeg_apple_embedded_toolchain_flags():
+    if env["platform"] not in ["ios", "visionos"]:
+        return []
+
+    sdk_path = ffmpeg_subst("$APPLE_SDK_PATH")
+    if not sdk_path:
+        raise RuntimeError("Apple SDK path was not configured for the FFmpeg build.")
+
+    if env["platform"] == "ios":
+        min_version_flag = "-mios-simulator-version-min=14.0" if env["simulator"] else "-miphoneos-version-min=14.0"
+    else:
+        min_version_flag = "-mtargetos=xros26.0-simulator" if env["simulator"] else "-mtargetos=xros26.0"
+
+    arch_flags = ["-arch", env["arch"]]
+    sdk_flags = ["-isysroot", sdk_path]
+    cflags = [min_version_flag] + arch_flags + sdk_flags
+    ldflags = [min_version_flag] + arch_flags + sdk_flags
+
+    return (
+        ffmpeg_tool_option("cc", "CC")
+        + ffmpeg_tool_option("cxx", "CXX")
+        + ffmpeg_tool_option("as", "S_compiler")
+        + ffmpeg_tool_option("ar", "AR")
+        + ffmpeg_tool_option("ranlib", "RANLIB")
+        + [
+            "--sysroot=%s" % sdk_path,
+            "--extra-cflags=%s" % ffmpeg_join_flags(cflags),
+            "--extra-cxxflags=%s" % ffmpeg_join_flags(cflags),
+            "--extra-ldflags=%s" % ffmpeg_join_flags(ldflags),
+        ]
+    )
+
+
+def android_target_triple():
+    return {
+        "x86_32": "i686-linux-android",
+        "x86_64": "x86_64-linux-android",
+        "arm32": "armv7a-linux-androideabi",
+        "arm64": "aarch64-linux-android",
+    }.get(env["arch"], "")
+
+
+def android_host_subpath():
+    if sys.platform.startswith("linux"):
+        return "linux-x86_64"
+    if sys.platform.startswith("darwin"):
+        return "darwin-x86_64"
+    if sys.platform.startswith("win"):
+        if platform.machine().endswith("64"):
+            return "windows-x86_64"
+        return "windows"
+    return ""
+
+
+def ffmpeg_android_toolchain_flags():
+    if env["platform"] != "android":
+        return []
+
+    target_triple = android_target_triple()
+    if not target_triple:
+        return []
+
+    ndk_root = env.get("ANDROID_NDK_ROOT", "")
+    host_subpath = android_host_subpath()
+    if not ndk_root or not host_subpath:
+        raise RuntimeError("Android NDK toolchain was not configured for the FFmpeg build.")
+
+    toolchain_path = os.path.join(ndk_root, "toolchains", "llvm", "prebuilt", host_subpath)
+    compiler_path = os.path.join(toolchain_path, "bin")
+    sysroot = os.path.join(toolchain_path, "sysroot")
+    tool_suffix = ".exe" if os.name == "nt" else ""
+
+    def tool(name):
+        return os.path.join(compiler_path, name + tool_suffix)
+
+    api_level = str(env["ndk_platform"]).rsplit("-", 1)[-1]
+    target = target_triple + api_level
+
+    cflags = ["-target", target]
+    if env["arch"] == "arm32":
+        cflags += ["-march=armv7-a", "-mfloat-abi=softfp"]
+    elif env["arch"] == "arm64":
+        cflags += ["-mfix-cortex-a53-835769"]
+
+    ldflags = ["-target", target]
+
+    return [
+        "--cc=%s" % tool("clang"),
+        "--cxx=%s" % tool("clang++"),
+        "--as=%s" % tool("clang"),
+        "--ld=%s" % tool("clang"),
+        "--ar=%s" % tool("llvm-ar"),
+        "--ranlib=%s" % tool("llvm-ranlib"),
+        "--nm=%s" % tool("llvm-nm"),
+        "--strip=%s" % tool("llvm-strip"),
+        "--sysroot=%s" % sysroot,
+        "--extra-cflags=%s" % ffmpeg_join_flags(cflags),
+        "--extra-cxxflags=%s" % ffmpeg_join_flags(cflags),
+        "--extra-ldflags=%s" % ffmpeg_join_flags(ldflags),
+    ]
+
+
+def ffmpeg_windows_toolchain_flags():
+    if env["platform"] != "windows" or not env.get("use_mingw", True):
+        return []
+
+    flags = (
+        ffmpeg_tool_option("cc", "CC")
+        + ffmpeg_tool_option("cxx", "CXX")
+        + ffmpeg_tool_option("as", "AS")
+        + ffmpeg_tool_option("ar", "AR")
+        + ffmpeg_tool_option("ranlib", "RANLIB")
+        + ffmpeg_tool_option("strip", "STRIP")
+        + ffmpeg_tool_option("windres", "RC")
+    )
+
+    ar = ffmpeg_subst(env.get("AR", ""))
+    nm = ffmpeg_sibling_tool(ar, [("gcc-ar", "gcc-nm"), ("llvm-ar", "llvm-nm"), ("ar", "nm")])
+    if nm:
+        flags.append("--nm=%s" % nm)
+
+    return flags
+
+
 def make_jobs():
     jobs = env.get("ffmpeg_make_jobs", "")
     if jobs:
@@ -166,6 +319,9 @@ if not has_ffmpeg_install(ffmpeg_include_dir, ffmpeg_lib_dir):
             "--disable-x86asm",
         ]
         configure_flags += ffmpeg_platform_flags()
+        configure_flags += ffmpeg_apple_embedded_toolchain_flags()
+        configure_flags += ffmpeg_android_toolchain_flags()
+        configure_flags += ffmpeg_windows_toolchain_flags()
         extra_flags = env.get("ffmpeg_configure_flags", "")
         if extra_flags:
             configure_flags += shlex.split(extra_flags)
