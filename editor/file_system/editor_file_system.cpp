@@ -60,6 +60,10 @@ EditorFileSystem::ScannedDirectory *EditorFileSystem::first_scan_root_dir = null
 //the name is the version, to keep compatibility with different versions of Godot
 #define CACHE_FILE_NAME "filesystem_cache10"
 #define EXCLUDED_DIRECTORIES_SETTING "editor/file_system/excluded_directories"
+#define BUILTIN_DS_INSPECTOR_SOURCE_RELATIVE_PATH "editor/builtin_addons/ds_inspector"
+#define BUILTIN_DS_INSPECTOR_TARGET_RELATIVE_PATH "addons/ds_inspector"
+#define BUILTIN_DS_INSPECTOR_PLUGIN_PATH "res://addons/ds_inspector/plugin.cfg"
+#define BUILTIN_DS_INSPECTOR_INSTALLED_SETTING "editor_plugins/builtin_ds_inspector_installed"
 
 static bool _string_vector_equal(const Vector<String> &p_left, const Vector<String> &p_right) {
 	if (p_left.size() != p_right.size()) {
@@ -73,6 +77,183 @@ static bool _string_vector_equal(const Vector<String> &p_left, const Vector<Stri
 	}
 
 	return true;
+}
+
+static bool _is_builtin_ds_inspector_source_dir(const String &p_dir) {
+	return DirAccess::exists(p_dir) &&
+			FileAccess::exists(p_dir.path_join("plugin.cfg")) &&
+			FileAccess::exists(p_dir.path_join("DsInspector.gd"));
+}
+
+static void _add_builtin_ds_inspector_source_candidate(Vector<String> &r_candidates, const String &p_base_dir) {
+	if (p_base_dir.is_empty()) {
+		return;
+	}
+
+	const String candidate = p_base_dir.path_join(BUILTIN_DS_INSPECTOR_SOURCE_RELATIVE_PATH).simplify_path();
+	for (int i = 0; i < r_candidates.size(); i++) {
+		if (r_candidates[i] == candidate) {
+			return;
+		}
+	}
+
+	r_candidates.push_back(candidate);
+}
+
+static void _add_builtin_ds_inspector_source_candidates_from_base(Vector<String> &r_candidates, String p_base_dir) {
+	for (int i = 0; i < 8 && !p_base_dir.is_empty(); i++) {
+		_add_builtin_ds_inspector_source_candidate(r_candidates, p_base_dir);
+
+		const String parent_dir = p_base_dir.get_base_dir();
+		if (parent_dir == p_base_dir) {
+			break;
+		}
+		p_base_dir = parent_dir;
+	}
+}
+
+static String _find_builtin_ds_inspector_source_dir() {
+	Vector<String> candidates;
+	_add_builtin_ds_inspector_source_candidates_from_base(candidates, OS::get_singleton()->get_executable_path().get_base_dir());
+
+	Ref<DirAccess> filesystem_da = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
+	if (filesystem_da.is_valid()) {
+		_add_builtin_ds_inspector_source_candidates_from_base(candidates, filesystem_da->get_current_dir());
+	}
+
+	for (int i = 0; i < candidates.size(); i++) {
+		if (_is_builtin_ds_inspector_source_dir(candidates[i])) {
+			return candidates[i];
+		}
+	}
+
+	return String();
+}
+
+static Error _sync_builtin_ds_inspector_dir(const String &p_from, const String &p_to) {
+	Error err = DirAccess::make_dir_recursive_absolute(p_to);
+	ERR_FAIL_COND_V_MSG(err != OK, err, vformat("Cannot create DsInspector addon directory '%s'.", p_to));
+
+	Ref<DirAccess> source_dir = DirAccess::open(p_from, &err);
+	ERR_FAIL_COND_V_MSG(err != OK, err, vformat("Cannot open built-in DsInspector directory '%s'.", p_from));
+
+	err = source_dir->list_dir_begin();
+	ERR_FAIL_COND_V_MSG(err != OK, err, vformat("Cannot list built-in DsInspector directory '%s'.", p_from));
+
+	String file_name = source_dir->get_next();
+	while (!file_name.is_empty()) {
+		if (file_name != "." && file_name != "..") {
+			const String source_path = p_from.path_join(file_name);
+			const String target_path = p_to.path_join(file_name);
+
+			if (source_dir->current_is_dir()) {
+				err = _sync_builtin_ds_inspector_dir(source_path, target_path);
+			} else {
+				const bool should_copy = !FileAccess::exists(target_path) ||
+						FileAccess::get_modified_time(source_path) > FileAccess::get_modified_time(target_path);
+				if (should_copy) {
+					err = DirAccess::copy_absolute(source_path, target_path);
+				}
+			}
+
+			if (err != OK) {
+				source_dir->list_dir_end();
+				return err;
+			}
+		}
+
+		file_name = source_dir->get_next();
+	}
+
+	source_dir->list_dir_end();
+	return OK;
+}
+
+static bool _is_builtin_ds_inspector_plugin_path(const String &p_plugin_path) {
+	return p_plugin_path == BUILTIN_DS_INSPECTOR_PLUGIN_PATH || p_plugin_path == "ds_inspector";
+}
+
+static void _ensure_builtin_ds_inspector_installed_setting() {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	if (!project_settings->has_setting(BUILTIN_DS_INSPECTOR_INSTALLED_SETTING)) {
+		project_settings->set_setting(BUILTIN_DS_INSPECTOR_INSTALLED_SETTING, false);
+	}
+	project_settings->set_initial_value(BUILTIN_DS_INSPECTOR_INSTALLED_SETTING, false);
+	project_settings->set_as_internal(BUILTIN_DS_INSPECTOR_INSTALLED_SETTING, true);
+}
+
+static void _defer_builtin_ds_inspector_enable_once() {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	_ensure_builtin_ds_inspector_installed_setting();
+	if (bool(project_settings->get_setting(BUILTIN_DS_INSPECTOR_INSTALLED_SETTING))) {
+		return;
+	}
+
+	PackedStringArray enabled_plugins;
+	if (project_settings->has_setting("editor_plugins/enabled")) {
+		enabled_plugins = project_settings->get_setting("editor_plugins/enabled");
+	}
+
+	bool changed = false;
+	for (int i = enabled_plugins.size() - 1; i >= 0; i--) {
+		if (_is_builtin_ds_inspector_plugin_path(enabled_plugins[i])) {
+			enabled_plugins.remove_at(i);
+			changed = true;
+		}
+	}
+
+	if (changed) {
+		project_settings->set_setting("editor_plugins/enabled", enabled_plugins);
+	}
+}
+
+static Error _enable_builtin_ds_inspector_once_after_import() {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	_ensure_builtin_ds_inspector_installed_setting();
+	if (bool(project_settings->get_setting(BUILTIN_DS_INSPECTOR_INSTALLED_SETTING))) {
+		return OK;
+	}
+
+	const String plugin_config_path = project_settings->get_resource_path().path_join(BUILTIN_DS_INSPECTOR_TARGET_RELATIVE_PATH).path_join("plugin.cfg");
+	if (!FileAccess::exists(plugin_config_path)) {
+		return OK;
+	}
+
+	EditorNode *editor_node = EditorNode::get_singleton();
+	ERR_FAIL_NULL_V(editor_node, ERR_UNCONFIGURED);
+
+	if (!editor_node->is_addon_plugin_enabled(BUILTIN_DS_INSPECTOR_PLUGIN_PATH)) {
+		editor_node->set_addon_plugin_enabled(BUILTIN_DS_INSPECTOR_PLUGIN_PATH, true);
+	}
+
+	ERR_FAIL_COND_V_MSG(!editor_node->is_addon_plugin_enabled(BUILTIN_DS_INSPECTOR_PLUGIN_PATH),
+			FAILED,
+			"Built-in DsInspector addon could not be enabled.");
+	project_settings->set_setting(BUILTIN_DS_INSPECTOR_INSTALLED_SETTING, true);
+	return project_settings->save();
+}
+
+static void _ensure_builtin_ds_inspector_addon() {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	if (project_settings->get_resource_path().is_empty()) {
+		return;
+	}
+
+	const String source_dir = _find_builtin_ds_inspector_source_dir();
+	if (source_dir.is_empty()) {
+		WARN_PRINT_ONCE("Built-in DsInspector addon source was not found. Expected it under '"
+				BUILTIN_DS_INSPECTOR_SOURCE_RELATIVE_PATH "'.");
+		return;
+	}
+
+	const String target_dir = project_settings->get_resource_path().path_join(BUILTIN_DS_INSPECTOR_TARGET_RELATIVE_PATH);
+	Error err = _sync_builtin_ds_inspector_dir(source_dir, target_dir);
+	if (err != OK) {
+		WARN_PRINT_ONCE(vformat("Failed to install built-in DsInspector addon into '%s' (error %d).", target_dir, err));
+		return;
+	}
+
+	_defer_builtin_ds_inspector_enable_once();
 }
 
 int EditorFileSystemDirectory::find_file_index(const String &p_file) const {
@@ -273,6 +454,8 @@ EditorFileSystem::ScannedDirectory::~ScannedDirectory() {
 }
 
 void EditorFileSystem::_load_first_scan_root_dir() {
+	_ensure_builtin_ds_inspector_addon();
+
 	Ref<DirAccess> d = DirAccess::create(DirAccess::ACCESS_RESOURCES);
 	first_scan_root_dir = memnew(ScannedDirectory);
 	first_scan_root_dir->full_path = "res://";
@@ -1087,6 +1270,13 @@ bool EditorFileSystem::_update_scan_actions() {
 	// Moving the processing of pending updates before the resources_reload event to be sure all global class names
 	// are updated. Script.cpp listens on resources_reload and reloads updated scripts.
 	_process_update_pending();
+
+	if (first_scan) {
+		Error err = _enable_builtin_ds_inspector_once_after_import();
+		if (err != OK) {
+			WARN_PRINT_ONCE(vformat("Failed to enable built-in DsInspector addon after importing resources (error %d).", err));
+		}
+	}
 
 	if (reloads.size()) {
 		emit_signal(SNAME("resources_reload"), reloads);

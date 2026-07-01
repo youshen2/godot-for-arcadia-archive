@@ -63,6 +63,11 @@ Comment: Godot Engine logo
 Copyright: 2017, Andrea Calabró
 License: CC-BY-4.0
 
+Files: editor/builtin_addons/ds_inspector/*
+Comment: DsInspector
+Copyright: 2025, xlljc
+License: Expat
+
 Files: modules/betsy/alpha_stitch.glsl
  modules/betsy/bc1.glsl
  modules/betsy/bc4.glsl
