@@ -464,6 +464,33 @@ String OS::get_processor_name() const {
 	return "";
 }
 
+int OS::get_default_thread_pool_size() const {
+#ifdef THREADS_ENABLED
+	const int processor_count = MAX(1, get_processor_count());
+
+#if defined(ANDROID_ENABLED)
+	// Mobile SoCs often combine performance and efficiency cores. Keep enough
+	// headroom for the main/render/audio threads and for thermal stability.
+	const int reserved_threads = processor_count >= 6 ? 2 : 1;
+	return processor_count <= 2 ? processor_count : CLAMP(processor_count - reserved_threads, 1, 6);
+#elif defined(IOS_ENABLED)
+	// iOS applies QoS-aware scheduling, but leaving one core free avoids fighting
+	// the main thread during frames and OS callbacks.
+	return processor_count <= 2 ? processor_count : CLAMP(processor_count - 1, 1, 6);
+#elif defined(MACOS_ENABLED)
+	// macOS desktops and laptops can sustain more parallel work, while one or
+	// two cores of headroom keeps rendering and system callbacks responsive.
+	return MAX(1, processor_count - (processor_count >= 8 ? 2 : 1));
+#elif defined(WINDOWS_ENABLED)
+	return MAX(1, processor_count - 1);
+#else
+	return processor_count;
+#endif
+#else
+	return 1;
+#endif
+}
+
 void OS::set_has_server_feature_callback(HasServerFeatureCallback p_callback) {
 	has_server_feature_callback = p_callback;
 }

@@ -33,6 +33,9 @@
 #include "core/os/thread.h"
 
 #include <android/log.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 static JavaVM *java_vm = nullptr;
 static thread_local JNIEnv *env = nullptr;
@@ -60,10 +63,42 @@ static void term_thread() {
 	env = nullptr;
 }
 
+static int get_android_thread_id() {
+#ifdef SYS_gettid
+	return (int)syscall(SYS_gettid);
+#else
+	return 0;
+#endif
+}
+
+static void set_priority(Thread::Priority p_priority) {
+	int nice_value = 0;
+	switch (p_priority) {
+		case Thread::PRIORITY_LOW:
+			nice_value = 10;
+			break;
+		case Thread::PRIORITY_NORMAL:
+			nice_value = 0;
+			break;
+		case Thread::PRIORITY_HIGH:
+			nice_value = -2;
+			break;
+	}
+
+	const int thread_id = get_android_thread_id();
+	if (setpriority(PRIO_PROCESS, thread_id, nice_value) != 0 && nice_value < 0) {
+		setpriority(PRIO_PROCESS, thread_id, 0);
+	}
+}
+
 void init_thread_jandroid(JavaVM *p_jvm, JNIEnv *p_env) {
 	java_vm = p_jvm;
 	env = p_env;
-	Thread::_set_platform_functions({ .init = init_thread, .term = &term_thread });
+	Thread::PlatformFunctions functions;
+	functions.set_priority = set_priority;
+	functions.init = init_thread;
+	functions.term = &term_thread;
+	Thread::_set_platform_functions(functions);
 }
 
 void setup_android_thread() {

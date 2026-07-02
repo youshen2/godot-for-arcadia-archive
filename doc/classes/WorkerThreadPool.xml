@@ -61,6 +61,21 @@
 				[b]Warning:[/b] Every task must be waited for completion using [method wait_for_task_completion] or [method wait_for_group_task_completion] at some point so that any allocated resources inside the task can be cleaned up.
 			</description>
 		</method>
+		<method name="add_parallel_task">
+			<return type="int" />
+			<param index="0" name="action" type="Callable" />
+			<param index="1" name="elements" type="int" />
+			<param index="2" name="min_elements_per_range" type="int" default="0" />
+			<param index="3" name="high_priority" type="bool" default="false" />
+			<param index="4" name="description" type="String" default="&quot;&quot;" />
+			<description>
+				添加一个按连续区间执行的高性能并行任务。线程池会根据当前平台和可用工作线程数量，把 [param elements] 个元素拆分为多个 [code][start, end)[/code] 区间，并在工作线程上调用 [param action]。回调需要接收两个整数参数：第一个参数是起始索引，第二个参数是结束索引，结束索引不包含在区间内。
+				[param min_elements_per_range] 大于 [code]0[/code] 时，会限制每个区间尽量不少于该数量的元素，最后一个区间除外；传入 [code]0[/code] 时使用平台自适应拆分。Android 和 iOS 会倾向于更少、更大的区间以降低调度开销和热量压力，Windows 和 macOS 会使用更多区间改善多核心负载均衡。
+				该方法适合处理大数组、像素块、路径搜索、批量物理或 AI 计算等 CPU 密集型工作。不要在回调中直接访问非线程安全的节点、场景树或资源状态；需要回到主线程的操作应通过延迟调用、消息队列或其它线程安全机制完成。
+				返回的组任务 ID 可传给 [method wait_for_group_task_completion]、[method is_group_task_completed] 和 [method get_group_processed_element_count]。对于该方法创建的任务，[method get_group_processed_element_count] 返回已经完成的区间数量，而不是已经处理的元素数量。
+				[b]Warning:[/b] 每个任务最终都必须调用 [method wait_for_group_task_completion] 等待完成，以便释放任务内部资源。
+			</description>
+		</method>
 		<method name="add_task">
 			<return type="int" />
 			<param index="0" name="action" type="Callable" />
@@ -92,6 +107,13 @@
 			<description>
 				Returns how many times the [Callable] of the group task with the given ID has already been executed by the worker threads.
 				[b]Note:[/b] If a thread has started executing the [Callable] but is yet to finish, it won't be counted.
+			</description>
+		</method>
+		<method name="get_thread_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回当前 [WorkerThreadPool] 中已经启动的工作线程数量。该数量会在启动时根据平台进行选择：移动平台会保留更多主线程、渲染和系统回调余量，桌面平台会更积极地利用可用核心。
+				该值可用于决定批量任务的粒度，但通常更建议使用 [method add_parallel_task] 的自适应拆分。
 			</description>
 		</method>
 		<method name="is_group_task_completed" qualifiers="const">

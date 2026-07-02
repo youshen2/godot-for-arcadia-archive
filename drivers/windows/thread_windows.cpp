@@ -49,10 +49,29 @@ static Error set_name(const String &p_name) {
 	return SUCCEEDED(res) ? OK : ERR_INVALID_PARAMETER;
 }
 
+static void set_priority(Thread::Priority p_priority) {
+	int priority = THREAD_PRIORITY_NORMAL;
+	switch (p_priority) {
+		case Thread::PRIORITY_LOW:
+			priority = THREAD_PRIORITY_BELOW_NORMAL;
+			break;
+		case Thread::PRIORITY_NORMAL:
+			priority = THREAD_PRIORITY_NORMAL;
+			break;
+		case Thread::PRIORITY_HIGH:
+			priority = THREAD_PRIORITY_ABOVE_NORMAL;
+			break;
+	}
+	SetThreadPriority(GetCurrentThread(), priority);
+}
+
 void init_thread_win() {
 	w10_SetThreadDescription = (SetThreadDescriptionPtr)(void *)GetProcAddress(LoadLibraryW(L"kernel32.dll"), "SetThreadDescription");
 
-	Thread::_set_platform_functions({ set_name });
+	Thread::PlatformFunctions functions;
+	functions.set_name = set_name;
+	functions.set_priority = set_priority;
+	Thread::_set_platform_functions(functions);
 }
 
 #endif // WINDOWS_ENABLED

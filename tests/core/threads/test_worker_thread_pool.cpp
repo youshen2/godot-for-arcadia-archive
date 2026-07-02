@@ -86,6 +86,11 @@ static void static_callable_group_test(uint32_t p_index) {
 	counter[p_index].increment();
 	counter[0].sub(2);
 }
+static void static_parallel_range_test(int p_begin, int p_end) {
+	for (int i = p_begin; i < p_end; i++) {
+		counter[i].increment();
+	}
+}
 TEST_CASE("[WorkerThreadPool] Process elements using group tasks") {
 	for (int iterations = 0; iterations < 500; iterations++) {
 		const int count = Math::pow(2.0f, Math::random(0.0f, 5.0f));
@@ -106,6 +111,22 @@ TEST_CASE("[WorkerThreadPool] Process elements using group tasks") {
 		}
 		CHECK(all_run_once);
 	}
+}
+
+TEST_CASE("[WorkerThreadPool] Process contiguous ranges using parallel tasks") {
+	const int count = 257;
+
+	counter.clear();
+	counter.resize(count);
+
+	WorkerThreadPool::GroupID group = WorkerThreadPool::get_singleton()->add_parallel_task(callable_mp_static(static_parallel_range_test), count, 7, true);
+	WorkerThreadPool::get_singleton()->wait_for_group_task_completion(group);
+
+	bool all_run_once = true;
+	for (int i = 0; i < count; i++) {
+		all_run_once &= counter[i].get() == 1;
+	}
+	CHECK(all_run_once);
 }
 
 static void static_test_daemon(void *p_arg) {

@@ -707,6 +707,45 @@ WorkerThreadPool::GroupID WorkerThreadPool::add_group_task(const Callable &p_act
 	return _add_group_task(p_action, nullptr, nullptr, nullptr, p_elements, p_tasks, p_high_priority, p_description);
 }
 
+int WorkerThreadPool::_get_parallel_task_chunk_count(int p_elements, int p_min_elements_per_range) const {
+	if (p_elements <= 0) {
+		return 0;
+	}
+
+	const int thread_count = MAX(1, get_thread_count());
+	int chunk_multiplier = 4;
+#if defined(ANDROID_ENABLED) || defined(IOS_ENABLED)
+	chunk_multiplier = 2;
+#elif defined(MACOS_ENABLED)
+	chunk_multiplier = 3;
+#endif
+
+	int chunk_count = (int)MIN((int64_t)p_elements, (int64_t)thread_count * chunk_multiplier);
+	if (p_min_elements_per_range > 0) {
+		const int64_t max_chunks_for_range_size = MAX((int64_t)1, ((int64_t)p_elements + p_min_elements_per_range - 1) / p_min_elements_per_range);
+		chunk_count = MIN(chunk_count, (int)max_chunks_for_range_size);
+	}
+
+	return MAX(1, chunk_count);
+}
+
+WorkerThreadPool::GroupID WorkerThreadPool::add_parallel_task(const Callable &p_action, int p_elements, int p_min_elements_per_range, bool p_high_priority, const String &p_description) {
+	ERR_FAIL_COND_V(p_elements < 0, INVALID_TASK_ID);
+
+	const int chunk_count = _get_parallel_task_chunk_count(p_elements, p_min_elements_per_range);
+	if (chunk_count == 0) {
+		return _add_group_task(Callable(), nullptr, nullptr, nullptr, 0, 0, p_high_priority, p_description);
+	}
+
+	ParallelTaskUserData *userdata = memnew(ParallelTaskUserData);
+	userdata->callable = p_action;
+	userdata->elements = p_elements;
+	userdata->chunk_size = (int)(((int64_t)p_elements + chunk_count - 1) / chunk_count);
+
+	const int task_count = MIN(MAX(1, get_thread_count()), chunk_count);
+	return _add_group_task(Callable(), nullptr, nullptr, userdata, chunk_count, task_count, p_high_priority, p_description);
+}
+
 uint32_t WorkerThreadPool::get_group_processed_element_count(GroupID p_group) const {
 	MutexLock task_lock(task_mutex);
 	const Group *const *groupp = groups.getptr(p_group);
@@ -893,10 +932,12 @@ void WorkerThreadPool::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_caller_task_id"), &WorkerThreadPool::get_caller_task_id);
 
 	ClassDB::bind_method(D_METHOD("add_group_task", "action", "elements", "tasks_needed", "high_priority", "description"), &WorkerThreadPool::add_group_task, DEFVAL(-1), DEFVAL(false), DEFVAL(String()));
+	ClassDB::bind_method(D_METHOD("add_parallel_task", "action", "elements", "min_elements_per_range", "high_priority", "description"), &WorkerThreadPool::add_parallel_task, DEFVAL(0), DEFVAL(false), DEFVAL(String()));
 	ClassDB::bind_method(D_METHOD("is_group_task_completed", "group_id"), &WorkerThreadPool::is_group_task_completed);
 	ClassDB::bind_method(D_METHOD("get_group_processed_element_count", "group_id"), &WorkerThreadPool::get_group_processed_element_count);
 	ClassDB::bind_method(D_METHOD("wait_for_group_task_completion", "group_id"), &WorkerThreadPool::wait_for_group_task_completion);
 	ClassDB::bind_method(D_METHOD("get_caller_group_id"), &WorkerThreadPool::get_caller_group_id);
+	ClassDB::bind_method(D_METHOD("get_thread_count"), &WorkerThreadPool::get_thread_count);
 }
 
 WorkerThreadPool *WorkerThreadPool::get_named_pool(const StringName &p_name) {

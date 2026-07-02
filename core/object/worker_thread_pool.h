@@ -217,10 +217,25 @@ private:
 		}
 	};
 
+	struct ParallelTaskUserData : public BaseTemplateUserdata {
+		Callable callable;
+		int elements = 0;
+		int chunk_size = 1;
+
+		virtual void callback_indexed(uint32_t p_index) override {
+			const int64_t begin = MIN((int64_t)p_index * chunk_size, (int64_t)elements);
+			const int64_t end = MIN(begin + chunk_size, (int64_t)elements);
+			if (begin < end) {
+				callable.call((int)begin, (int)end);
+			}
+		}
+	};
+
 	void _wait_collaboratively(ThreadData *p_caller_pool_thread, Task *p_task);
 
 	void _switch_runlevel(Runlevel p_runlevel);
 	bool _handle_runlevel(ThreadData *p_thread_data, MutexLock<BinaryMutex> &p_lock);
+	int _get_parallel_task_chunk_count(int p_elements, int p_min_elements_per_range) const;
 
 #ifdef THREADS_ENABLED
 	static uint32_t _thread_enter_unlock_allowance_zone(THREADING_NAMESPACE::unique_lock<THREADING_NAMESPACE::mutex> &p_ulock);
@@ -263,6 +278,7 @@ public:
 	}
 	GroupID add_native_group_task(void (*p_func)(void *, uint32_t), void *p_userdata, int p_elements, int p_tasks = -1, bool p_high_priority = false, const String &p_description = String());
 	GroupID add_group_task(const Callable &p_action, int p_elements, int p_tasks = -1, bool p_high_priority = false, const String &p_description = String());
+	GroupID add_parallel_task(const Callable &p_action, int p_elements, int p_min_elements_per_range = 0, bool p_high_priority = false, const String &p_description = String());
 	uint32_t get_group_processed_element_count(GroupID p_group) const;
 	bool is_group_task_completed(GroupID p_group) const;
 	void wait_for_group_task_completion(GroupID p_group);

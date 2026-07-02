@@ -17,6 +17,7 @@
 - `AudioStreamFFmpeg`：新增基于 FFmpeg 的音频资源，供 `AudioStreamPlayer`、`AudioStreamPlayer2D`、`AudioStreamPlayer3D` 播放 FFmpeg 支持的音频文件或媒体容器音频流。支持请求头、指定流索引、ICY 元数据读取、标签和时长探测，并在播放器上提供 `parameters/loop`、`parameters/loop_start`、`parameters/loop_end`、`parameters/end_time`、`parameters/downmix_to_mono` 等播放参数。GDScript 和 Mono / C# 可用。
 - `GIFReader`、`GIFWriter`、`GIFTexture`、`GIFPlayer`：内置 godothub/godot-gif GIF 模块，基于随模块编译的 giflib 支持读取 GIF 文件或内存数据、写出 GIF 文件或内存缓冲区、将 `.gif` 导入为按需解码的 `GIFTexture` 资源，以及通过 `GIFPlayer` 控件播放动画 GIF。相关类、方法、属性和枚举通过 ClassDB 注册，GDScript 和 Mono / C# 均可用；`ResourceImporterGIFTexture` 在编辑器中负责 `.gif` 资源导入，`.gif` 不再由 `VideoStreamFFmpeg` 识别为视频资源。
 - `DsInspector`：内置 xlljc/DsInspector 编辑器调试插件。编辑器首次扫描项目文件系统前，会将引擎随附的 `editor/builtin_addons/ds_inspector` 同步到项目 `res://addons/ds_inspector`，并在首次安装时自动加入 `editor_plugins/enabled`；之后用户可在插件页正常关闭，不会被反复强制启用。该插件用于运行时查看/筛选场景树、检查并修改节点属性、选取和高亮节点、记录常用节点、打开脚本或场景等调试操作。它是 GDScript 编辑器插件和 autoload 级脚本接口，不新增 ClassDB 原生类；GDScript 可按普通插件/节点使用，Mono / C# 可通过 Godot 的节点、autoload 和 Variant 调用方式访问，但不会生成新的 C# 强类型绑定。
+- `WorkerThreadPool`：新增 `add_parallel_task(action, elements, min_elements_per_range := 0, high_priority := false, description := "")` 和 `get_thread_count()` 脚本接口。`add_parallel_task` 会按平台自适应地把连续元素范围拆分到工作线程，回调接收 `start`、`end` 两个整数参数，适合大数组、像素块、AI、路径搜索等 CPU 密集批量任务；该接口通过 ClassDB 注册，GDScript 和 Mono / C# 均可用。Android、iOS、Windows、macOS 的默认工作线程数量加入平台化策略，Windows 和 Android 的 `Thread` 优先级映射也同步补齐。
 
 使用时不需要ClassDB.class_exists和ClassDB.instantiate，直接当现有存在的类就行。
 
