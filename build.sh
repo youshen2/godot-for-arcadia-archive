@@ -292,14 +292,8 @@ clean_template_targets() {
   rm -rf "$TEMPLATE_OUTPUT_DIR"
 
   # Android
-  rm -f bin/libgodot.android.template_release.arm32.moye.mono.so
-  rm -f bin/libgodot.android.template_release.arm64.moye.mono.so
-  rm -f bin/libgodot.android.template_release.x86_32.moye.mono.so
-  rm -f bin/libgodot.android.template_release.x86_64.moye.mono.so
-  rm -f bin/libgodot.android.template_release.arm32.moye.so
-  rm -f bin/libgodot.android.template_release.arm64.moye.so
-  rm -f bin/libgodot.android.template_release.x86_32.moye.so
-  rm -f bin/libgodot.android.template_release.x86_64.moye.so
+  rm -f bin/libgodot.android.template_*.moye.so
+  rm -f bin/libgodot.android.template_*.moye.mono.so
 
   rm -f bin/android_source.zip
   rm -f bin/android_debug.apk
@@ -323,6 +317,8 @@ clean_template_targets() {
   rm -f bin/godot.windows.template_debug.arm64.moye.mono.console.exe
   rm -f bin/godot.windows.template_release.arm64.moye.mono.exe
   rm -f bin/godot.windows.template_release.arm64.moye.mono.console.exe
+  rm -f bin/godot.windows.template_*.llvm.moye.mono.exe
+  rm -f bin/godot.windows.template_*.llvm.moye.mono.console.exe
 
   # macOS
   rm -f bin/godot.macos.template_debug.arm64.moye.mono
@@ -335,8 +331,11 @@ clean_template_targets() {
   rm -rf bin/macos_template.app
   rm -f bin/macos.zip
   rm -f bin/macos_template.zip
+  rm -f bin/godot_macos_moye_mono.zip
 
   # iOS
+  rm -f bin/libgodot.ios.template_debug.arm64.moye.a
+  rm -f bin/libgodot.ios.template_release.arm64.moye.a
   rm -f bin/libgodot.ios.template_debug.arm64.moye.mono.a
   rm -f bin/libgodot.ios.template_release.arm64.moye.mono.a
 
@@ -350,6 +349,7 @@ clean_template_targets() {
   rm -f bin/ios_template.zip
   rm -f bin/ios_template_debug.zip
   rm -f bin/ios_template_release.zip
+  rm -f bin/godot_ios_moye.zip
 
   echo ">>> export template 清理完成"
 }
@@ -361,12 +361,26 @@ template_target_dir() {
   echo "$TEMPLATE_OUTPUT_DIR/$platform/$target_name"
 }
 
+platform_template_output_dir() {
+  local platform="$1"
+
+  echo "$TEMPLATE_OUTPUT_DIR/$platform"
+}
+
 android_template_output_dir() {
-  echo "$TEMPLATE_OUTPUT_DIR/android"
+  platform_template_output_dir android
 }
 
 windows_template_output_dir() {
-  echo "$TEMPLATE_OUTPUT_DIR/windows"
+  platform_template_output_dir windows
+}
+
+macos_template_output_dir() {
+  platform_template_output_dir macos
+}
+
+ios_template_output_dir() {
+  platform_template_output_dir ios
 }
 
 windows_llvm_mingw_prefix_is_valid() {
@@ -568,6 +582,32 @@ check_template_output() {
   echo "✅ $name: $path"
 }
 
+check_template_output_candidates_to_log() {
+  local error_log="$1"
+  local label="$2"
+  local name="$3"
+  local path
+
+  shift 3
+
+  for path in "$@"; do
+    if [[ -e "$path" ]]; then
+      echo "✅ $name: $path"
+      return 0
+    fi
+  done
+
+  echo "❌ 缺少产物: $name"
+  echo "候选路径: $*"
+  append_error_log_to \
+    "$error_log" \
+    "缺少构建产物" \
+    "目标: $label" \
+    "产物: $name" \
+    "候选路径: $*"
+  record_template_failure "$label" "$error_log"
+}
+
 check_android_template_output() {
   local label="$1"
   local path="$2"
@@ -594,6 +634,17 @@ check_android_template_output() {
   echo "✅ $name: $path"
 }
 
+check_android_template_output_any() {
+  local label="$1"
+  local name="$2"
+  local error_log
+
+  shift 2
+  error_log="$(android_template_output_dir)/error.log"
+
+  check_template_output_candidates_to_log "$error_log" "$label" "$name" "$@"
+}
+
 check_windows_template_output() {
   local label="$1"
   local path="$2"
@@ -618,6 +669,30 @@ check_windows_template_output() {
   fi
 
   echo "✅ $name: $path"
+}
+
+check_windows_template_output_any() {
+  local label="$1"
+  local name="$2"
+  local error_log
+
+  shift 2
+  error_log="$(windows_template_output_dir)/error.log"
+
+  check_template_output_candidates_to_log "$error_log" "$label" "$name" "$@"
+}
+
+check_platform_template_output_any() {
+  local platform="$1"
+  local label="$2"
+  local name="$3"
+  local error_log
+
+  shift 3
+  error_log="$(platform_template_output_dir "$platform")/error.log"
+  mkdir -p "$(platform_template_output_dir "$platform")"
+
+  check_template_output_candidates_to_log "$error_log" "$label" "$name" "$@"
 }
 
 summarize_template_failures() {
@@ -663,6 +738,210 @@ copy_template_output_as() {
   fi
 }
 
+copy_template_output_first_as() {
+  local target_dir="$1"
+  local target_name="$2"
+  local path
+
+  shift 2
+
+  for path in "$@"; do
+    if [[ -e "$path" ]]; then
+      mkdir -p "$target_dir"
+      mv "$path" "$target_dir/$target_name"
+      echo "✅ 归档 template: $path -> $target_dir/$target_name"
+      return 0
+    fi
+  done
+}
+
+copy_template_file_as() {
+  local path="$1"
+  local target_dir="$2"
+  local target_name="$3"
+
+  if [[ -e "$path" ]]; then
+    mkdir -p "$target_dir"
+    cp -p "$path" "$target_dir/$target_name"
+    echo "✅ 归档 template: $path -> $target_dir/$target_name"
+  fi
+}
+
+cleanup_template_intermediates() {
+  if [[ "${#TEMPLATE_FAILURE_LABELS[@]}" -ne 0 ]]; then
+    echo
+    echo ">>> 存在失败目标，保留 bin/ 中间产物用于排错和增量重试"
+    return 0
+  fi
+
+  echo
+  echo "========== 清理 export template 中间产物 =========="
+
+  rm -f bin/libgodot.android.template_*.moye.so
+  rm -f bin/libgodot.android.template_*.moye.mono.so
+  rm -f bin/android_debug.apk
+  rm -f bin/android_release.apk
+  rm -f bin/android_monoDebug.apk
+  rm -f bin/android_monoRelease.apk
+  rm -f bin/android_source.zip
+  rm -f bin/godot-lib.template_debug.aar
+  rm -f bin/godot-lib.template_release.aar
+
+  rm -f bin/godot.windows.template_*.moye.mono*.exe
+  rm -f bin/godot.windows.template_*.llvm.moye.mono*.exe
+
+  rm -f bin/godot.macos.template_*.moye.mono
+  rm -rf bin/godot_macos_template_debug_moye_mono.app
+  rm -rf bin/godot_macos_template_release_moye_mono.app
+  rm -rf bin/macos_template.app
+  rm -f bin/godot_macos_moye_mono.zip
+  rm -f bin/macos.zip
+  rm -f bin/macos_template.zip
+
+  rm -f bin/libgodot.ios.template_*.moye.a
+  rm -f bin/libgodot.ios.template_*.moye.mono.a
+  rm -rf bin/godot_ios_template_debug_moye_mono
+  rm -rf bin/godot_ios_template_release_moye_mono
+  rm -rf bin/ios_template
+  rm -rf bin/ios_template_debug
+  rm -rf bin/ios_template_release
+  rm -f bin/godot_ios_moye.zip
+  rm -f bin/ios.zip
+  rm -f bin/ios_template.zip
+  rm -f bin/ios_template_debug.zip
+  rm -f bin/ios_template_release.zip
+
+  find "$TEMPLATE_OUTPUT_DIR" -type d -empty -delete
+  echo ">>> 中间产物清理完成"
+}
+
+template_python() {
+  if [[ -x /usr/bin/python3 ]]; then
+    echo /usr/bin/python3
+    return 0
+  fi
+
+  type -P python3 || true
+}
+
+godot_template_version() {
+  local python_bin="$1"
+
+  "$python_bin" - <<'PY'
+import methods
+
+info = methods.get_version_info(".mono", True)
+version = "%d.%d" % (info["major"], info["minor"])
+if info["patch"] > 0:
+    version += ".%d" % info["patch"]
+version += ".%s%s" % (info["status"], info["module_config"])
+print(version)
+PY
+}
+
+create_export_templates_package() {
+  local version
+  local package_name
+  local package_path
+  local package_abs
+  local stage_dir
+  local templates_dir
+  local error_log
+  local python_bin
+  local missing=0
+  local file
+  local required_files
+
+  if [[ "${#TEMPLATE_FAILURE_LABELS[@]}" -ne 0 ]]; then
+    echo
+    echo ">>> 存在失败目标，跳过生成可导入模板包"
+    return 0
+  fi
+
+  echo
+  echo "========== 生成可导入 export templates 包 =========="
+
+  python_bin="$(template_python)"
+  if [[ -z "$python_bin" ]]; then
+    error_log="$TEMPLATE_OUTPUT_DIR/package/error.log"
+    mkdir -p "$(dirname "$error_log")"
+    append_error_log_to "$error_log" "生成模板包失败" "未找到 python3，无法创建 zip 格式模板包。"
+    record_template_failure "Export templates package" "$error_log"
+    return 0
+  fi
+
+  version="$(godot_template_version "$python_bin")"
+  package_name="godot-${version}-moye-export_templates.tpz"
+  package_path="$TEMPLATE_OUTPUT_DIR/$package_name"
+  package_abs="$(cd "$(dirname "$package_path")" && pwd)/$(basename "$package_path")"
+  stage_dir="$TEMPLATE_OUTPUT_DIR/.package"
+  templates_dir="$stage_dir/templates"
+  error_log="$TEMPLATE_OUTPUT_DIR/package/error.log"
+
+  required_files=(
+    "$(android_template_output_dir)/android_debug.apk"
+    "$(android_template_output_dir)/android_release.apk"
+    "$(android_template_output_dir)/android_source.zip"
+    "$(windows_template_output_dir)/windows_debug_x86_32.exe"
+    "$(windows_template_output_dir)/windows_debug_x86_32_console.exe"
+    "$(windows_template_output_dir)/windows_release_x86_32.exe"
+    "$(windows_template_output_dir)/windows_release_x86_32_console.exe"
+    "$(windows_template_output_dir)/windows_debug_x86_64.exe"
+    "$(windows_template_output_dir)/windows_debug_x86_64_console.exe"
+    "$(windows_template_output_dir)/windows_release_x86_64.exe"
+    "$(windows_template_output_dir)/windows_release_x86_64_console.exe"
+    "$(windows_template_output_dir)/windows_debug_arm64.exe"
+    "$(windows_template_output_dir)/windows_debug_arm64_console.exe"
+    "$(windows_template_output_dir)/windows_release_arm64.exe"
+    "$(windows_template_output_dir)/windows_release_arm64_console.exe"
+    "$(macos_template_output_dir)/macos.zip"
+    "$(ios_template_output_dir)/ios.zip"
+    "$TEMPLATE_OUTPUT_DIR/common/icudt_godot.dat"
+  )
+
+  for file in "${required_files[@]}"; do
+    if [[ ! -e "$file" ]]; then
+      echo "❌ 模板包缺少文件: $file"
+      append_error_log_to "$error_log" "生成模板包失败" "缺少文件: $file"
+      missing=1
+    fi
+  done
+
+  if [[ "$missing" -ne 0 ]]; then
+    record_template_failure "Export templates package" "$error_log"
+    return 0
+  fi
+
+  rm -rf "$stage_dir"
+  rm -f "$package_path"
+  mkdir -p "$templates_dir"
+
+  printf '%s\n' "$version" > "$templates_dir/version.txt"
+
+  for file in "${required_files[@]}"; do
+    cp -p "$file" "$templates_dir/$(basename "$file")"
+  done
+
+  "$python_bin" - "$stage_dir" "$package_abs" <<'PY'
+import os
+import sys
+import zipfile
+
+stage_dir, package_path = sys.argv[1:3]
+
+with zipfile.ZipFile(package_path, "w", zipfile.ZIP_DEFLATED) as archive:
+    for root, dirs, files in os.walk(stage_dir):
+        dirs.sort()
+        for file_name in sorted(files):
+            path = os.path.join(root, file_name)
+            archive_name = os.path.relpath(path, stage_dir).replace(os.sep, "/")
+            archive.write(path, archive_name)
+PY
+
+  rm -rf "$stage_dir"
+  echo "✅ 可导入模板包: $package_path"
+}
+
 collect_template_outputs() {
   echo
   echo "========== 归档 export templates =========="
@@ -671,52 +950,67 @@ collect_template_outputs() {
   mkdir -p "$TEMPLATE_OUTPUT_DIR"
 
   # Android
-  copy_template_output "bin/android_source.zip" "$(android_template_output_dir)"
-  copy_template_output "bin/android_debug.apk" "$(android_template_output_dir)"
-  copy_template_output "bin/android_release.apk" "$(android_template_output_dir)"
-  copy_template_output "bin/android_template.apk" "$(android_template_output_dir)"
-  copy_template_output "bin/android_monoDebug.apk" "$(android_template_output_dir)"
-  copy_template_output "bin/android_monoRelease.apk" "$(android_template_output_dir)"
-  copy_template_output "bin/godot-lib.template_debug.aar" "$(android_template_output_dir)"
-  copy_template_output "bin/godot-lib.template_release.aar" "$(android_template_output_dir)"
+  copy_template_output_first_as "$(android_template_output_dir)" "android_debug.apk" \
+    "bin/android_debug.apk" \
+    "bin/android_monoDebug.apk"
+  copy_template_output_first_as "$(android_template_output_dir)" "android_release.apk" \
+    "bin/android_release.apk" \
+    "bin/android_monoRelease.apk"
+  copy_template_output_as "bin/android_source.zip" "$(android_template_output_dir)" "android_source.zip"
 
   # Windows
-  copy_template_output_as "bin/godot.windows.template_debug.x86_32.moye.mono.console.exe" "$(windows_template_output_dir)" "windows_debug_x86_32_console.exe"
-  copy_template_output_as "bin/godot.windows.template_debug.x86_32.moye.mono.exe" "$(windows_template_output_dir)" "windows_debug_x86_32.exe"
-  copy_template_output_as "bin/godot.windows.template_debug.x86_64.moye.mono.console.exe" "$(windows_template_output_dir)" "windows_debug_x86_64_console.exe"
-  copy_template_output_as "bin/godot.windows.template_debug.x86_64.moye.mono.exe" "$(windows_template_output_dir)" "windows_debug_x86_64.exe"
-  copy_template_output_as "bin/godot.windows.template_debug.arm64.moye.mono.console.exe" "$(windows_template_output_dir)" "windows_debug_arm64_console.exe"
-  copy_template_output_as "bin/godot.windows.template_debug.arm64.moye.mono.exe" "$(windows_template_output_dir)" "windows_debug_arm64.exe"
-  copy_template_output_as "bin/godot.windows.template_release.x86_32.moye.mono.console.exe" "$(windows_template_output_dir)" "windows_release_x86_32_console.exe"
-  copy_template_output_as "bin/godot.windows.template_release.x86_32.moye.mono.exe" "$(windows_template_output_dir)" "windows_release_x86_32.exe"
-  copy_template_output_as "bin/godot.windows.template_release.x86_64.moye.mono.console.exe" "$(windows_template_output_dir)" "windows_release_x86_64_console.exe"
-  copy_template_output_as "bin/godot.windows.template_release.x86_64.moye.mono.exe" "$(windows_template_output_dir)" "windows_release_x86_64.exe"
-  copy_template_output_as "bin/godot.windows.template_release.arm64.moye.mono.console.exe" "$(windows_template_output_dir)" "windows_release_arm64_console.exe"
-  copy_template_output_as "bin/godot.windows.template_release.arm64.moye.mono.exe" "$(windows_template_output_dir)" "windows_release_arm64.exe"
+  copy_template_output_first_as "$(windows_template_output_dir)" "windows_debug_x86_32_console.exe" \
+    "bin/godot.windows.template_debug.x86_32.llvm.moye.mono.console.exe" \
+    "bin/godot.windows.template_debug.x86_32.moye.mono.console.exe"
+  copy_template_output_first_as "$(windows_template_output_dir)" "windows_debug_x86_32.exe" \
+    "bin/godot.windows.template_debug.x86_32.llvm.moye.mono.exe" \
+    "bin/godot.windows.template_debug.x86_32.moye.mono.exe"
+  copy_template_output_first_as "$(windows_template_output_dir)" "windows_debug_x86_64_console.exe" \
+    "bin/godot.windows.template_debug.x86_64.llvm.moye.mono.console.exe" \
+    "bin/godot.windows.template_debug.x86_64.moye.mono.console.exe"
+  copy_template_output_first_as "$(windows_template_output_dir)" "windows_debug_x86_64.exe" \
+    "bin/godot.windows.template_debug.x86_64.llvm.moye.mono.exe" \
+    "bin/godot.windows.template_debug.x86_64.moye.mono.exe"
+  copy_template_output_first_as "$(windows_template_output_dir)" "windows_debug_arm64_console.exe" \
+    "bin/godot.windows.template_debug.arm64.llvm.moye.mono.console.exe" \
+    "bin/godot.windows.template_debug.arm64.moye.mono.console.exe"
+  copy_template_output_first_as "$(windows_template_output_dir)" "windows_debug_arm64.exe" \
+    "bin/godot.windows.template_debug.arm64.llvm.moye.mono.exe" \
+    "bin/godot.windows.template_debug.arm64.moye.mono.exe"
+  copy_template_output_first_as "$(windows_template_output_dir)" "windows_release_x86_32_console.exe" \
+    "bin/godot.windows.template_release.x86_32.llvm.moye.mono.console.exe" \
+    "bin/godot.windows.template_release.x86_32.moye.mono.console.exe"
+  copy_template_output_first_as "$(windows_template_output_dir)" "windows_release_x86_32.exe" \
+    "bin/godot.windows.template_release.x86_32.llvm.moye.mono.exe" \
+    "bin/godot.windows.template_release.x86_32.moye.mono.exe"
+  copy_template_output_first_as "$(windows_template_output_dir)" "windows_release_x86_64_console.exe" \
+    "bin/godot.windows.template_release.x86_64.llvm.moye.mono.console.exe" \
+    "bin/godot.windows.template_release.x86_64.moye.mono.console.exe"
+  copy_template_output_first_as "$(windows_template_output_dir)" "windows_release_x86_64.exe" \
+    "bin/godot.windows.template_release.x86_64.llvm.moye.mono.exe" \
+    "bin/godot.windows.template_release.x86_64.moye.mono.exe"
+  copy_template_output_first_as "$(windows_template_output_dir)" "windows_release_arm64_console.exe" \
+    "bin/godot.windows.template_release.arm64.llvm.moye.mono.console.exe" \
+    "bin/godot.windows.template_release.arm64.moye.mono.console.exe"
+  copy_template_output_first_as "$(windows_template_output_dir)" "windows_release_arm64.exe" \
+    "bin/godot.windows.template_release.arm64.llvm.moye.mono.exe" \
+    "bin/godot.windows.template_release.arm64.moye.mono.exe"
 
   # macOS
-  copy_template_output "bin/godot.macos.template_debug.arm64.moye.mono" "$(template_target_dir macos template_debug_arm64)"
-  copy_template_output "bin/godot.macos.template_release.arm64.moye.mono" "$(template_target_dir macos template_release_arm64)"
-  copy_template_output "bin/godot.macos.template_debug.x86_64.moye.mono" "$(template_target_dir macos template_debug_x86_64)"
-  copy_template_output "bin/godot.macos.template_release.x86_64.moye.mono" "$(template_target_dir macos template_release_x86_64)"
-  copy_template_output "bin/godot_macos_template_debug_moye_mono.app" "$(template_target_dir macos template_debug_x86_64)"
-  copy_template_output "bin/godot_macos_template_release_moye_mono.app" "$(template_target_dir macos template_release_x86_64)"
-  copy_template_output "bin/macos_template.app" "$(template_target_dir macos template_release_x86_64)"
-  copy_template_output "bin/macos.zip" "$(template_target_dir macos template_release_x86_64)"
-  copy_template_output "bin/macos_template.zip" "$(template_target_dir macos template_release_x86_64)"
+  copy_template_output_first_as "$(macos_template_output_dir)" "macos.zip" \
+    "bin/macos.zip" \
+    "bin/godot_macos_moye_mono.zip" \
+    "bin/macos_template.zip"
 
   # iOS
-  copy_template_output "bin/libgodot.ios.template_debug.arm64.moye.mono.a" "$(template_target_dir ios template_debug_arm64)"
-  copy_template_output "bin/libgodot.ios.template_release.arm64.moye.mono.a" "$(template_target_dir ios template_release_arm64)"
-  copy_template_output "bin/godot_ios_template_debug_moye_mono" "$(template_target_dir ios template_debug_arm64)"
-  copy_template_output "bin/godot_ios_template_release_moye_mono" "$(template_target_dir ios template_release_arm64)"
-  copy_template_output "bin/ios_template" "$(template_target_dir ios template_release_arm64)"
-  copy_template_output "bin/ios_template_debug" "$(template_target_dir ios template_debug_arm64)"
-  copy_template_output "bin/ios_template_release" "$(template_target_dir ios template_release_arm64)"
-  copy_template_output "bin/ios.zip" "$(template_target_dir ios template_release_arm64)"
-  copy_template_output "bin/ios_template.zip" "$(template_target_dir ios template_release_arm64)"
-  copy_template_output "bin/ios_template_debug.zip" "$(template_target_dir ios template_debug_arm64)"
-  copy_template_output "bin/ios_template_release.zip" "$(template_target_dir ios template_release_arm64)"
+  copy_template_output_first_as "$(ios_template_output_dir)" "ios.zip" \
+    "bin/ios.zip" \
+    "bin/godot_ios_moye.zip" \
+    "bin/ios_template.zip" \
+    "bin/ios_template_release.zip"
+
+  # Common
+  copy_template_file_as "thirdparty/icu4c/icudt_godot.dat" "$TEMPLATE_OUTPUT_DIR/common" "icudt_godot.dat"
 
   echo
   echo ">>> export templates 已归档到: $TEMPLATE_OUTPUT_DIR"
@@ -785,6 +1079,30 @@ build_android_templates() {
 
   clear_error_log "$(android_template_output_dir)/error.log"
 
+  run_android_template_scons "Android template_debug arm32" \
+    platform=android \
+    target=template_debug \
+    arch=arm32 \
+    module_mono_enabled=yes
+
+  run_android_template_scons "Android template_debug arm64" \
+    platform=android \
+    target=template_debug \
+    arch=arm64 \
+    module_mono_enabled=yes
+
+  run_android_template_scons "Android template_debug x86_32" \
+    platform=android \
+    target=template_debug \
+    arch=x86_32 \
+    module_mono_enabled=yes
+
+  run_android_template_scons "Android template_debug x86_64" \
+    platform=android \
+    target=template_debug \
+    arch=x86_64 \
+    module_mono_enabled=yes
+
   run_android_template_scons "Android template_release arm32" \
     platform=android \
     target=template_release \
@@ -810,8 +1128,13 @@ build_android_templates() {
     module_mono_enabled=yes \
     generate_android_binaries=yes
 
-  check_android_template_output "Android template_release APK" "bin/android_monoRelease.apk" "Android template_release APK"
-  check_android_template_output "Android template_release AAR" "bin/godot-lib.template_release.aar" "Android template_release AAR"
+  check_android_template_output_any "Android template_debug APK" "Android debug APK template" \
+    "bin/android_debug.apk" \
+    "bin/android_monoDebug.apk"
+  check_android_template_output_any "Android template_release APK" "Android release APK template" \
+    "bin/android_release.apk" \
+    "bin/android_monoRelease.apk"
+  check_android_template_output "Android source template" "bin/android_source.zip" "Android source template"
 }
 
 build_windows_templates() {
@@ -861,18 +1184,42 @@ build_windows_templates() {
     arch=arm64 \
     module_mono_enabled=yes
 
-  check_windows_template_output "Windows template_debug x86_32 console" "bin/godot.windows.template_debug.x86_32.moye.mono.console.exe" "Windows template_debug x86_32 console"
-  check_windows_template_output "Windows template_debug x86_32" "bin/godot.windows.template_debug.x86_32.moye.mono.exe" "Windows template_debug x86_32"
-  check_windows_template_output "Windows template_debug x86_64 console" "bin/godot.windows.template_debug.x86_64.moye.mono.console.exe" "Windows template_debug x86_64 console"
-  check_windows_template_output "Windows template_debug x86_64" "bin/godot.windows.template_debug.x86_64.moye.mono.exe" "Windows template_debug x86_64"
-  check_windows_template_output "Windows template_debug arm64 console" "bin/godot.windows.template_debug.arm64.moye.mono.console.exe" "Windows template_debug arm64 console"
-  check_windows_template_output "Windows template_debug arm64" "bin/godot.windows.template_debug.arm64.moye.mono.exe" "Windows template_debug arm64"
-  check_windows_template_output "Windows template_release x86_32 console" "bin/godot.windows.template_release.x86_32.moye.mono.console.exe" "Windows template_release x86_32 console"
-  check_windows_template_output "Windows template_release x86_32" "bin/godot.windows.template_release.x86_32.moye.mono.exe" "Windows template_release x86_32"
-  check_windows_template_output "Windows template_release x86_64 console" "bin/godot.windows.template_release.x86_64.moye.mono.console.exe" "Windows template_release x86_64 console"
-  check_windows_template_output "Windows template_release x86_64" "bin/godot.windows.template_release.x86_64.moye.mono.exe" "Windows template_release x86_64"
-  check_windows_template_output "Windows template_release arm64 console" "bin/godot.windows.template_release.arm64.moye.mono.console.exe" "Windows template_release arm64 console"
-  check_windows_template_output "Windows template_release arm64" "bin/godot.windows.template_release.arm64.moye.mono.exe" "Windows template_release arm64"
+  check_windows_template_output_any "Windows template_debug x86_32 console" "Windows template_debug x86_32 console" \
+    "bin/godot.windows.template_debug.x86_32.llvm.moye.mono.console.exe" \
+    "bin/godot.windows.template_debug.x86_32.moye.mono.console.exe"
+  check_windows_template_output_any "Windows template_debug x86_32" "Windows template_debug x86_32" \
+    "bin/godot.windows.template_debug.x86_32.llvm.moye.mono.exe" \
+    "bin/godot.windows.template_debug.x86_32.moye.mono.exe"
+  check_windows_template_output_any "Windows template_debug x86_64 console" "Windows template_debug x86_64 console" \
+    "bin/godot.windows.template_debug.x86_64.llvm.moye.mono.console.exe" \
+    "bin/godot.windows.template_debug.x86_64.moye.mono.console.exe"
+  check_windows_template_output_any "Windows template_debug x86_64" "Windows template_debug x86_64" \
+    "bin/godot.windows.template_debug.x86_64.llvm.moye.mono.exe" \
+    "bin/godot.windows.template_debug.x86_64.moye.mono.exe"
+  check_windows_template_output_any "Windows template_debug arm64 console" "Windows template_debug arm64 console" \
+    "bin/godot.windows.template_debug.arm64.llvm.moye.mono.console.exe" \
+    "bin/godot.windows.template_debug.arm64.moye.mono.console.exe"
+  check_windows_template_output_any "Windows template_debug arm64" "Windows template_debug arm64" \
+    "bin/godot.windows.template_debug.arm64.llvm.moye.mono.exe" \
+    "bin/godot.windows.template_debug.arm64.moye.mono.exe"
+  check_windows_template_output_any "Windows template_release x86_32 console" "Windows template_release x86_32 console" \
+    "bin/godot.windows.template_release.x86_32.llvm.moye.mono.console.exe" \
+    "bin/godot.windows.template_release.x86_32.moye.mono.console.exe"
+  check_windows_template_output_any "Windows template_release x86_32" "Windows template_release x86_32" \
+    "bin/godot.windows.template_release.x86_32.llvm.moye.mono.exe" \
+    "bin/godot.windows.template_release.x86_32.moye.mono.exe"
+  check_windows_template_output_any "Windows template_release x86_64 console" "Windows template_release x86_64 console" \
+    "bin/godot.windows.template_release.x86_64.llvm.moye.mono.console.exe" \
+    "bin/godot.windows.template_release.x86_64.moye.mono.console.exe"
+  check_windows_template_output_any "Windows template_release x86_64" "Windows template_release x86_64" \
+    "bin/godot.windows.template_release.x86_64.llvm.moye.mono.exe" \
+    "bin/godot.windows.template_release.x86_64.moye.mono.exe"
+  check_windows_template_output_any "Windows template_release arm64 console" "Windows template_release arm64 console" \
+    "bin/godot.windows.template_release.arm64.llvm.moye.mono.console.exe" \
+    "bin/godot.windows.template_release.arm64.moye.mono.console.exe"
+  check_windows_template_output_any "Windows template_release arm64" "Windows template_release arm64" \
+    "bin/godot.windows.template_release.arm64.llvm.moye.mono.exe" \
+    "bin/godot.windows.template_release.arm64.moye.mono.exe"
 }
 
 build_macos_templates() {
@@ -908,6 +1255,10 @@ build_macos_templates() {
   check_template_output macos template_release_arm64 "macOS template_release arm64" "bin/godot.macos.template_release.arm64.moye.mono" "macOS template_release arm64"
   check_template_output macos template_debug_x86_64 "macOS template_debug x86_64" "bin/godot.macos.template_debug.x86_64.moye.mono" "macOS template_debug x86_64"
   check_template_output macos template_release_x86_64 "macOS template_release x86_64" "bin/godot.macos.template_release.x86_64.moye.mono" "macOS template_release x86_64"
+  check_platform_template_output_any macos "macOS template zip" "macOS template zip" \
+    "bin/macos.zip" \
+    "bin/godot_macos_moye_mono.zip" \
+    "bin/macos_template.zip"
 
   fix_quarantine "bin/godot.macos.template_debug.arm64.moye.mono"
   fix_quarantine "bin/godot.macos.template_release.arm64.moye.mono"
@@ -935,8 +1286,13 @@ build_ios_templates() {
     module_mono_enabled=yes \
     generate_bundle=yes
 
-  check_template_output ios template_debug_arm64 "iOS template_debug arm64" "bin/libgodot.ios.template_debug.arm64.moye.mono.a" "iOS template_debug arm64 static library"
-  check_template_output ios template_release_arm64 "iOS template_release arm64" "bin/libgodot.ios.template_release.arm64.moye.mono.a" "iOS template_release arm64 static library"
+  check_template_output ios template_debug_arm64 "iOS template_debug arm64" "bin/libgodot.ios.template_debug.arm64.moye.a" "iOS template_debug arm64 static library"
+  check_template_output ios template_release_arm64 "iOS template_release arm64" "bin/libgodot.ios.template_release.arm64.moye.a" "iOS template_release arm64 static library"
+  check_platform_template_output_any ios "iOS template zip" "iOS template zip" \
+    "bin/ios.zip" \
+    "bin/godot_ios_moye.zip" \
+    "bin/ios_template.zip" \
+    "bin/ios_template_release.zip"
 
   if [[ -d "bin/godot_ios_template_debug_moye_mono" ]]; then
     fix_quarantine "bin/godot_ios_template_debug_moye_mono"
@@ -953,6 +1309,10 @@ build_ios_templates() {
   if [[ -f "bin/ios_template.zip" ]]; then
     echo "✅ iOS template zip: bin/ios_template.zip"
   fi
+
+  if [[ -f "bin/godot_ios_moye.zip" ]]; then
+    echo "✅ iOS template zip: bin/godot_ios_moye.zip"
+  fi
 }
 
 build_all_templates() {
@@ -966,6 +1326,8 @@ build_all_templates() {
   build_macos_templates
   build_ios_templates
   collect_template_outputs
+  create_export_templates_package
+  cleanup_template_intermediates
   summarize_template_failures
 }
 

@@ -77,15 +77,48 @@ def get_ffmpeg_system_libraries():
         return []
 
     libraries = ["ws2_32", "bcrypt", "user32", "ole32"]
-    if env.get("use_mingw", True):
+    compiler_tools = " ".join(str(env.get(tool, "")) for tool in ["CC", "CXX", "LINK", "AR"]).lower()
+    is_llvm_mingw = env.get("use_llvm", False) or "clang" in compiler_tools or "lld" in compiler_tools
+    if env.get("use_mingw", True) and not is_llvm_mingw:
         libraries.append("atomic")
     return libraries
+
+
+def expected_ffmpeg_binary_arch():
+    if env["platform"] not in ["macos", "ios", "visionos"]:
+        return ""
+    return "arm64" if env["arch"] == "arm64" else "x86_64"
+
+
+def has_expected_ffmpeg_arch(lib_path):
+    expected_arch = expected_ffmpeg_binary_arch()
+    if not expected_arch:
+        return True
+
+    try:
+        arches = subprocess.check_output(["lipo", "-archs", lib_path], stderr=subprocess.DEVNULL, text=True).split()
+    except (OSError, subprocess.CalledProcessError):
+        return True
+
+    if expected_arch in arches:
+        return True
+
+    print(
+        "FFmpeg library %s has architecture(s) %s, expected %s; rebuilding."
+        % (lib_path, " ".join(arches) or "<unknown>", expected_arch)
+    )
+    return False
 
 
 def has_ffmpeg_install(include_dir, lib_dir):
     if not os.path.exists(os.path.join(include_dir, "libavformat", "avformat.h")):
         return False
-    return bool(get_ffmpeg_libraries(lib_dir))
+
+    libraries = get_ffmpeg_libraries(lib_dir)
+    if not libraries:
+        return False
+
+    return all(has_expected_ffmpeg_arch(lib) for lib in libraries)
 
 
 def ffmpeg_arch():
@@ -355,16 +388,17 @@ if not has_install or needs_configured_rebuild:
     installed_header = os.path.join(ffmpeg_include_dir, "libavformat", "avformat.h")
 
     def build_ffmpeg(target, source, env):
-        if has_ffmpeg_install(ffmpeg_include_dir, ffmpeg_lib_dir) and is_build_stamp_current(ffmpeg_stamp, configure_flags):
+        install_is_current = has_ffmpeg_install(ffmpeg_include_dir, ffmpeg_lib_dir)
+        stamp_is_current = is_build_stamp_current(ffmpeg_stamp, configure_flags)
+        if install_is_current and stamp_is_current:
             os.makedirs(os.path.dirname(ffmpeg_stamp), exist_ok=True)
             return 0
 
-        os.makedirs(ffmpeg_build_dir, exist_ok=True)
         os.makedirs(ffmpeg_prefix, exist_ok=True)
 
-        if not is_build_stamp_current(ffmpeg_stamp, configure_flags):
+        if not install_is_current or not stamp_is_current:
             shutil.rmtree(ffmpeg_build_dir, ignore_errors=True)
-            os.makedirs(ffmpeg_build_dir, exist_ok=True)
+        os.makedirs(ffmpeg_build_dir, exist_ok=True)
 
         subprocess.check_call([ffmpeg_configure] + configure_flags, cwd=ffmpeg_build_dir)
 
