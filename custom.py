@@ -15,7 +15,7 @@ use_llvm = "yes"
 # disable_physics_3d = "yes"
 # debug_symbols = "no"
 
-optimize = "speed"
+optimize = "speed_trace"
 
 module_basis_universal_enabled = "no"
 module_bmp_enabled = "no"

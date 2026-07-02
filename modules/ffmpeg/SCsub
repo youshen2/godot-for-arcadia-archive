@@ -3,6 +3,7 @@
 import os
 import platform
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -103,6 +104,8 @@ def ffmpeg_platform_flags():
         flags = ["--target-os=mingw32", "--arch=%s" % arch]
         if not env.get("use_mingw", True):
             flags.append("--toolchain=msvc")
+        elif not sys.platform.startswith("win"):
+            flags.append("--enable-cross-compile")
         return flags
     if platform == "android":
         return ["--target-os=android", "--arch=%s" % arch, "--enable-cross-compile"]
@@ -276,55 +279,82 @@ def make_jobs():
     return str(os.cpu_count() or 1)
 
 
+def make_configure_flags():
+    configure_flags = [
+        "--prefix=%s" % ffmpeg_prefix,
+        "--disable-programs",
+        "--disable-doc",
+        "--disable-debug",
+        "--disable-avdevice",
+        "--disable-avfilter",
+        "--enable-pic",
+        "--disable-autodetect",
+        "--disable-x86asm",
+    ]
+    if env["platform"] == "android":
+        configure_flags.append("--disable-asm")
+    if ffmpeg_arch() in ["x86", "x86_64"]:
+        configure_flags.append("--disable-inline-asm")
+    configure_flags += ffmpeg_platform_flags()
+    configure_flags += ffmpeg_apple_embedded_toolchain_flags()
+    configure_flags += ffmpeg_android_toolchain_flags()
+    configure_flags += ffmpeg_windows_toolchain_flags()
+    extra_flags = env.get("ffmpeg_configure_flags", "")
+    if extra_flags:
+        configure_flags += shlex.split(extra_flags)
+    return configure_flags
+
+
+def make_build_stamp(configure_flags):
+    return "FFmpeg built for %s\nconfigure: %s\n" % (
+        target_name(),
+        ffmpeg_join_flags([ffmpeg_configure] + configure_flags),
+    )
+
+
+def is_build_stamp_current(stamp_path, configure_flags):
+    if not os.path.exists(stamp_path):
+        return False
+    with open(stamp_path, "r", encoding="utf-8") as stamp:
+        return stamp.read() == make_build_stamp(configure_flags)
+
+
 ffmpeg_source_dir = rooted("#thirdparty/FFmpeg")
 ffmpeg_configure = os.path.join(ffmpeg_source_dir, "configure")
 ffmpeg_prefix = selected_prefix()
 ffmpeg_include_dir = rooted(env.get("ffmpeg_include_path", "")) or os.path.join(ffmpeg_prefix, "include")
 ffmpeg_lib_dir = rooted(env.get("ffmpeg_lib_path", "")) or os.path.join(ffmpeg_prefix, "lib")
 using_custom_include_or_lib = bool(env.get("ffmpeg_include_path", "") or env.get("ffmpeg_lib_path", ""))
+using_custom_prefix = bool(env.get("ffmpeg_prefix", ""))
 
 ffmpeg_build = None
 ffmpeg_libraries = get_ffmpeg_libraries(ffmpeg_lib_dir)
+ffmpeg_stamp = os.path.join(ffmpeg_prefix, ".ffmpeg-built.stamp")
+configure_flags = make_configure_flags()
+has_install = has_ffmpeg_install(ffmpeg_include_dir, ffmpeg_lib_dir)
+needs_configured_rebuild = has_install and not using_custom_prefix and not using_custom_include_or_lib and not is_build_stamp_current(ffmpeg_stamp, configure_flags)
 
-if not has_ffmpeg_install(ffmpeg_include_dir, ffmpeg_lib_dir):
+if not has_install or needs_configured_rebuild:
     if using_custom_include_or_lib:
         raise RuntimeError("Explicit ffmpeg_include_path/ffmpeg_lib_path was provided, but FFmpeg headers or libraries were not found.")
     if not os.path.exists(ffmpeg_configure):
         raise RuntimeError("thirdparty/FFmpeg/configure was not found. Initialize the FFmpeg submodule or provide ffmpeg_prefix.")
 
     ffmpeg_build_dir = os.path.join(ffmpeg_prefix, "_build")
-    ffmpeg_stamp = os.path.join(ffmpeg_prefix, ".ffmpeg-built.stamp")
     static_libraries = [os.path.join(ffmpeg_lib_dir, "lib%s.a" % lib) for lib in REQUIRED_FFMPEG_LIBS]
     installed_header = os.path.join(ffmpeg_include_dir, "libavformat", "avformat.h")
 
     def build_ffmpeg(target, source, env):
-        if has_ffmpeg_install(ffmpeg_include_dir, ffmpeg_lib_dir):
+        if has_ffmpeg_install(ffmpeg_include_dir, ffmpeg_lib_dir) and is_build_stamp_current(ffmpeg_stamp, configure_flags):
             os.makedirs(os.path.dirname(ffmpeg_stamp), exist_ok=True)
-            with open(ffmpeg_stamp, "w", encoding="utf-8") as stamp:
-                stamp.write("FFmpeg already built for %s\n" % target_name())
             return 0
 
         os.makedirs(ffmpeg_build_dir, exist_ok=True)
         os.makedirs(ffmpeg_prefix, exist_ok=True)
 
-        configure_flags = [
-            "--prefix=%s" % ffmpeg_prefix,
-            "--disable-programs",
-            "--disable-doc",
-            "--disable-debug",
-            "--disable-avdevice",
-            "--disable-avfilter",
-            "--enable-pic",
-            "--disable-autodetect",
-            "--disable-x86asm",
-        ]
-        configure_flags += ffmpeg_platform_flags()
-        configure_flags += ffmpeg_apple_embedded_toolchain_flags()
-        configure_flags += ffmpeg_android_toolchain_flags()
-        configure_flags += ffmpeg_windows_toolchain_flags()
-        extra_flags = env.get("ffmpeg_configure_flags", "")
-        if extra_flags:
-            configure_flags += shlex.split(extra_flags)
+        if not is_build_stamp_current(ffmpeg_stamp, configure_flags):
+            shutil.rmtree(ffmpeg_build_dir, ignore_errors=True)
+            os.makedirs(ffmpeg_build_dir, exist_ok=True)
 
         subprocess.check_call([ffmpeg_configure] + configure_flags, cwd=ffmpeg_build_dir)
 
@@ -336,14 +366,16 @@ if not has_ffmpeg_install(ffmpeg_include_dir, ffmpeg_lib_dir):
             raise RuntimeError("FFmpeg build completed but required headers or libraries were not installed under %s." % ffmpeg_prefix)
 
         with open(ffmpeg_stamp, "w", encoding="utf-8") as stamp:
-            stamp.write("FFmpeg built for %s\n" % target_name())
+            stamp.write(make_build_stamp(configure_flags))
         return 0
 
+    ffmpeg_signature = env.Value(make_build_stamp(configure_flags))
     ffmpeg_build = env.CommandNoCache(
         [ffmpeg_stamp, installed_header] + static_libraries,
-        ffmpeg_configure,
+        [ffmpeg_configure, ffmpeg_signature],
         env.Run(build_ffmpeg, "Building FFmpeg for %s" % target_name()),
     )
+    env.AlwaysBuild(ffmpeg_build)
     ffmpeg_libraries = static_libraries
 
 env_ffmpeg.Prepend(CPPPATH=[ffmpeg_include_dir])

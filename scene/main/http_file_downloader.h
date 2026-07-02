@@ -63,12 +63,12 @@ public:
 	};
 
 	enum DownloadStatus {
-		STATUS_PENDING,
-		STATUS_PREPARING,
-		STATUS_DOWNLOADING,
-		STATUS_COMPLETED,
-		STATUS_FAILED,
-		STATUS_CANCELED,
+		DOWNLOAD_STATUS_PENDING,
+		DOWNLOAD_STATUS_PREPARING,
+		DOWNLOAD_STATUS_DOWNLOADING,
+		DOWNLOAD_STATUS_COMPLETED,
+		DOWNLOAD_STATUS_FAILED,
+		DOWNLOAD_STATUS_CANCELED,
 	};
 
 private:
@@ -98,7 +98,7 @@ private:
 		String url;
 		String path;
 		Vector<String> headers;
-		DownloadStatus status = STATUS_PENDING;
+		DownloadStatus status = DOWNLOAD_STATUS_PENDING;
 		Result result = RESULT_SUCCESS;
 		int response_code = 0;
 		Vector<String> response_headers;

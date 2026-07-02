@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export SCRIPT_AES256_ENCRYPTION_KEY="85534143e979103227f1dae12835b174c780ab7e2b73127c10763b0b25880c52"
+
 cd /Users/huicat28/Projects/Engine/godot-for-arcadia-archive
 
 JOBS=12
@@ -59,6 +61,13 @@ append_error_log() {
   append_error_log_to "$ERROR_LOG" "$@"
 }
 
+clear_error_log() {
+  local error_log="$1"
+
+  mkdir -p "$(dirname "$error_log")"
+  rm -f "$error_log"
+}
+
 append_command_error_log_to() {
   local error_log="$1"
   local command="$2"
@@ -74,7 +83,7 @@ append_command_error_log_to() {
     echo "命令: $command"
     echo "退出码: $status"
     echo "输出:"
-    cat "$output_file"
+    LC_ALL=C tr -d '\004\010' < "$output_file" | sed '1s/^\^D//'
   } >> "$error_log"
 }
 
@@ -89,6 +98,8 @@ run_logged_to_log() {
   command="$(format_command "$@")"
   temp_log="$(mktemp "${TMPDIR:-/tmp}/godot-build.XXXXXX")"
 
+  clear_error_log "$error_log"
+
   echo
   echo ">>> $command"
 
@@ -99,8 +110,13 @@ run_logged_to_log() {
   esac
 
   set +e
-  "$@" 2>&1 | tee "$temp_log"
-  status=${PIPESTATUS[0]}
+  if [[ -t 1 ]] && command -v script >/dev/null 2>&1; then
+    script -q -F "$temp_log" "$@"
+    status=$?
+  else
+    "$@" 2>&1 | tee "$temp_log"
+    status=${PIPESTATUS[0]}
+  fi
 
   if [[ "$restore_errexit" -eq 1 ]]; then
     set -e
@@ -258,7 +274,6 @@ run_template_scons() {
   error_log="$target_dir/error.log"
 
   mkdir -p "$target_dir"
-  rm -f "$error_log"
 
   echo
   echo "========== 构建 $label =========="
@@ -316,7 +331,7 @@ summarize_template_failures() {
   done
 }
 
-move_template_output() {
+copy_template_output() {
   local path="$1"
   local target_dir="$2"
 
@@ -335,46 +350,46 @@ collect_template_outputs() {
   mkdir -p "$TEMPLATE_OUTPUT_DIR"
 
   # Android
-  move_template_output "bin/libgodot.android.template_release.arm32.moye.mono.so" "$(template_target_dir android template_release_arm32)"
-  move_template_output "bin/libgodot.android.template_release.arm64.moye.mono.so" "$(template_target_dir android template_release_arm64)"
-  move_template_output "bin/libgodot.android.template_release.x86_32.moye.mono.so" "$(template_target_dir android template_release_x86_32)"
-  move_template_output "bin/libgodot.android.template_release.x86_64.moye.mono.so" "$(template_target_dir android template_release_x86_64)"
-  move_template_output "bin/android_source.zip" "$(template_target_dir android template_release_x86_64)"
-  move_template_output "bin/android_debug.apk" "$(template_target_dir android template_release_x86_64)"
-  move_template_output "bin/android_release.apk" "$(template_target_dir android template_release_x86_64)"
-  move_template_output "bin/android_template.apk" "$(template_target_dir android template_release_x86_64)"
+  copy_template_output "bin/libgodot.android.template_release.arm32.moye.mono.so" "$(template_target_dir android template_release_arm32)"
+  copy_template_output "bin/libgodot.android.template_release.arm64.moye.mono.so" "$(template_target_dir android template_release_arm64)"
+  copy_template_output "bin/libgodot.android.template_release.x86_32.moye.mono.so" "$(template_target_dir android template_release_x86_32)"
+  copy_template_output "bin/libgodot.android.template_release.x86_64.moye.mono.so" "$(template_target_dir android template_release_x86_64)"
+  copy_template_output "bin/android_source.zip" "$(template_target_dir android template_release_x86_64)"
+  copy_template_output "bin/android_debug.apk" "$(template_target_dir android template_release_x86_64)"
+  copy_template_output "bin/android_release.apk" "$(template_target_dir android template_release_x86_64)"
+  copy_template_output "bin/android_template.apk" "$(template_target_dir android template_release_x86_64)"
 
   # Windows
-  move_template_output "bin/godot.windows.template_debug.x86_32.moye.mono.exe" "$(template_target_dir windows template_debug_x86_32)"
-  move_template_output "bin/godot.windows.template_release.x86_32.moye.mono.exe" "$(template_target_dir windows template_release_x86_32)"
-  move_template_output "bin/godot.windows.template_debug.x86_64.moye.mono.exe" "$(template_target_dir windows template_debug_x86_64)"
-  move_template_output "bin/godot.windows.template_release.x86_64.moye.mono.exe" "$(template_target_dir windows template_release_x86_64)"
-  move_template_output "bin/godot.windows.template_debug.arm64.moye.mono.exe" "$(template_target_dir windows template_debug_arm64)"
-  move_template_output "bin/godot.windows.template_release.arm64.moye.mono.exe" "$(template_target_dir windows template_release_arm64)"
+  copy_template_output "bin/godot.windows.template_debug.x86_32.moye.mono.exe" "$(template_target_dir windows template_debug_x86_32)"
+  copy_template_output "bin/godot.windows.template_release.x86_32.moye.mono.exe" "$(template_target_dir windows template_release_x86_32)"
+  copy_template_output "bin/godot.windows.template_debug.x86_64.moye.mono.exe" "$(template_target_dir windows template_debug_x86_64)"
+  copy_template_output "bin/godot.windows.template_release.x86_64.moye.mono.exe" "$(template_target_dir windows template_release_x86_64)"
+  copy_template_output "bin/godot.windows.template_debug.arm64.moye.mono.exe" "$(template_target_dir windows template_debug_arm64)"
+  copy_template_output "bin/godot.windows.template_release.arm64.moye.mono.exe" "$(template_target_dir windows template_release_arm64)"
 
   # macOS
-  move_template_output "bin/godot.macos.template_debug.arm64.moye.mono" "$(template_target_dir macos template_debug_arm64)"
-  move_template_output "bin/godot.macos.template_release.arm64.moye.mono" "$(template_target_dir macos template_release_arm64)"
-  move_template_output "bin/godot.macos.template_debug.x86_64.moye.mono" "$(template_target_dir macos template_debug_x86_64)"
-  move_template_output "bin/godot.macos.template_release.x86_64.moye.mono" "$(template_target_dir macos template_release_x86_64)"
-  move_template_output "bin/godot_macos_template_debug_moye_mono.app" "$(template_target_dir macos template_debug_x86_64)"
-  move_template_output "bin/godot_macos_template_release_moye_mono.app" "$(template_target_dir macos template_release_x86_64)"
-  move_template_output "bin/macos_template.app" "$(template_target_dir macos template_release_x86_64)"
-  move_template_output "bin/macos.zip" "$(template_target_dir macos template_release_x86_64)"
-  move_template_output "bin/macos_template.zip" "$(template_target_dir macos template_release_x86_64)"
+  copy_template_output "bin/godot.macos.template_debug.arm64.moye.mono" "$(template_target_dir macos template_debug_arm64)"
+  copy_template_output "bin/godot.macos.template_release.arm64.moye.mono" "$(template_target_dir macos template_release_arm64)"
+  copy_template_output "bin/godot.macos.template_debug.x86_64.moye.mono" "$(template_target_dir macos template_debug_x86_64)"
+  copy_template_output "bin/godot.macos.template_release.x86_64.moye.mono" "$(template_target_dir macos template_release_x86_64)"
+  copy_template_output "bin/godot_macos_template_debug_moye_mono.app" "$(template_target_dir macos template_debug_x86_64)"
+  copy_template_output "bin/godot_macos_template_release_moye_mono.app" "$(template_target_dir macos template_release_x86_64)"
+  copy_template_output "bin/macos_template.app" "$(template_target_dir macos template_release_x86_64)"
+  copy_template_output "bin/macos.zip" "$(template_target_dir macos template_release_x86_64)"
+  copy_template_output "bin/macos_template.zip" "$(template_target_dir macos template_release_x86_64)"
 
   # iOS
-  move_template_output "bin/libgodot.ios.template_debug.arm64.moye.mono.a" "$(template_target_dir ios template_debug_arm64)"
-  move_template_output "bin/libgodot.ios.template_release.arm64.moye.mono.a" "$(template_target_dir ios template_release_arm64)"
-  move_template_output "bin/godot_ios_template_debug_moye_mono" "$(template_target_dir ios template_debug_arm64)"
-  move_template_output "bin/godot_ios_template_release_moye_mono" "$(template_target_dir ios template_release_arm64)"
-  move_template_output "bin/ios_template" "$(template_target_dir ios template_release_arm64)"
-  move_template_output "bin/ios_template_debug" "$(template_target_dir ios template_debug_arm64)"
-  move_template_output "bin/ios_template_release" "$(template_target_dir ios template_release_arm64)"
-  move_template_output "bin/ios.zip" "$(template_target_dir ios template_release_arm64)"
-  move_template_output "bin/ios_template.zip" "$(template_target_dir ios template_release_arm64)"
-  move_template_output "bin/ios_template_debug.zip" "$(template_target_dir ios template_debug_arm64)"
-  move_template_output "bin/ios_template_release.zip" "$(template_target_dir ios template_release_arm64)"
+  copy_template_output "bin/libgodot.ios.template_debug.arm64.moye.mono.a" "$(template_target_dir ios template_debug_arm64)"
+  copy_template_output "bin/libgodot.ios.template_release.arm64.moye.mono.a" "$(template_target_dir ios template_release_arm64)"
+  copy_template_output "bin/godot_ios_template_debug_moye_mono" "$(template_target_dir ios template_debug_arm64)"
+  copy_template_output "bin/godot_ios_template_release_moye_mono" "$(template_target_dir ios template_release_arm64)"
+  copy_template_output "bin/ios_template" "$(template_target_dir ios template_release_arm64)"
+  copy_template_output "bin/ios_template_debug" "$(template_target_dir ios template_debug_arm64)"
+  copy_template_output "bin/ios_template_release" "$(template_target_dir ios template_release_arm64)"
+  copy_template_output "bin/ios.zip" "$(template_target_dir ios template_release_arm64)"
+  copy_template_output "bin/ios_template.zip" "$(template_target_dir ios template_release_arm64)"
+  copy_template_output "bin/ios_template_debug.zip" "$(template_target_dir ios template_debug_arm64)"
+  copy_template_output "bin/ios_template_release.zip" "$(template_target_dir ios template_release_arm64)"
 
   echo
   echo ">>> export templates 已归档到: $TEMPLATE_OUTPUT_DIR"
@@ -613,10 +628,6 @@ build_all_templates() {
   collect_template_outputs
   summarize_template_failures
 }
-
-if [[ "$BUILD_TEMPLATES" -eq 0 ]]; then
-  : > "$ERROR_LOG"
-fi
 
 if [[ "$BUILD_TEMPLATES" -eq 1 ]]; then
   build_all_templates

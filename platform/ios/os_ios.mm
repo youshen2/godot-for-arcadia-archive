@@ -31,6 +31,7 @@
 #import "os_ios.h"
 
 #include "core/os/main_loop.h"
+#include "core/os/os.h"
 #include "core/string/string_name.h"
 
 #import "display_server_ios.h"
@@ -104,9 +105,12 @@ bool OS_IOS::request_mobile_persistent_notification_permission() {
 	UNAuthorizationOptions options = UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge;
 	[[UNUserNotificationCenter currentNotificationCenter] requestAuthorizationWithOptions:options completionHandler:^(BOOL granted, NSError *p_error) {
 		(void)p_error;
-		OS_IOS *os_ios = OS_IOS::get_singleton();
-		if (os_ios && os_ios->get_main_loop()) {
-			os_ios->get_main_loop()->emit_signal(SNAME("on_request_permissions_result"), String(IOS_NOTIFICATION_PERMISSION), (bool)granted);
+		OS *os = OS::get_singleton();
+		if (os) {
+			MainLoop *main_loop = os->get_main_loop();
+			if (main_loop) {
+				main_loop->emit_signal(SNAME("on_request_permissions_result"), String(IOS_NOTIFICATION_PERMISSION), (bool)granted);
+			}
 		}
 	}];
 	return false;

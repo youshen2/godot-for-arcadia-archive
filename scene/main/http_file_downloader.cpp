@@ -87,7 +87,7 @@ void HTTPFileDownloader::_coordinator_loop() {
 
 	for (int i = 0; i < items.size(); i++) {
 		if (cancel_requested.is_set()) {
-			_set_item_status(i, STATUS_CANCELED, RESULT_CANCELED);
+			_set_item_status(i, DOWNLOAD_STATUS_CANCELED, RESULT_CANCELED);
 			final_result = RESULT_CANCELED;
 			cancel_from_index = i + 1;
 			break;
@@ -115,7 +115,7 @@ void HTTPFileDownloader::_coordinator_loop() {
 	}
 	if (cancel_from_index >= 0) {
 		for (int i = cancel_from_index; i < items.size(); i++) {
-			_set_item_status(i, STATUS_CANCELED, RESULT_CANCELED);
+			_set_item_status(i, DOWNLOAD_STATUS_CANCELED, RESULT_CANCELED);
 		}
 	}
 
@@ -125,7 +125,7 @@ void HTTPFileDownloader::_coordinator_loop() {
 
 HTTPFileDownloader::Result HTTPFileDownloader::_download_item(int p_index) {
 	_set_active_download(p_index);
-	_set_item_status(p_index, STATUS_PREPARING);
+	_set_item_status(p_index, DOWNLOAD_STATUS_PREPARING);
 	_reset_item_downloaded_bytes(p_index);
 
 	ResponseInfo probe;
@@ -138,7 +138,7 @@ HTTPFileDownloader::Result HTTPFileDownloader::_download_item(int p_index) {
 				path = items[p_index].path;
 			}
 		}
-		_set_item_status(p_index, STATUS_CANCELED, RESULT_CANCELED, probe.response_code);
+		_set_item_status(p_index, DOWNLOAD_STATUS_CANCELED, RESULT_CANCELED, probe.response_code);
 		if (!keep_partial_files && !path.is_empty()) {
 			DirAccess::remove_absolute(path);
 		}
@@ -153,7 +153,7 @@ HTTPFileDownloader::Result HTTPFileDownloader::_download_item(int p_index) {
 				path = items[p_index].path;
 			}
 		}
-		_set_item_status(p_index, STATUS_FAILED, result, probe.response_code);
+		_set_item_status(p_index, DOWNLOAD_STATUS_FAILED, result, probe.response_code);
 		if (!keep_partial_files && !path.is_empty()) {
 			DirAccess::remove_absolute(path);
 		}
@@ -170,7 +170,7 @@ HTTPFileDownloader::Result HTTPFileDownloader::_download_item(int p_index) {
 	const String download_url = probe.final_url.is_empty() ? original_url : probe.final_url;
 	const int effective_thread_count = _get_effective_thread_count(probe.total_bytes);
 	_set_item_thread_count(p_index, probe.range_supported ? effective_thread_count : 1);
-	_set_item_status(p_index, STATUS_DOWNLOADING, RESULT_SUCCESS, probe.response_code);
+	_set_item_status(p_index, DOWNLOAD_STATUS_DOWNLOADING, RESULT_SUCCESS, probe.response_code);
 
 	if (probe.range_supported && effective_thread_count > 1) {
 		result = _download_item_parallel(p_index, download_url, effective_thread_count);
@@ -187,7 +187,7 @@ HTTPFileDownloader::Result HTTPFileDownloader::_download_item(int p_index) {
 	}
 
 	if (result == RESULT_SUCCESS) {
-		_set_item_status(p_index, STATUS_COMPLETED, RESULT_SUCCESS);
+		_set_item_status(p_index, DOWNLOAD_STATUS_COMPLETED, RESULT_SUCCESS);
 	} else if (result == RESULT_CANCELED) {
 		String path;
 		{
@@ -196,7 +196,7 @@ HTTPFileDownloader::Result HTTPFileDownloader::_download_item(int p_index) {
 				path = items[p_index].path;
 			}
 		}
-		_set_item_status(p_index, STATUS_CANCELED, RESULT_CANCELED);
+		_set_item_status(p_index, DOWNLOAD_STATUS_CANCELED, RESULT_CANCELED);
 		if (!keep_partial_files && !path.is_empty()) {
 			DirAccess::remove_absolute(path);
 		}
@@ -208,7 +208,7 @@ HTTPFileDownloader::Result HTTPFileDownloader::_download_item(int p_index) {
 				path = items[p_index].path;
 			}
 		}
-		_set_item_status(p_index, STATUS_FAILED, result);
+		_set_item_status(p_index, DOWNLOAD_STATUS_FAILED, result);
 		if (!keep_partial_files && !path.is_empty()) {
 			DirAccess::remove_absolute(path);
 		}
@@ -328,7 +328,7 @@ HTTPFileDownloader::Result HTTPFileDownloader::_download_item_parallel(int p_ind
 	file->flush();
 
 	if (final_response_code != 0) {
-		_set_item_status(p_index, final_result == RESULT_SUCCESS ? STATUS_DOWNLOADING : STATUS_FAILED, final_result, final_response_code);
+		_set_item_status(p_index, final_result == RESULT_SUCCESS ? DOWNLOAD_STATUS_DOWNLOADING : DOWNLOAD_STATUS_FAILED, final_result, final_response_code);
 	}
 
 	return final_result;
@@ -833,11 +833,11 @@ void HTTPFileDownloader::_set_item_status(int p_index, DownloadStatus p_status, 
 		item.response_code = p_response_code;
 	}
 	const uint64_t now = OS::get_singleton()->get_ticks_usec();
-	if ((p_status == STATUS_PREPARING || p_status == STATUS_DOWNLOADING) && item.started_usec == 0) {
+	if ((p_status == DOWNLOAD_STATUS_PREPARING || p_status == DOWNLOAD_STATUS_DOWNLOADING) && item.started_usec == 0) {
 		item.started_usec = now;
 		item.finished_usec = 0;
 	}
-	if (p_status == STATUS_COMPLETED || p_status == STATUS_FAILED || p_status == STATUS_CANCELED) {
+	if (p_status == DOWNLOAD_STATUS_COMPLETED || p_status == DOWNLOAD_STATUS_FAILED || p_status == DOWNLOAD_STATUS_CANCELED) {
 		item.finished_usec = now;
 	}
 }
@@ -926,7 +926,7 @@ Dictionary HTTPFileDownloader::_get_item_status_unlocked(const DownloadItem &p_i
 		} else if (p_item.downloaded_bytes >= p_item.total_bytes) {
 			eta = 0.0;
 		}
-	} else if (p_item.status == STATUS_COMPLETED) {
+	} else if (p_item.status == DOWNLOAD_STATUS_COMPLETED) {
 		progress = 1.0;
 		eta = 0.0;
 	}
@@ -982,9 +982,9 @@ double HTTPFileDownloader::_get_progress_unlocked(uint64_t p_now_usec) const {
 
 	double progress_units = 0.0;
 	for (const DownloadItem &item : items) {
-		if (item.status == STATUS_COMPLETED || item.status == STATUS_FAILED || item.status == STATUS_CANCELED) {
+		if (item.status == DOWNLOAD_STATUS_COMPLETED || item.status == DOWNLOAD_STATUS_FAILED || item.status == DOWNLOAD_STATUS_CANCELED) {
 			progress_units += 1.0;
-		} else if ((item.status == STATUS_DOWNLOADING || item.status == STATUS_PREPARING) && item.total_bytes > 0) {
+		} else if ((item.status == DOWNLOAD_STATUS_DOWNLOADING || item.status == DOWNLOAD_STATUS_PREPARING) && item.total_bytes > 0) {
 			progress_units += MIN((double)item.downloaded_bytes / (double)item.total_bytes, 1.0);
 		}
 	}
@@ -1082,7 +1082,7 @@ void HTTPFileDownloader::_emit_completion_signals() {
 	}
 
 	for (const DownloadItem &item : completed_items) {
-		if (item.status == STATUS_COMPLETED || item.status == STATUS_FAILED || item.status == STATUS_CANCELED) {
+		if (item.status == DOWNLOAD_STATUS_COMPLETED || item.status == DOWNLOAD_STATUS_FAILED || item.status == DOWNLOAD_STATUS_CANCELED) {
 			emit_signal(SNAME("download_completed"), item.id, item.url, item.path, item.result, item.response_code);
 		}
 	}
@@ -1430,12 +1430,12 @@ void HTTPFileDownloader::_bind_methods() {
 	BIND_ENUM_CONSTANT(RESULT_RANGE_NOT_SUPPORTED);
 	BIND_ENUM_CONSTANT(RESULT_UNAVAILABLE);
 
-	BIND_ENUM_CONSTANT(STATUS_PENDING);
-	BIND_ENUM_CONSTANT(STATUS_PREPARING);
-	BIND_ENUM_CONSTANT(STATUS_DOWNLOADING);
-	BIND_ENUM_CONSTANT(STATUS_COMPLETED);
-	BIND_ENUM_CONSTANT(STATUS_FAILED);
-	BIND_ENUM_CONSTANT(STATUS_CANCELED);
+	get_gdtype_static_mutable().bind_integer_constant(StringName("DownloadStatus"), "STATUS_PENDING", DOWNLOAD_STATUS_PENDING);
+	get_gdtype_static_mutable().bind_integer_constant(StringName("DownloadStatus"), "STATUS_PREPARING", DOWNLOAD_STATUS_PREPARING);
+	get_gdtype_static_mutable().bind_integer_constant(StringName("DownloadStatus"), "STATUS_DOWNLOADING", DOWNLOAD_STATUS_DOWNLOADING);
+	get_gdtype_static_mutable().bind_integer_constant(StringName("DownloadStatus"), "STATUS_COMPLETED", DOWNLOAD_STATUS_COMPLETED);
+	get_gdtype_static_mutable().bind_integer_constant(StringName("DownloadStatus"), "STATUS_FAILED", DOWNLOAD_STATUS_FAILED);
+	get_gdtype_static_mutable().bind_integer_constant(StringName("DownloadStatus"), "STATUS_CANCELED", DOWNLOAD_STATUS_CANCELED);
 }
 
 HTTPFileDownloader::HTTPFileDownloader() {
