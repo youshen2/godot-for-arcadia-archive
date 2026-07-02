@@ -13,6 +13,7 @@ CUSTOM_BUILD_OPTIONS="./custom.py"
 TEMPLATE_OUTPUT_DIR="./bin/export_templates"
 TEMPLATE_FAILURE_LABELS=()
 TEMPLATE_FAILURE_LOGS=()
+WINDOWS_ACTIVE_MINGW_PREFIX=""
 
 while getopts "tj:" opt; do
   case "$opt" in
@@ -28,6 +29,7 @@ while getopts "tj:" opt; do
       echo "  ./build.sh -t     清理后编译全部 export templates"
       echo "  ./build.sh -j 8   指定并行数量"
       echo "  ./build.sh -t -j 8"
+      echo "  WINDOWS_LLVM_MINGW_PREFIX=/path/to/llvm-mingw ./build.sh -t"
       exit 1
       ;;
   esac
@@ -367,6 +369,84 @@ windows_template_output_dir() {
   echo "$TEMPLATE_OUTPUT_DIR/windows"
 }
 
+windows_llvm_mingw_prefix_is_valid() {
+  local prefix="$1"
+
+  [[ -x "$prefix/bin/i686-w64-mingw32-clang" ]] &&
+    [[ -x "$prefix/bin/x86_64-w64-mingw32-clang" ]] &&
+    [[ -x "$prefix/bin/aarch64-w64-mingw32-clang" ]]
+}
+
+resolve_windows_llvm_mingw_prefix() {
+  local default_prefix="$HOME/Toolchains/llvm-mingw"
+
+  if [[ -n "${WINDOWS_LLVM_MINGW_PREFIX:-}" ]]; then
+    echo "$WINDOWS_LLVM_MINGW_PREFIX"
+    return 0
+  fi
+
+  if [[ -n "${MINGW_PREFIX:-}" ]]; then
+    if windows_llvm_mingw_prefix_is_valid "$MINGW_PREFIX"; then
+      echo "$MINGW_PREFIX"
+      return 0
+    fi
+
+    if windows_llvm_mingw_prefix_is_valid "$default_prefix"; then
+      echo "⚠️ 当前 MINGW_PREFIX 不是完整 llvm-mingw，改用: $default_prefix" >&2
+      echo "$default_prefix"
+      return 0
+    fi
+
+    echo "$MINGW_PREFIX"
+    return 0
+  fi
+
+  echo "$default_prefix"
+}
+
+configure_windows_llvm_mingw() {
+  WINDOWS_ACTIVE_MINGW_PREFIX="$(resolve_windows_llvm_mingw_prefix)"
+
+  if ! windows_llvm_mingw_prefix_is_valid "$WINDOWS_ACTIVE_MINGW_PREFIX"; then
+    echo "❌ Windows llvm-mingw 工具链不可用: $WINDOWS_ACTIVE_MINGW_PREFIX"
+    echo "需要包含以下编译器:"
+    echo "  $WINDOWS_ACTIVE_MINGW_PREFIX/bin/i686-w64-mingw32-clang"
+    echo "  $WINDOWS_ACTIVE_MINGW_PREFIX/bin/x86_64-w64-mingw32-clang"
+    echo "  $WINDOWS_ACTIVE_MINGW_PREFIX/bin/aarch64-w64-mingw32-clang"
+    echo
+    echo "可通过 WINDOWS_LLVM_MINGW_PREFIX=/path/to/llvm-mingw ./build.sh -t 指定路径"
+    return 1
+  fi
+
+  echo ">>> Windows llvm-mingw: $WINDOWS_ACTIVE_MINGW_PREFIX"
+  echo ">>> Windows 构建仅临时设置 MINGW_PREFIX/PATH，SCons 选项保持脚本原样"
+}
+
+record_windows_toolchain_failure() {
+  local error_log
+  local label
+
+  error_log="$(windows_template_output_dir)/error.log"
+  mkdir -p "$(windows_template_output_dir)"
+
+  append_error_log_to \
+    "$error_log" \
+    "Windows llvm-mingw 环境缺失" \
+    "工具链路径: $WINDOWS_ACTIVE_MINGW_PREFIX" \
+    "需要完整 llvm-mingw，并包含 i686/x86_64/aarch64 的 clang 目标编译器。" \
+    "可通过 WINDOWS_LLVM_MINGW_PREFIX=/path/to/llvm-mingw ./build.sh -t 指定路径。"
+
+  for label in \
+    "Windows template_debug x86_32" \
+    "Windows template_release x86_32" \
+    "Windows template_debug x86_64" \
+    "Windows template_release x86_64" \
+    "Windows template_debug arm64" \
+    "Windows template_release arm64"; do
+    record_template_failure "$label" "$error_log"
+  done
+}
+
 record_template_failure() {
   local label="$1"
   local error_log="$2"
@@ -443,7 +523,12 @@ run_windows_template_scons() {
   echo
   echo "========== 构建 $label =========="
 
-  if ! run_scons_to_log "$temp_error_log" "$@"; then
+  if ! (
+    export MINGW_PREFIX="$WINDOWS_ACTIVE_MINGW_PREFIX"
+    export PATH="$WINDOWS_ACTIVE_MINGW_PREFIX/bin:$PATH"
+
+    run_scons_to_log "$temp_error_log" "$@"
+  ); then
     {
       echo
       echo "========== $label =========="
@@ -734,6 +819,11 @@ build_windows_templates() {
   echo "========== 构建 Windows templates =========="
 
   clear_error_log "$(windows_template_output_dir)/error.log"
+
+  if ! configure_windows_llvm_mingw; then
+    record_windows_toolchain_failure
+    return 0
+  fi
 
   run_windows_template_scons "Windows template_debug x86_32" \
     platform=windows \

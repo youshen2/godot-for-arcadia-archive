@@ -72,6 +72,16 @@ def get_ffmpeg_libraries(lib_dir):
     return libraries
 
 
+def get_ffmpeg_system_libraries():
+    if env["platform"] != "windows":
+        return []
+
+    libraries = ["ws2_32", "bcrypt", "user32", "ole32"]
+    if env.get("use_mingw", True):
+        libraries.append("atomic")
+    return libraries
+
+
 def has_ffmpeg_install(include_dir, lib_dir):
     if not os.path.exists(os.path.join(include_dir, "libavformat", "avformat.h")):
         return False
@@ -382,6 +392,7 @@ env_ffmpeg.Prepend(CPPPATH=[ffmpeg_include_dir])
 env.Prepend(CPPPATH=[ffmpeg_include_dir])
 env.Append(LIBPATH=[ffmpeg_lib_dir])
 env.Append(LIBS=[env.File(lib) for lib in ffmpeg_libraries])
+env.Append(LIBS=get_ffmpeg_system_libraries())
 
 extra_libs = env.get("ffmpeg_extra_libs", "")
 if extra_libs:

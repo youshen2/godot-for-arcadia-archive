@@ -11,7 +11,7 @@ use_llvm = "yes"
 # production = "yes"
 # disable_3d = "yes"
 # optimize = "size_extra"
-# lto = "full"
+# lto = "thin"
 # disable_physics_2d = "yes"
 # disable_physics_3d = "yes"
 # debug_symbols = "no"
@@ -20,7 +20,7 @@ use_llvm = "yes"
 # E-Begin
 production = "yes"
 optimize = "speed_trace"
-lto = "full"
+lto = "thin"
 # E-End
 
 module_basis_universal_enabled = "no"
