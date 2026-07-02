@@ -221,6 +221,26 @@ def ffmpeg_apple_embedded_toolchain_flags():
     )
 
 
+def ffmpeg_macos_toolchain_flags():
+    if env["platform"] != "macos":
+        return []
+
+    arch_flags = ["-arch", expected_ffmpeg_binary_arch()]
+
+    return (
+        ffmpeg_tool_option("cc", "CC")
+        + ffmpeg_tool_option("cxx", "CXX")
+        + ffmpeg_tool_option("as", "S_compiler")
+        + ffmpeg_tool_option("ar", "AR")
+        + ffmpeg_tool_option("ranlib", "RANLIB")
+        + [
+            "--extra-cflags=%s" % ffmpeg_join_flags(arch_flags),
+            "--extra-cxxflags=%s" % ffmpeg_join_flags(arch_flags),
+            "--extra-ldflags=%s" % ffmpeg_join_flags(arch_flags),
+        ]
+    )
+
+
 def android_target_triple():
     return {
         "x86_32": "i686-linux-android",
@@ -339,6 +359,7 @@ def make_configure_flags():
     if ffmpeg_arch() in ["x86", "x86_64"]:
         configure_flags.append("--disable-inline-asm")
     configure_flags += ffmpeg_platform_flags()
+    configure_flags += ffmpeg_macos_toolchain_flags()
     configure_flags += ffmpeg_apple_embedded_toolchain_flags()
     configure_flags += ffmpeg_android_toolchain_flags()
     configure_flags += ffmpeg_windows_toolchain_flags()
@@ -360,6 +381,15 @@ def is_build_stamp_current(stamp_path, configure_flags):
         return False
     with open(stamp_path, "r", encoding="utf-8") as stamp:
         return stamp.read() == make_build_stamp(configure_flags)
+
+
+def clean_ffmpeg_install():
+    for name in ["include", "lib", "share", "bin"]:
+        path = os.path.join(ffmpeg_prefix, name)
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+        elif os.path.exists(path):
+            os.remove(path)
 
 
 ffmpeg_source_dir = rooted("#thirdparty/FFmpeg")
@@ -398,6 +428,8 @@ if not has_install or needs_configured_rebuild:
 
         if not install_is_current or not stamp_is_current:
             shutil.rmtree(ffmpeg_build_dir, ignore_errors=True)
+        if not install_is_current and not using_custom_prefix and not using_custom_include_or_lib:
+            clean_ffmpeg_install()
         os.makedirs(ffmpeg_build_dir, exist_ok=True)
 
         subprocess.check_call([ffmpeg_configure] + configure_flags, cwd=ffmpeg_build_dir)
