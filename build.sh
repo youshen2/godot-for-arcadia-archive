@@ -9,6 +9,7 @@ JOBS=12
 BUILD_TEMPLATES=0
 BUILD_EXIT_CODE=0
 ERROR_LOG="./error.log"
+CUSTOM_BUILD_OPTIONS="./custom.py"
 TEMPLATE_OUTPUT_DIR="./bin/export_templates"
 TEMPLATE_FAILURE_LABELS=()
 TEMPLATE_FAILURE_LOGS=()
@@ -174,6 +175,103 @@ check_exists() {
   fi
 
   echo "✅ $name: $path"
+}
+
+configure_custom_build_options() {
+  local mode="$1"
+  local temp_file
+
+  case "$mode" in
+    editor|template)
+      ;;
+    *)
+      echo "❌ 未知 custom.py 构建配置模式: $mode"
+      exit 1
+      ;;
+  esac
+
+  temp_file="${CUSTOM_BUILD_OPTIONS}.tmp.$$"
+  cp "$CUSTOM_BUILD_OPTIONS" "$temp_file"
+
+  if ! awk -v mode="$mode" '
+function comment_line(line, indent, rest) {
+	if (line ~ /^[[:space:]]*($|#)/) {
+		return line;
+	}
+
+	match(line, /^[[:space:]]*/);
+	indent = substr(line, 1, RLENGTH);
+	rest = substr(line, RLENGTH + 1);
+	return indent "# " rest;
+}
+
+function uncomment_line(line, indent, rest) {
+	if (line !~ /^[[:space:]]*#/) {
+		return line;
+	}
+
+	match(line, /^[[:space:]]*/);
+	indent = substr(line, 1, RLENGTH);
+	rest = substr(line, RLENGTH + 1);
+	sub(/^#[[:space:]]?/, "", rest);
+	return indent rest;
+}
+
+function apply_block(line) {
+	if (block == "T") {
+		return mode == "template" ? uncomment_line(line) : comment_line(line);
+	}
+	if (block == "E") {
+		return mode == "editor" ? uncomment_line(line) : comment_line(line);
+	}
+	return line;
+}
+
+/^[[:space:]]*# T-Begin[[:space:]]*$/ {
+	seen_t_begin = 1;
+	block = "T";
+	print;
+	next;
+}
+
+/^[[:space:]]*# T-End[[:space:]]*$/ {
+	seen_t_end = 1;
+	block = "";
+	print;
+	next;
+}
+
+/^[[:space:]]*# E-Begin[[:space:]]*$/ {
+	seen_e_begin = 1;
+	block = "E";
+	print;
+	next;
+}
+
+/^[[:space:]]*# E-End[[:space:]]*$/ {
+	seen_e_end = 1;
+	block = "";
+	print;
+	next;
+}
+
+{
+	print apply_block($0);
+}
+
+END {
+	if (block != "" || !seen_t_begin || !seen_t_end || !seen_e_begin || !seen_e_end) {
+		exit 1;
+	}
+}
+' "$CUSTOM_BUILD_OPTIONS" > "$temp_file"; then
+    rm -f "$temp_file"
+    echo "❌ 切换 custom.py 构建配置失败，请检查 # T-Begin/# T-End 和 # E-Begin/# E-End 标记"
+    exit 1
+  fi
+
+  mv "$temp_file" "$CUSTOM_BUILD_OPTIONS"
+  echo ">>> custom.py 已切换为 $mode 构建配置"
 }
 
 clean_editor_targets() {
@@ -630,8 +728,10 @@ build_all_templates() {
 }
 
 if [[ "$BUILD_TEMPLATES" -eq 1 ]]; then
+  configure_custom_build_options template
   build_all_templates
 else
+  configure_custom_build_options editor
   build_macos_editor
 fi
 

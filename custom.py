@@ -7,6 +7,7 @@ accesskit = "no"
 use_mingw = "yes"
 use_llvm = "yes"
 
+# T-Begin
 # production = "yes"
 # disable_3d = "yes"
 # optimize = "size_extra"
@@ -14,8 +15,13 @@ use_llvm = "yes"
 # disable_physics_2d = "yes"
 # disable_physics_3d = "yes"
 # debug_symbols = "no"
+# T-End
 
+# E-Begin
+production = "yes"
 optimize = "speed_trace"
+lto = "full"
+# E-End
 
 module_basis_universal_enabled = "no"
 module_bmp_enabled = "no"
