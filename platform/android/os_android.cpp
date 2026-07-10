@@ -273,6 +273,16 @@ String OS_Android::get_name() const {
 	return "Android";
 }
 
+int OS_Android::get_default_thread_pool_size() const {
+#ifdef THREADS_ENABLED
+	const int processor_count = MAX(1, get_processor_count());
+	const int reserved_threads = processor_count >= 6 ? 2 : 1;
+	return processor_count <= 2 ? processor_count : CLAMP(processor_count - reserved_threads, 1, 6);
+#else
+	return 1;
+#endif
+}
+
 String OS_Android::get_system_property(const char *key) const {
 	String value;
 	char value_str[PROP_VALUE_MAX];

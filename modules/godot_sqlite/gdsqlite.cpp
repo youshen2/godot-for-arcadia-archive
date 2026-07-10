@@ -51,7 +51,7 @@ void SQLite::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_verbosity_level", "verbosity_level"), &SQLite::set_verbosity_level);
 	ClassDB::bind_method(D_METHOD("get_verbosity_level"), &SQLite::get_verbosity_level);
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "verbosity_level"), "set_verbosity_level", "get_verbosity_level");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "verbosity_level", PROPERTY_HINT_ENUM, "Quiet,Normal,Verbose,Very Verbose"), "set_verbosity_level", "get_verbosity_level");
 
 	ClassDB::bind_method(D_METHOD("set_foreign_keys", "foreign_keys"), &SQLite::set_foreign_keys);
 	ClassDB::bind_method(D_METHOD("get_foreign_keys"), &SQLite::get_foreign_keys);
@@ -153,9 +153,11 @@ bool SQLite::open_read_only(const String &p_path) {
 
 bool SQLite::open_db() {
 	if (db) {
-		ERR_PRINT("GDSQLite Error: Can't open database if connection is already open!");
+		error_message = "Can't open database if connection is already open.";
+		ERR_PRINT("GDSQLite Error: " + error_message);
 		return false;
 	}
+	error_message.clear();
 
 	if (path.find(":memory:") == -1) {
 		/* Add the default_extension to the database path if no extension is present */
@@ -177,7 +179,8 @@ bool SQLite::open_db() {
 			sqlite3_vfs_register(gdsqlite_vfs(), 0);
 			rc = sqlite3_open_v2(char_path, &db, SQLITE_OPEN_READONLY, "godot");
 		} else {
-			ERR_PRINT("GDSQLite Error: Opening in-memory databases in read-only mode is currently not supported!");
+			error_message = "Opening in-memory databases in read-only mode is not supported.";
+			ERR_PRINT("GDSQLite Error: " + error_message);
 			return false;
 		}
 	} else {
@@ -188,7 +191,12 @@ bool SQLite::open_db() {
 	}
 
 	if (rc != SQLITE_OK) {
-		ERR_PRINT("GDSQLite Error: Can't open database: " + String::utf8(sqlite3_errmsg(db)));
+		error_message = db != nullptr ? String::utf8(sqlite3_errmsg(db)) : "SQLite did not create a database handle.";
+		ERR_PRINT("GDSQLite Error: Can't open database: " + error_message);
+		if (db != nullptr) {
+			sqlite3_close_v2(db);
+			db = nullptr;
+		}
 		return false;
 	} else if (verbosity_level > VerbosityLevel::QUIET) {
 		UtilityFunctions::print("Opened database successfully (" + path + ")");
@@ -199,8 +207,11 @@ bool SQLite::open_db() {
 		char *zErrMsg = nullptr;
 		rc = sqlite3_exec(db, "PRAGMA foreign_keys=on;", NULL, NULL, &zErrMsg);
 		if (rc != SQLITE_OK) {
-			ERR_PRINT("GDSQLite Error: Can't enable foreign keys: " + String::utf8(zErrMsg));
+			error_message = zErrMsg != nullptr ? String::utf8(zErrMsg) : String::utf8(sqlite3_errmsg(db));
+			ERR_PRINT("GDSQLite Error: Can't enable foreign keys: " + error_message);
 			sqlite3_free(zErrMsg);
+			sqlite3_close_v2(db);
+			db = nullptr;
 			return false;
 		}
 	}
@@ -212,10 +223,12 @@ bool SQLite::close_db() {
 	if (db) {
 		// Cannot close database!
 		if (sqlite3_close_v2(db) != SQLITE_OK) {
-			ERR_PRINT("GDSQLite Error: Can't close database!");
+			error_message = String::utf8(sqlite3_errmsg(db));
+			ERR_PRINT("GDSQLite Error: Can't close database: " + error_message);
 			return false;
 		} else {
 			db = nullptr;
+			error_message.clear();
 			if (verbosity_level > VerbosityLevel::QUIET) {
 				UtilityFunctions::print("Closed database (" + path + ")");
 			}
@@ -223,7 +236,8 @@ bool SQLite::close_db() {
 		}
 	}
 
-	ERR_PRINT("GDSQLite Error: Can't close database if connection is not open!");
+	error_message = "Can't close database if connection is not open.";
+	ERR_PRINT("GDSQLite Error: " + error_message);
 	return false;
 }
 
@@ -315,24 +329,25 @@ bool SQLite::prepare_statement(const CharString &p_query, sqlite3_stmt **out_stm
 }
 
 bool SQLite::bind_parameter(Variant binding_value, sqlite3_stmt *stmt, int i) {
+	int rc = SQLITE_OK;
 	switch (binding_value.get_type()) {
 		case Variant::NIL:
-			sqlite3_bind_null(stmt, i + 1);
+			rc = sqlite3_bind_null(stmt, i + 1);
 			break;
 		case Variant::BOOL:
 		case Variant::INT:
-			sqlite3_bind_int64(stmt, i + 1, int64_t(binding_value));
+			rc = sqlite3_bind_int64(stmt, i + 1, int64_t(binding_value));
 			break;
 
 		case Variant::FLOAT:
-			sqlite3_bind_double(stmt, i + 1, binding_value);
+			rc = sqlite3_bind_double(stmt, i + 1, binding_value);
 			break;
 		case Variant::STRING:
 		case Variant::STRING_NAME:
 			{
 				const CharString dummy_binding = (binding_value.operator String()).utf8();
 				const char *binding = dummy_binding.get_data();
-				sqlite3_bind_text(stmt, i + 1, binding, -1, SQLITE_TRANSIENT);
+				rc = sqlite3_bind_text(stmt, i + 1, binding, -1, SQLITE_TRANSIENT);
 			}
 			break;
 
@@ -340,17 +355,23 @@ bool SQLite::bind_parameter(Variant binding_value, sqlite3_stmt *stmt, int i) {
 			PackedByteArray binding = ((const PackedByteArray &)binding_value);
 			/* Calling .ptr() on an empty PackedByteArray returns an error */
 			if (binding.size() == 0) {
-				sqlite3_bind_null(stmt, i + 1);
+				rc = sqlite3_bind_null(stmt, i + 1);
 				/* Identical to: `sqlite3_bind_blob64(stmt, i + 1, nullptr, 0, SQLITE_TRANSIENT);`*/
 			} else {
-				sqlite3_bind_blob64(stmt, i + 1, binding.ptr(), binding.size(), SQLITE_TRANSIENT);
+				rc = sqlite3_bind_blob64(stmt, i + 1, binding.ptr(), binding.size(), SQLITE_TRANSIENT);
 			}
 			break;
 		}
 
 		default:
-			ERR_PRINT("GDSQLite Error: Binding a parameter of type " + String(std::to_string(binding_value.get_type()).c_str()) + " (TYPE_*) is not supported!");
+			error_message = "Binding a parameter of type " + String(std::to_string(binding_value.get_type()).c_str()) + " (TYPE_*) is not supported.";
+			ERR_PRINT("GDSQLite Error: " + error_message);
 			return false;
+	}
+	if (rc != SQLITE_OK) {
+		error_message = db != nullptr ? String::utf8(sqlite3_errmsg(db)) : String::utf8(sqlite3_errstr(rc));
+		ERR_PRINT("GDSQLite Error: Can't bind parameter: " + error_message);
+		return false;
 	}
 	return true;
 }
@@ -442,7 +463,8 @@ bool SQLite::query_with_bindings(const String &p_query, Array param_bindings) {
 	/* Check if the param_bindings size exceeds the required parameter count */
 	int parameter_count = sqlite3_bind_parameter_count(stmt);
 	if (param_bindings.size() < parameter_count) {
-		ERR_PRINT("GDSQLite Error: Insufficient number of parameters to satisfy required number of bindings in statement!");
+		error_message = "Insufficient number of parameters to satisfy required bindings in statement.";
+		ERR_PRINT("GDSQLite Error: " + error_message);
 		sqlite3_finalize(stmt);
 		return false;
 	}
@@ -488,10 +510,8 @@ bool SQLite::query_with_named_bindings(const String &p_query, Dictionary param_b
 	for (int i = 0; i < parameter_count; i++) {
 		const char *param_name = sqlite3_bind_parameter_name(stmt, i + 1);
 		if (nullptr == param_name) {
-			ERR_PRINT(vformat(
-				"GDSQLite Error: Parameter index %d is most likely nameless and can't assign named parameter!",
-				i + 1
-			));			
+			error_message = vformat("Parameter index %d is nameless and can't be assigned from a named parameter dictionary.", i + 1);
+			ERR_PRINT("GDSQLite Error: " + error_message);
 			sqlite3_finalize(stmt);
 			return false;
 		}
@@ -505,10 +525,8 @@ bool SQLite::query_with_named_bindings(const String &p_query, Dictionary param_b
 		} else if (param_bindings.has(prefixed_name)) {
 			binding_value = param_bindings[prefixed_name];
 		} else {
-			ERR_PRINT(vformat(
-				"GDSQLite Error: Insufficient parameter names to satisfy bindings in statement! Missing parameter: %s",
-				non_prefixed_name
-			));
+			error_message = vformat("Missing named parameter '%s'.", non_prefixed_name);
+			ERR_PRINT("GDSQLite Error: " + error_message);
 			sqlite3_finalize(stmt);
 			return false;
 		}
@@ -1308,12 +1326,13 @@ int64_t SQLite::get_last_insert_rowid() const {
 	return 0;
 }
 
-void SQLite::set_verbosity_level(const int64_t &p_verbosity_level) {
+void SQLite::set_verbosity_level(VerbosityLevel p_verbosity_level) {
+	ERR_FAIL_INDEX(p_verbosity_level, VERY_VERBOSE + 1);
 	verbosity_level = p_verbosity_level;
 }
 
-int64_t SQLite::get_verbosity_level() const {
-	return verbosity_level;
+SQLite::VerbosityLevel SQLite::get_verbosity_level() const {
+	return VerbosityLevel(verbosity_level);
 }
 
 void SQLite::set_foreign_keys(const bool &p_foreign_keys) {

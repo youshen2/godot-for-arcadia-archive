@@ -4,7 +4,7 @@
 		基于 HTTP Range 的高性能文件下载节点。
 	</brief_description>
 	<description>
-		[HTTPFileDownloader] 用于将 HTTP 或 HTTPS URL 下载到本地文件。它会先探测服务器是否支持 [code]Range[/code] 分段请求；当服务器支持、文件大小达到 [member min_parallel_size]，并且有效线程数大于 1 时，会把同一个文件拆分为多个字节区间并行下载。若服务器不支持分段、文件过小、总大小未知或 [member thread_count] 被设为 [code]1[/code]，会自动退回单连接下载。
+		[HTTPFileDownloader] 用于将 HTTP 或 HTTPS URL 下载到本地文件。它会先探测服务器是否支持 [code skip-lint]Range[/code] 分段请求；当服务器支持、文件大小达到 [member min_parallel_size]，并且有效线程数大于 1 时，会把同一个文件拆分为多个字节区间并行下载。若服务器不支持分段、文件过小、总大小未知或 [member thread_count] 被设为 [code]1[/code]，会自动退回单连接下载。
 		本节点可以一次下载一个文件，也可以通过 [method download_files] 批量下载多个文件。批量任务默认遇到单个文件失败仍会继续处理后续文件；启用 [member stop_on_error] 后会在第一个失败文件处停止。进度既可以通过 [signal download_progressed]、[signal batch_progressed] 接收，也可以随时通过 [method get_progress]、[method get_downloaded_bytes]、[method get_total_bytes]、[method get_elapsed_time]、[method get_estimated_remaining_time] 和 [method get_bytes_per_second] 查询。
 		为了保证分段下载写入的是原始文件字节，本节点会在用户没有提供 [code]Accept-Encoding[/code] 请求头时自动添加 [code]Accept-Encoding: identity[/code]。如果自定义请求头强制启用 gzip、br 等压缩编码，服务器返回的内容可能不适合按字节区间合并。
 		[b]注意：[/b]本节点使用 Godot 内置 [HTTPClient]、[Thread] 和 [FileAccess]，不依赖第三方库。Web 导出中的 [HTTPClient] 受浏览器 Fetch、CORS 和阻塞线程限制，无法使用本节点的高性能下载路径；在 Web 平台调用下载方法会返回 [constant ERR_UNAVAILABLE]。
@@ -104,7 +104,7 @@
 			<return type="Dictionary" />
 			<param index="0" name="index" type="int" />
 			<description>
-				返回第 [param index] 个下载条目的状态字典。字典包含 [code]id[/code]、[code]url[/code]、[code]path[/code]、[code]status[/code]、[code]result[/code]、[code]response_code[/code]、[code]downloaded_bytes[/code]、[code]total_bytes[/code]、[code]thread_count[/code]、[code]progress[/code]、[code]elapsed_time[/code]、[code]estimated_remaining_time[/code]、[code]bytes_per_second[/code] 和 [code]headers[/code]。当服务器未提供总大小时，[code]total_bytes[/code] 和剩余时间可能为 [code]-1[/code]。
+				返回第 [param index] 个下载条目的状态字典。字典包含 [code]id[/code]、[code]url[/code]、[code]path[/code]、[code]status[/code]、[code]result[/code]、[code]response_code[/code]、[code]downloaded_bytes[/code]、[code]total_bytes[/code]、[code skip-lint]thread_count[/code]、[code]progress[/code]、[code]elapsed_time[/code]、[code]estimated_remaining_time[/code]、[code]bytes_per_second[/code] 和 [code]headers[/code]。当服务器未提供总大小时，[code]total_bytes[/code] 和剩余时间可能为 [code]-1[/code]。
 			</description>
 		</method>
 		<method name="get_downloaded_bytes" qualifiers="const">

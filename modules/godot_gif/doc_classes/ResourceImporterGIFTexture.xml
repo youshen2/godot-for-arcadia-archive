@@ -5,7 +5,7 @@
 	</brief_description>
 	<description>
 		[ResourceImporterGIFTexture] 识别 [code].gif[/code] 文件，并在导入时生成保存原始 GIF 数据和动画元数据的 [GIFTexture] 资源。导入资源会保留帧延迟、画布尺寸、帧数和循环次数，实际帧图像在运行时按需解码。
-		该类主要由编辑器导入系统内部使用。普通项目脚本通常不需要直接实例化它；需要运行时加载 GIF 时请使用 [GIFTexture.load_from_file] 或 [GIFTexture.load_from_buffer]。
+		该类主要由编辑器导入系统内部使用。普通项目脚本通常不需要直接实例化它；需要运行时加载 GIF 时请使用 [method GIFTexture.load_from_file] 或 [method GIFTexture.load_from_buffer]。
 	</description>
 	<tutorials>
 	</tutorials>

@@ -7,8 +7,7 @@
 void FFmpegInputContext::clear() {
 	format.reset();
 	avio.reset();
-	file_buffer.clear();
-	buffer_data = FFmpegBufferData();
+	file.unref();
 }
 
 String FFmpegCommon::error_string(int p_error) {
@@ -96,18 +95,15 @@ Error FFmpegCommon::open_input(FFmpegInputContext &r_input, const String &p_path
 		}
 
 		Error err = OK;
-		r_input.file_buffer = FileAccess::get_file_as_bytes(p_path, &err);
-		if (err != OK || r_input.file_buffer.is_empty()) {
+		r_input.file = FileAccess::open(p_path, FileAccess::READ, &err);
+		if (err != OK || r_input.file.is_null() || r_input.file->get_length() == 0 || r_input.file->get_length() > uint64_t(INT64_MAX)) {
 			if (options) {
 				av_dict_free(&options);
 			}
 			avformat_free_context(raw_format_context);
+			r_input.clear();
 			return err == OK ? ERR_FILE_CANT_READ : err;
 		}
-
-		r_input.buffer_data.ptr = r_input.file_buffer.ptrw();
-		r_input.buffer_data.size = r_input.file_buffer.size();
-		r_input.buffer_data.offset = 0;
 
 		unsigned char *avio_buffer = static_cast<unsigned char *>(av_malloc(AVIO_CONTEXT_BUFFER_SIZE));
 		if (!avio_buffer) {
@@ -115,16 +111,18 @@ Error FFmpegCommon::open_input(FFmpegInputContext &r_input, const String &p_path
 				av_dict_free(&options);
 			}
 			avformat_free_context(raw_format_context);
+			r_input.clear();
 			return ERR_OUT_OF_MEMORY;
 		}
 
-		AVIOContext *raw_avio = avio_alloc_context(avio_buffer, AVIO_CONTEXT_BUFFER_SIZE, 0, &r_input.buffer_data, &FFmpegCommon::read_buffer_packet, nullptr, &FFmpegCommon::seek_buffer);
+		AVIOContext *raw_avio = avio_alloc_context(avio_buffer, AVIO_CONTEXT_BUFFER_SIZE, 0, &r_input.file, &FFmpegCommon::read_file_packet, nullptr, &FFmpegCommon::seek_file);
 		if (!raw_avio) {
 			if (options) {
 				av_dict_free(&options);
 			}
 			av_free(avio_buffer);
 			avformat_free_context(raw_format_context);
+			r_input.clear();
 			return ERR_OUT_OF_MEMORY;
 		}
 
@@ -136,7 +134,7 @@ Error FFmpegCommon::open_input(FFmpegInputContext &r_input, const String &p_path
 			av_dict_free(&options);
 		}
 		if (response < 0) {
-			print_error("FFmpeg failed to open memory input", response);
+			print_error("FFmpeg failed to open file input", response);
 			avformat_free_context(raw_format_context);
 			r_input.clear();
 			return ERR_CANT_OPEN;
@@ -165,31 +163,31 @@ Error FFmpegCommon::open_input(FFmpegInputContext &r_input, const String &p_path
 	return OK;
 }
 
-int FFmpegCommon::read_buffer_packet(void *p_opaque, uint8_t *p_buffer, int p_buffer_size) {
-	FFmpegBufferData *buffer_data = static_cast<FFmpegBufferData *>(p_opaque);
-	if (!buffer_data || !buffer_data->ptr) {
+int FFmpegCommon::read_file_packet(void *p_opaque, uint8_t *p_buffer, int p_buffer_size) {
+	Ref<FileAccess> *file = static_cast<Ref<FileAccess> *>(p_opaque);
+	if (file == nullptr || file->is_null() || p_buffer == nullptr || p_buffer_size < 0) {
 		return AVERROR(EINVAL);
 	}
-
-	const size_t remaining = buffer_data->size - buffer_data->offset;
-	if (remaining == 0) {
-		return AVERROR_EOF;
+	if (p_buffer_size == 0) {
+		return 0;
 	}
 
-	const size_t read_size = MIN(remaining, static_cast<size_t>(p_buffer_size));
-	memcpy(p_buffer, buffer_data->ptr + buffer_data->offset, read_size);
-	buffer_data->offset += read_size;
-	return static_cast<int>(read_size);
+	const uint64_t bytes_read = (*file)->get_buffer(p_buffer, p_buffer_size);
+	if (bytes_read > 0) {
+		return static_cast<int>(bytes_read);
+	}
+	return (*file)->eof_reached() ? AVERROR_EOF : AVERROR(EIO);
 }
 
-int64_t FFmpegCommon::seek_buffer(void *p_opaque, int64_t p_offset, int p_whence) {
-	FFmpegBufferData *buffer_data = static_cast<FFmpegBufferData *>(p_opaque);
-	if (!buffer_data) {
+int64_t FFmpegCommon::seek_file(void *p_opaque, int64_t p_offset, int p_whence) {
+	Ref<FileAccess> *file = static_cast<Ref<FileAccess> *>(p_opaque);
+	if (file == nullptr || file->is_null()) {
 		return -1;
 	}
 
+	p_whence &= ~AVSEEK_FORCE;
 	if (p_whence == AVSEEK_SIZE) {
-		return buffer_data->size;
+		return (*file)->get_length();
 	}
 
 	int64_t new_offset = 0;
@@ -198,20 +196,19 @@ int64_t FFmpegCommon::seek_buffer(void *p_opaque, int64_t p_offset, int p_whence
 			new_offset = p_offset;
 			break;
 		case SEEK_CUR:
-			new_offset = static_cast<int64_t>(buffer_data->offset) + p_offset;
+			new_offset = static_cast<int64_t>((*file)->get_position()) + p_offset;
 			break;
 		case SEEK_END:
-			new_offset = static_cast<int64_t>(buffer_data->size) + p_offset;
+			new_offset = static_cast<int64_t>((*file)->get_length()) + p_offset;
 			break;
 		default:
 			return -1;
 	}
 
-	if (new_offset < 0 || new_offset > static_cast<int64_t>(buffer_data->size)) {
+	if (new_offset < 0 || new_offset > static_cast<int64_t>((*file)->get_length())) {
 		return -1;
 	}
 
-	buffer_data->offset = new_offset;
-	return buffer_data->offset;
+	(*file)->seek(new_offset);
+	return (*file)->get_position() == uint64_t(new_offset) ? new_offset : -1;
 }
-

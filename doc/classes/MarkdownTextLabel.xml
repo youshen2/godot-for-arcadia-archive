@@ -170,7 +170,7 @@
 			<return type="void" />
 			<param index="0" name="text" type="String" />
 			<description>
-				设置要显示的 Markdown 源文本，并标记内容需要重新解析。GDScript 可调用 [code]set_text()[/code] 或设置 [member text]；Mono / C# 绑定会生成对应的 [code]SetText()[/code] 方法和 [code]Text[/code] 属性。
+				设置要显示的 Markdown 源文本，并标记内容需要重新解析。GDScript 可调用 [method set_text] 或设置 [member text]；Mono / C# 绑定会生成对应的 [code]SetText()[/code] 方法和 [code]Text[/code] 属性。
 			</description>
 		</method>
 		<method name="set_text_direction">

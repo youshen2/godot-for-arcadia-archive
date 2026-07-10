@@ -98,17 +98,10 @@ using FFmpegAVIOContextPtr = std::unique_ptr<AVIOContext, FFmpegAVIOContextDelet
 using FFmpegSwrContextPtr = std::unique_ptr<SwrContext, FFmpegSwrContextDeleter>;
 using FFmpegSwsContextPtr = std::unique_ptr<SwsContext, FFmpegSwsContextDeleter>;
 
-struct FFmpegBufferData {
-	uint8_t *ptr = nullptr;
-	size_t size = 0;
-	size_t offset = 0;
-};
-
 struct FFmpegInputContext {
 	FFmpegFormatContextPtr format;
 	FFmpegAVIOContextPtr avio;
-	Vector<uint8_t> file_buffer;
-	FFmpegBufferData buffer_data;
+	Ref<FileAccess> file;
 
 	void clear();
 };
@@ -122,6 +115,6 @@ public:
 	static void enable_multithreading(AVCodecContext *p_codec_context, const AVCodec *p_codec);
 	static int get_frame(AVFormatContext *p_format_context, AVCodecContext *p_codec_context, int p_stream_id, AVFrame *p_frame, AVPacket *p_packet);
 	static Error open_input(FFmpegInputContext &r_input, const String &p_path, const String &p_headers = String(), bool p_icy = false);
-	static int read_buffer_packet(void *p_opaque, uint8_t *p_buffer, int p_buffer_size);
-	static int64_t seek_buffer(void *p_opaque, int64_t p_offset, int p_whence);
+	static int read_file_packet(void *p_opaque, uint8_t *p_buffer, int p_buffer_size);
+	static int64_t seek_file(void *p_opaque, int64_t p_offset, int p_whence);
 };

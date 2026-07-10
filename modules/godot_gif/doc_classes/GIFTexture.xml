@@ -30,6 +30,12 @@
 				返回 [param frame] 指定帧的显示时长，单位为秒。无效索引会返回默认值 [code]0.1[/code]。GIF 中缺失或为 0 的延迟也通常应按短延迟处理，播放节点会做相同兜底。
 			</description>
 		</method>
+		<method name="get_loop_count">
+			<return type="int" />
+			<description>
+				返回 GIF 元数据中声明的循环次数。[code]0[/code] 表示无限循环；文件未声明循环扩展时通常返回 [code]1[/code]。该值只描述源文件元数据，不会随 [GIFPlayer] 的实际播放进度变化。
+			</description>
+		</method>
 		<method name="get_frame_texture">
 			<return type="ImageTexture" />
 			<param index="0" name="frame" type="int" />

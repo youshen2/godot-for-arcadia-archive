@@ -317,6 +317,15 @@ String OS_MacOS::get_name() const {
 	return "macOS";
 }
 
+int OS_MacOS::get_default_thread_pool_size() const {
+#ifdef THREADS_ENABLED
+	const int processor_count = MAX(1, get_processor_count());
+	return MAX(1, processor_count - (processor_count >= 8 ? 2 : 1));
+#else
+	return 1;
+#endif
+}
+
 String OS_MacOS::get_distribution_name() const {
 	return get_name();
 }

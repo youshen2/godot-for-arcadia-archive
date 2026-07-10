@@ -89,6 +89,7 @@ private:
 		Ref<TextParagraph> paragraph;
 		Vector<DrawRange> ranges;
 		Vector<ImageObject> images;
+		Vector<float> line_offsets;
 		float width = -1.0;
 		Size2 size;
 	};

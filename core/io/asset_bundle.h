@@ -72,7 +72,7 @@ private:
 		String version;
 		String hash;
 		int64_t size = 0;
-		int offset = 0;
+		int64_t offset = 0;
 		PackedStringArray dependencies;
 		Vector<ResourceEntry> resources;
 		Vector<ResourceEntry> hot_replace_resources;
@@ -102,8 +102,7 @@ private:
 	static bool _variant_is_string_like(const Variant &p_value);
 	static String _variant_to_string(const Variant &p_value);
 	static String _get_dictionary_string(const Dictionary &p_dictionary, const String &p_key, const String &p_default = String());
-	static int _get_dictionary_int(const Dictionary &p_dictionary, const String &p_key, int p_default = 0);
-	static int64_t _get_dictionary_int64(const Dictionary &p_dictionary, const String &p_key, int64_t p_default = 0);
+	static int64_t _get_dictionary_int64(const Dictionary &p_dictionary, const String &p_key, int64_t p_default = 0, bool *r_valid = nullptr);
 	static bool _get_dictionary_bool(const Dictionary &p_dictionary, const String &p_key, bool p_default = false);
 	static PackedStringArray _get_dictionary_string_array(const Dictionary &p_dictionary, const String &p_key);
 	static Dictionary _read_manifest_dictionary(const String &p_manifest_path, Error &r_error, String &r_error_message);

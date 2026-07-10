@@ -34,6 +34,8 @@
 #include "core/io/file_access.h"
 #include "core/io/file_access_pack.h"
 #include "core/io/json.h"
+#include "core/math/math_funcs.h"
+#include "core/templates/hash_map.h"
 
 static int _asset_bundle_hex_char_to_int(char32_t p_char) {
 	if (p_char >= '0' && p_char <= '9') {
@@ -91,17 +93,32 @@ static String _asset_bundle_get_dictionary_string(const Dictionary &p_dictionary
 	return String(value);
 }
 
-static uint64_t _asset_bundle_get_dictionary_uint64(const Dictionary &p_dictionary, const String &p_key, uint64_t p_default = 0) {
+static bool _asset_bundle_get_dictionary_uint64(const Dictionary &p_dictionary, const String &p_key, uint64_t &r_value, uint64_t p_default = 0) {
 	if (!p_dictionary.has(p_key)) {
-		return p_default;
+		r_value = p_default;
+		return true;
 	}
 
 	Variant value = p_dictionary[p_key];
-	if (value.get_type() != Variant::INT && value.get_type() != Variant::FLOAT) {
-		return p_default;
+	if (value.get_type() == Variant::INT) {
+		const int64_t integer = value;
+		if (integer < 0) {
+			return false;
+		}
+		r_value = uint64_t(integer);
+		return true;
 	}
 
-	return uint64_t(int64_t(value));
+	if (value.get_type() == Variant::FLOAT) {
+		const double number = value;
+		if (Math::is_nan(number) || Math::is_inf(number) || number < 0.0 || number >= 9223372036854775808.0 || Math::floor(number) != number) {
+			return false;
+		}
+		r_value = uint64_t(number);
+		return true;
+	}
+
+	return false;
 }
 
 static bool _asset_bundle_get_dictionary_bool(const Dictionary &p_dictionary, const String &p_key, bool p_default = false) {
@@ -160,33 +177,57 @@ static bool _asset_bundle_append_pack_entry(const Dictionary &p_file, const Stri
 	AssetBundlePackEntry entry;
 	entry.resource_path = resource_path;
 	entry.chunk_path = p_chunk_path;
-	entry.offset = _asset_bundle_get_dictionary_uint64(p_file, "offset", 0);
-	const int64_t chunk_file_size = _asset_bundle_get_chunk_file_size(p_chunk_path);
-	entry.size = _asset_bundle_get_dictionary_uint64(p_file, "size", chunk_file_size > 0 ? uint64_t(chunk_file_size) : 0);
+	if (!_asset_bundle_get_dictionary_uint64(p_file, "offset", entry.offset)) {
+		return false;
+	}
+	if (p_file.has("size")) {
+		if (!_asset_bundle_get_dictionary_uint64(p_file, "size", entry.size)) {
+			return false;
+		}
+	} else {
+		const int64_t chunk_file_size = _asset_bundle_get_chunk_file_size(p_chunk_path);
+		if (chunk_file_size < 0) {
+			return false;
+		}
+		entry.size = uint64_t(chunk_file_size);
+	}
 	entry.encrypted = _asset_bundle_get_dictionary_bool(p_file, "encrypted", p_default_encrypted);
 	if (p_file.has("md5")) {
-		_asset_bundle_hex_to_md5(String(p_file["md5"]), entry.md5);
+		if (!_asset_bundle_hex_to_md5(_asset_bundle_get_dictionary_string(p_file, "md5"), entry.md5)) {
+			return false;
+		}
 	}
 
 	r_entries.push_back(entry);
 	return true;
 }
 
-static bool _asset_bundle_validate_pack_entry(const AssetBundlePackEntry &p_entry, const Vector<uint8_t> &p_decryption_key) {
+static bool _asset_bundle_validate_pack_entry(const AssetBundlePackEntry &p_entry, const Vector<uint8_t> &p_decryption_key, HashMap<String, int64_t> &r_chunk_sizes) {
+	if (!p_entry.encrypted) {
+		int64_t chunk_size = -1;
+		const int64_t *cached_size = r_chunk_sizes.getptr(p_entry.chunk_path);
+		if (cached_size != nullptr) {
+			chunk_size = *cached_size;
+		} else {
+			chunk_size = _asset_bundle_get_chunk_file_size(p_entry.chunk_path);
+			r_chunk_sizes.insert(p_entry.chunk_path, chunk_size);
+		}
+		if (chunk_size < 0) {
+			ERR_PRINT(vformat("AssetBundle chunk file '%s' does not exist.", p_entry.chunk_path));
+			return false;
+		}
+		if (p_entry.size > UINT64_MAX - p_entry.offset || p_entry.offset + p_entry.size > uint64_t(chunk_size)) {
+			ERR_PRINT(vformat("AssetBundle chunk '%s' is too small for resource '%s' (offset: %d, size: %d, chunk size: %d).", p_entry.chunk_path, p_entry.resource_path, int64_t(p_entry.offset), int64_t(p_entry.size), chunk_size));
+			return false;
+		}
+		return true;
+	}
+
 	Error open_error = OK;
 	Ref<FileAccess> chunk_file = _asset_bundle_open_chunk_file(p_entry.chunk_path, &open_error);
 	if (open_error != OK || chunk_file.is_null()) {
 		ERR_PRINT(vformat("AssetBundle chunk file '%s' does not exist.", p_entry.chunk_path));
 		return false;
-	}
-
-	if (!p_entry.encrypted) {
-		const int64_t chunk_size = chunk_file->get_length();
-		if (chunk_size < 0 || p_entry.offset + p_entry.size > uint64_t(chunk_size)) {
-			ERR_PRINT(vformat("AssetBundle chunk '%s' is too small for resource '%s' (offset: %d, size: %d, chunk size: %d).", p_entry.chunk_path, p_entry.resource_path, int64_t(p_entry.offset), int64_t(p_entry.size), chunk_size));
-			return false;
-		}
-		return true;
 	}
 
 	PackedData::PackedFile packed_file;
@@ -257,7 +298,11 @@ bool PackedSourceAssetBundle::try_open_pack(const String &p_path, bool p_replace
 			continue;
 		}
 
-		const String chunk_path = base_dir.path_join(_asset_bundle_normalize_portable_path(String(chunk["chunk"])));
+		const String chunk_name = _asset_bundle_normalize_portable_path(_asset_bundle_get_dictionary_string(chunk, "chunk"));
+		if (chunk_name.is_empty()) {
+			return false;
+		}
+		const String chunk_path = base_dir.path_join(chunk_name);
 		const bool chunk_encrypted = _asset_bundle_get_dictionary_bool(chunk, "encrypted", false);
 		if (chunk.has("files") && chunk["files"].get_type() == Variant::ARRAY) {
 			Array files = chunk["files"];
@@ -265,15 +310,24 @@ bool PackedSourceAssetBundle::try_open_pack(const String &p_path, bool p_replace
 				if (files[j].get_type() != Variant::DICTIONARY) {
 					continue;
 				}
-				_asset_bundle_append_pack_entry(files[j], chunk_path, chunk_encrypted, entries);
+				if (!_asset_bundle_append_pack_entry(files[j], chunk_path, chunk_encrypted, entries)) {
+					return false;
+				}
 			}
 		} else if (chunk.has("path")) {
-			_asset_bundle_append_pack_entry(chunk, chunk_path, chunk_encrypted, entries);
+			if (!_asset_bundle_append_pack_entry(chunk, chunk_path, chunk_encrypted, entries)) {
+				return false;
+			}
 		}
 	}
 
+	if (entries.is_empty()) {
+		return false;
+	}
+
+	HashMap<String, int64_t> chunk_sizes;
 	for (const AssetBundlePackEntry &entry : entries) {
-		if (!_asset_bundle_validate_pack_entry(entry, p_decryption_key)) {
+		if (!_asset_bundle_validate_pack_entry(entry, p_decryption_key, chunk_sizes)) {
 			return false;
 		}
 	}

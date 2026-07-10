@@ -6,7 +6,7 @@
 	<description>
 		[GIFPlayer] 根据 [GIFTexture] 中记录的帧延迟自动推进动画帧，并在控件矩形内绘制当前帧。它提供与 [TextureRect] 类似的拉伸、翻转和最小尺寸控制，同时支持正放、倒放、乒乓和随机播放。
 		播放只在节点处理帧时推进；如果节点不在场景树中、处理被禁用，或 [member gif] 无效，则不会消耗播放时间。对于大型 GIF，首次访问靠后的帧可能触发多帧合成，建议在 UI 关键路径中避免使用过大的动画。
-		在 C# 中，方法名和属性名会按 Godot 绑定规则转换为 PascalCase，例如 [method set_speed_scale] 对应 [code]SetSpeedScale[/code]，[member play_mode] 对应 [code]PlayMode[/code]。
+		在 C# 中，方法名和属性名会按 Godot 绑定规则转换为 PascalCase，例如 [member speed_scale] 的 setter 对应 [code]SetSpeedScale[/code]，[member play_mode] 对应 [code]PlayMode[/code]。
 	</description>
 	<tutorials>
 	</tutorials>

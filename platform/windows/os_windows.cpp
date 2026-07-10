@@ -602,6 +602,14 @@ String OS_Windows::get_name() const {
 	return "Windows";
 }
 
+int OS_Windows::get_default_thread_pool_size() const {
+#ifdef THREADS_ENABLED
+	return MAX(1, get_processor_count() - 1);
+#else
+	return 1;
+#endif
+}
+
 String OS_Windows::get_distribution_name() const {
 	return get_name();
 }

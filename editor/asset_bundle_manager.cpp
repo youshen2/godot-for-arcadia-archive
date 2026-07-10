@@ -32,6 +32,7 @@
 
 #include "core/config/project_settings.h"
 #include "core/crypto/hash_calculator.h"
+#include "core/crypto/hashing_context.h"
 #include "core/io/config_file.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
@@ -118,7 +119,6 @@ struct AssetBundleManagerExportFile {
 	String type;
 	String hash;
 	String md5;
-	Vector<uint8_t> data;
 	int64_t size = 0;
 	uint64_t offset = 0;
 	bool encrypted = false;
@@ -175,24 +175,49 @@ static bool _asset_bundle_manager_is_valid_encryption_key(const String &p_key) {
 }
 
 static Vector<uint8_t> _asset_bundle_manager_make_iv(const String &p_seed) {
-	Vector<uint8_t> iv;
-	Vector<uint8_t> seed_bytes;
-	if (!_asset_bundle_manager_hex_to_bytes(p_seed.sha256_text().substr(0, 32), seed_bytes) || seed_bytes.size() != 16) {
-		return iv;
-	}
-
-	iv = seed_bytes;
+	Vector<uint8_t> iv = p_seed.sha256_buffer();
+	iv.resize(16);
 	return iv;
 }
 
 static Error _asset_bundle_manager_prepare_export_file(AssetBundleManagerExportFile &r_file) {
-	Error read_error = OK;
-	r_file.data = FileAccess::get_file_as_bytes(r_file.source_path, &read_error);
-	ERR_FAIL_COND_V_MSG(read_error != OK, read_error, vformat("Cannot read resource '%s'.", r_file.resource_path));
+	Error err = OK;
+	Ref<FileAccess> source_file = FileAccess::open(r_file.source_path, FileAccess::READ, &err);
+	ERR_FAIL_COND_V_MSG(err != OK || source_file.is_null(), err != OK ? err : ERR_FILE_CANT_OPEN, vformat("Cannot read resource '%s'.", r_file.resource_path));
 
-	r_file.hash = HashCalculator::hash_bytes_hex(HashingContext::HASH_SHA256, r_file.data);
-	r_file.md5 = HashCalculator::hash_bytes_hex(HashingContext::HASH_MD5, r_file.data);
-	r_file.size = r_file.data.size();
+	const uint64_t source_size = source_file->get_length();
+	ERR_FAIL_COND_V_MSG(source_size > uint64_t(INT64_MAX), ERR_FILE_CANT_READ, vformat("Resource '%s' is too large to export.", r_file.resource_path));
+
+	Ref<HashingContext> sha256;
+	Ref<HashingContext> md5;
+	sha256.instantiate();
+	md5.instantiate();
+	ERR_FAIL_COND_V(sha256.is_null() || md5.is_null(), ERR_CANT_CREATE);
+	err = sha256->start(HashingContext::HASH_SHA256);
+	ERR_FAIL_COND_V(err != OK, err);
+	err = md5->start(HashingContext::HASH_MD5);
+	ERR_FAIL_COND_V(err != OK, err);
+
+	PackedByteArray buffer;
+	uint64_t processed = 0;
+	while (processed < source_size) {
+		const int64_t to_read = int64_t(MIN(source_size - processed, uint64_t(HashCalculator::DEFAULT_CHUNK_SIZE)));
+		buffer.resize(to_read);
+		const uint64_t bytes_read = source_file->get_buffer(buffer.ptrw(), to_read);
+		ERR_FAIL_COND_V_MSG(bytes_read != uint64_t(to_read), ERR_FILE_CANT_READ, vformat("Cannot read resource '%s'.", r_file.resource_path));
+		err = sha256->update(buffer);
+		ERR_FAIL_COND_V(err != OK, err);
+		err = md5->update(buffer);
+		ERR_FAIL_COND_V(err != OK, err);
+		processed += bytes_read;
+	}
+
+	const PackedByteArray sha256_hash = sha256->finish();
+	const PackedByteArray md5_hash = md5->finish();
+	ERR_FAIL_COND_V(sha256_hash.is_empty() || md5_hash.is_empty(), ERR_FILE_CANT_READ);
+	r_file.hash = String::hex_encode_buffer(sha256_hash.ptr(), sha256_hash.size());
+	r_file.md5 = String::hex_encode_buffer(md5_hash.ptr(), md5_hash.size());
+	r_file.size = int64_t(source_size);
 	ERR_FAIL_COND_V_MSG(r_file.hash.is_empty(), ERR_FILE_CANT_READ, vformat("Cannot hash resource '%s'.", r_file.resource_path));
 	ERR_FAIL_COND_V_MSG(r_file.md5.is_empty(), ERR_FILE_CANT_READ, vformat("Cannot hash resource '%s'.", r_file.resource_path));
 	return OK;
@@ -201,6 +226,15 @@ static Error _asset_bundle_manager_prepare_export_file(AssetBundleManagerExportF
 static Error _asset_bundle_manager_store_export_file(Ref<FileAccess> p_chunk_file, AssetBundleManagerExportFile &r_file, const Vector<uint8_t> &p_encryption_key) {
 	r_file.offset = p_chunk_file->get_position();
 	r_file.encrypted = !p_encryption_key.is_empty();
+	Error read_error = OK;
+	Ref<FileAccess> source_file = FileAccess::open(r_file.source_path, FileAccess::READ, &read_error);
+	ERR_FAIL_COND_V_MSG(read_error != OK || source_file.is_null(), read_error != OK ? read_error : ERR_FILE_CANT_OPEN, vformat("Cannot read resource '%s'.", r_file.resource_path));
+	ERR_FAIL_COND_V_MSG(source_file->get_length() != uint64_t(r_file.size), ERR_FILE_CANT_READ, vformat("Resource '%s' changed while the AssetBundle was being exported.", r_file.resource_path));
+	Ref<HashingContext> verification_hash;
+	verification_hash.instantiate();
+	ERR_FAIL_COND_V(verification_hash.is_null(), ERR_CANT_CREATE);
+	Error hash_error = verification_hash->start(HashingContext::HASH_SHA256);
+	ERR_FAIL_COND_V(hash_error != OK, hash_error);
 
 	Ref<FileAccess> target_file = p_chunk_file;
 	Ref<FileAccessEncrypted> encrypted_file;
@@ -214,20 +248,47 @@ static Error _asset_bundle_manager_store_export_file(Ref<FileAccess> p_chunk_fil
 		target_file = encrypted_file;
 	}
 
-	const bool stored = r_file.data.is_empty() || target_file->store_buffer(r_file.data.ptr(), r_file.data.size());
+	PackedByteArray buffer;
+	uint64_t processed = 0;
+	Error store_error = OK;
+	while (processed < uint64_t(r_file.size)) {
+		const int64_t to_read = int64_t(MIN(uint64_t(r_file.size) - processed, uint64_t(HashCalculator::DEFAULT_CHUNK_SIZE)));
+		buffer.resize(to_read);
+		const uint64_t bytes_read = source_file->get_buffer(buffer.ptrw(), to_read);
+		if (bytes_read != uint64_t(to_read)) {
+			store_error = ERR_FILE_CANT_READ;
+			break;
+		}
+		hash_error = verification_hash->update(buffer);
+		if (hash_error != OK) {
+			store_error = hash_error;
+			break;
+		}
+		if (!target_file->store_buffer(buffer.ptr(), bytes_read) || target_file->get_error() != OK) {
+			store_error = ERR_FILE_CANT_WRITE;
+			break;
+		}
+		processed += bytes_read;
+	}
 
 	if (encrypted_file.is_valid()) {
 		target_file.unref();
 		encrypted_file.unref();
 	}
 
-	ERR_FAIL_COND_V_MSG(!stored, ERR_FILE_CANT_WRITE, vformat("Cannot write resource '%s' to AssetBundle chunk.", r_file.resource_path));
+	if (store_error == OK) {
+		const PackedByteArray hash = verification_hash->finish();
+		if (hash.is_empty() || String::hex_encode_buffer(hash.ptr(), hash.size()) != r_file.hash) {
+			store_error = ERR_FILE_CORRUPT;
+		}
+	}
+
+	ERR_FAIL_COND_V_MSG(store_error != OK, store_error, vformat("Cannot write resource '%s' to AssetBundle chunk.", r_file.resource_path));
 	if (!r_file.encrypted) {
 		const uint64_t written_size = p_chunk_file->get_position() - r_file.offset;
 		ERR_FAIL_COND_V_MSG(written_size != uint64_t(r_file.size), ERR_FILE_CANT_WRITE, vformat("AssetBundle wrote %d bytes for resource '%s', expected %d bytes.", int64_t(written_size), r_file.resource_path, r_file.size));
 	}
 
-	r_file.data.clear();
 	return OK;
 }
 
@@ -253,25 +314,15 @@ Error AssetBundleManagerDialog::_write_text_file(const String &p_path, const Str
 }
 
 Error AssetBundleManagerDialog::_remove_recursive(const String &p_path) {
-	Ref<DirAccess> dir = DirAccess::open(p_path);
+	Error err = OK;
+	Ref<DirAccess> dir = DirAccess::open(p_path, &err);
 	if (dir.is_null()) {
-		return OK;
+		return DirAccess::exists(p_path) ? err : OK;
 	}
 
-	for (const String &file_name : dir->get_files()) {
-		Error err = DirAccess::remove_absolute(p_path.path_join(file_name));
-		if (err != OK) {
-			return err;
-		}
-	}
-
-	for (const String &dir_name : dir->get_directories()) {
-		Error err = _remove_recursive(p_path.path_join(dir_name));
-		if (err != OK) {
-			return err;
-		}
-	}
-
+	err = dir->erase_contents_recursive();
+	ERR_FAIL_COND_V(err != OK, err);
+	dir.unref();
 	return DirAccess::remove_absolute(p_path);
 }
 

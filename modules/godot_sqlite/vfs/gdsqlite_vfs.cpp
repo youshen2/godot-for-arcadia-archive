@@ -1,5 +1,7 @@
 #include "gdsqlite_vfs.hpp"
 
+#include "core/crypto/crypto_core.h"
+
 using namespace godot;
 
 /*
@@ -23,7 +25,7 @@ static int gdsqlite_vfs_open(sqlite3_vfs *pVfs, const char *zName, sqlite3_file 
 	};
 	gdsqlite_file *p = reinterpret_cast<gdsqlite_file *>(pFile);
 	Ref<FileAccess> file;
-	FileAccess::ModeFlags godot_flags;
+	FileAccess::ModeFlags godot_flags = FileAccess::READ;
 
 	ERR_FAIL_COND_V(zName == NULL, SQLITE_IOERR); /* How does this respond to :memory:? */
 
@@ -41,7 +43,7 @@ static int gdsqlite_vfs_open(sqlite3_vfs *pVfs, const char *zName, sqlite3_file 
 	// TODO: Figure out if checking for SQLITE_OPEN_READWRITE is necessary when the database is readonly?
 	if (flags & SQLITE_OPEN_READWRITE) {
 		if (flags & SQLITE_OPEN_CREATE) {
-			if (file->file_exists(String(zName))) {
+			if (FileAccess::exists(String(zName))) {
 				// UtilityFunctions::print("READ WRITE");
 				godot_flags = FileAccess::READ_WRITE;
 			} else {
@@ -98,7 +100,7 @@ static int gdsqlite_vfs_access(sqlite3_vfs *pVfs, const char *zPath, int flags, 
 
 	switch (flags) {
 		case SQLITE_ACCESS_EXISTS:
-			*pResOut = file->file_exists(zPath);
+			*pResOut = FileAccess::exists(zPath);
 			break;
 
 		case SQLITE_ACCESS_READWRITE:
@@ -174,11 +176,12 @@ static void gdsqlite_vfs_dlClose(sqlite3_vfs *vfs, void *data) {
 ** buffer with pseudo-random data.
 */
 static int gdsqlite_vfs_randomness(sqlite3_vfs *pVfs, int nByte, char *zByte) {
-	srand(Time::get_singleton()->get_unix_time_from_system());
-	for (int i = 0; i < nByte; ++i) {
-		zByte[i] = rand();
+	ERR_FAIL_COND_V(nByte < 0 || (nByte > 0 && zByte == nullptr), 0);
+	CryptoCore::RandomGenerator random;
+	if (random.init() != OK || random.get_random_bytes(reinterpret_cast<uint8_t *>(zByte), nByte) != OK) {
+		return 0;
 	}
-	return SQLITE_OK;
+	return nByte;
 }
 
 /*
@@ -214,7 +217,7 @@ static int gdsqlite_vfs_getLastError(sqlite3_vfs *vfs, int nBuf, char *buf) {
 
 static int gdsqlite_vfs_currentTimeInt64(sqlite3_vfs *vfs, sqlite3_int64 *now) {
 	uint64_t unix_time = Time::get_singleton()->get_unix_time_from_system();
-	*now = unix_time + 210866760000; // Add the number of ms since julian time
+	*now = sqlite3_int64(unix_time) * 1000 + 210866760000000LL;
 	return SQLITE_OK;
 }
 

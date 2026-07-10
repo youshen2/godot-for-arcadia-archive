@@ -691,6 +691,12 @@ MarkdownTextLabel::RenderParagraph MarkdownTextLabel::_make_paragraph(const Vect
 
 	render.paragraph->set_bidi_override(structured_text_parser(st_parser, st_args, bidi_text));
 	render.size = render.paragraph->get_size();
+	render.line_offsets.resize(render.paragraph->get_line_count());
+	float line_offset = 0.0;
+	for (int line = 0; line < render.line_offsets.size(); line++) {
+		render.line_offsets.write[line] = line_offset;
+		line_offset += render.paragraph->get_line_ascent(line) + render.paragraph->get_line_descent(line) + theme_cache.line_separation;
+	}
 	return render;
 }
 
@@ -808,10 +814,7 @@ void MarkdownTextLabel::_ensure_layout() const {
 }
 
 Vector2 MarkdownTextLabel::_get_line_top(const RenderParagraph &p_render, int p_line, const Vector2 &p_position) const {
-	float y = 0.0;
-	for (int i = 0; i < p_line; i++) {
-		y += p_render.paragraph->get_line_ascent(i) + p_render.paragraph->get_line_descent(i) + theme_cache.line_separation;
-	}
+	ERR_FAIL_INDEX_V(p_line, p_render.line_offsets.size(), p_position);
 
 	float x = 0.0;
 	const RID line_rid = p_render.paragraph->get_line_rid(p_line);
@@ -831,7 +834,7 @@ Vector2 MarkdownTextLabel::_get_line_top(const RenderParagraph &p_render, int p_
 		default:
 			break;
 	}
-	return p_position + Vector2(x, y);
+	return p_position + Vector2(x, p_render.line_offsets[p_line]);
 }
 
 Vector2 MarkdownTextLabel::_get_line_baseline(const RenderParagraph &p_render, int p_line, const Vector2 &p_position) const {

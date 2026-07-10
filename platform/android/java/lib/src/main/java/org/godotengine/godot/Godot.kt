@@ -784,13 +784,8 @@ class Godot private constructor(val context: Context) {
 		for (plugin in pluginRegistry.allPlugins) {
 			plugin.onMainStop()
 		}
-		if (MobilePersistentNotificationService.isActive()) {
-			renderView?.setBackgroundProcessingEnabled(true)
-			renderView?.onActivityStopped()
-		} else {
-			renderView?.setBackgroundProcessingEnabled(false)
-			renderView?.onActivityStopped()
-		}
+		renderView?.setBackgroundProcessingEnabled(MobilePersistentNotificationService.isActive())
+		renderView?.onActivityStopped()
 	}
 
 	fun onDestroy(primaryHost: GodotHost) {

@@ -722,7 +722,7 @@ int WorkerThreadPool::_get_parallel_task_chunk_count(int p_elements, int p_min_e
 
 	int chunk_count = (int)MIN((int64_t)p_elements, (int64_t)thread_count * chunk_multiplier);
 	if (p_min_elements_per_range > 0) {
-		const int64_t max_chunks_for_range_size = MAX((int64_t)1, ((int64_t)p_elements + p_min_elements_per_range - 1) / p_min_elements_per_range);
+		const int64_t max_chunks_for_range_size = MAX((int64_t)1, (int64_t)p_elements / p_min_elements_per_range);
 		chunk_count = MIN(chunk_count, (int)max_chunks_for_range_size);
 	}
 
@@ -740,7 +740,7 @@ WorkerThreadPool::GroupID WorkerThreadPool::add_parallel_task(const Callable &p_
 	ParallelTaskUserData *userdata = memnew(ParallelTaskUserData);
 	userdata->callable = p_action;
 	userdata->elements = p_elements;
-	userdata->chunk_size = (int)(((int64_t)p_elements + chunk_count - 1) / chunk_count);
+	userdata->chunk_count = chunk_count;
 
 	const int task_count = MIN(MAX(1, get_thread_count()), chunk_count);
 	return _add_group_task(Callable(), nullptr, nullptr, userdata, chunk_count, task_count, p_high_priority, p_description);

@@ -49,6 +49,7 @@ public:
 	~OS_IOS();
 
 	virtual String get_name() const override;
+	virtual int get_default_thread_pool_size() const override;
 	virtual bool is_mobile_persistent_notification_supported() const override;
 	virtual bool is_mobile_persistent_notification_active() const override;
 	virtual bool has_mobile_persistent_notification_permission() const override;

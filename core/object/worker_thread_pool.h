@@ -220,11 +220,11 @@ private:
 	struct ParallelTaskUserData : public BaseTemplateUserdata {
 		Callable callable;
 		int elements = 0;
-		int chunk_size = 1;
+		int chunk_count = 1;
 
 		virtual void callback_indexed(uint32_t p_index) override {
-			const int64_t begin = MIN((int64_t)p_index * chunk_size, (int64_t)elements);
-			const int64_t end = MIN(begin + chunk_size, (int64_t)elements);
+			const int64_t begin = (int64_t)p_index * elements / chunk_count;
+			const int64_t end = (int64_t)(p_index + 1) * elements / chunk_count;
 			if (begin < end) {
 				callable.call((int)begin, (int)end);
 			}

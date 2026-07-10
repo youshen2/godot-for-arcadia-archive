@@ -81,6 +81,15 @@ String OS_IOS::get_name() const {
 	return "iOS";
 }
 
+int OS_IOS::get_default_thread_pool_size() const {
+#ifdef THREADS_ENABLED
+	const int processor_count = MAX(1, get_processor_count());
+	return processor_count <= 2 ? processor_count : CLAMP(processor_count - 1, 1, 6);
+#else
+	return 1;
+#endif
+}
+
 bool OS_IOS::is_mobile_persistent_notification_supported() const {
 	return true;
 }

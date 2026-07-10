@@ -118,8 +118,8 @@ public:
 	void set_last_insert_rowid(const int64_t &p_last_insert_rowid);
 	int64_t get_last_insert_rowid() const;
 
-	void set_verbosity_level(const int64_t &p_verbosity_level);
-	int64_t get_verbosity_level() const;
+	void set_verbosity_level(VerbosityLevel p_verbosity_level);
+	VerbosityLevel get_verbosity_level() const;
 
 	void set_foreign_keys(const bool &p_foreign_keys);
 	bool get_foreign_keys() const;

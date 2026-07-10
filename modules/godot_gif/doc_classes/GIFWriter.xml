@@ -5,7 +5,7 @@
 	</brief_description>
 	<description>
 		[GIFWriter] 提供两类写入方式：逐帧调用 [method open]、[method set_canvas_size]、[method begin_frame]、[method write_frame_image] 或 [method write_frame_pixels]、[method end_frame]、[method close]；或使用 [method save_to_file]、[method save_to_buffer] 一次性写出数组中的所有帧。
-		GIF 最多支持 256 色。使用 [method write_frame_image] 且 [param quantize] 为 [code]true[/code] 时，会自动将图像量化为 GIF 调色板；带透明像素的 RGBA 图像会保留透明索引。使用 [method write_frame_pixels] 时，调用方必须提供 8 位调色板索引，并且在写帧前设置全局或局部调色板。
+		GIF 最多支持 256 色。使用 [method write_frame_image]、[method save_to_file] 或 [method save_to_buffer] 且对应的量化参数为 [code]true[/code] 时，会自动将图像量化为 GIF 调色板；带透明像素的 RGBA 图像会保留透明索引。使用 [method write_frame_pixels] 时，调用方必须提供 8 位调色板索引，并且在写帧前设置全局或局部调色板。
 		[method set_global_palette] 必须在 [method set_canvas_size] 之前调用，因为 GIF 头会在设置画布尺寸时写出。写入失败通常会返回 [enum GIFError]，调用方应检查返回值；完成写入后必须调用 [method close]，否则 GIF 尾部数据可能不会写出。
 		在 C# 中，方法名和枚举名会按 Godot 绑定规则转换，例如 [method save_to_buffer] 对应 [code]SaveToBuffer[/code]。
 	</description>

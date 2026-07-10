@@ -21,22 +21,19 @@ int gdsqlite_file::close(sqlite3_file *pFile) {
 int gdsqlite_file::read(sqlite3_file *pFile, void *zBuf, int iAmt, sqlite_int64 iOfst) {
 	gdsqlite_file *p = reinterpret_cast<gdsqlite_file *>(pFile);
 	ERR_FAIL_COND_V(!p->file->is_open(), SQLITE_IOERR_CLOSE);
+	ERR_FAIL_COND_V(iAmt < 0 || iOfst < 0, SQLITE_IOERR_READ);
 
 	/* Seek the wanted position in the file */
 	p->file->seek(iOfst);
 	ERR_FAIL_COND_V(p->file->get_position() != iOfst, SQLITE_IOERR_READ);
 
-	/* Read and populate the data */
-	PackedByteArray arr = p->file->get_buffer(iAmt);
-	memcpy(zBuf, arr.ptr(), iAmt);
-
-	if (arr.size() == iAmt) {
+	/* SQLite requires unread bytes to be zero-filled on a short read. */
+	const uint64_t bytes_read = p->file->get_buffer(static_cast<uint8_t *>(zBuf), iAmt);
+	if (bytes_read == uint64_t(iAmt)) {
 		return SQLITE_OK;
-	} else if (arr.size() >= 0) {
-		return SQLITE_IOERR_SHORT_READ;
 	}
-
-	ERR_FAIL_V(SQLITE_IOERR_READ);
+	memset(static_cast<uint8_t *>(zBuf) + bytes_read, 0, iAmt - bytes_read);
+	return SQLITE_IOERR_SHORT_READ;
 }
 
 /*
@@ -45,16 +42,14 @@ int gdsqlite_file::read(sqlite3_file *pFile, void *zBuf, int iAmt, sqlite_int64 
 int gdsqlite_file::write(sqlite3_file *pFile, const void *zBuf, int iAmt, sqlite_int64 iOfst) {
 	gdsqlite_file *p = reinterpret_cast<gdsqlite_file *>(pFile);
 	ERR_FAIL_COND_V(!p->file->is_open(), SQLITE_IOERR_CLOSE);
+	ERR_FAIL_COND_V(iAmt < 0 || iOfst < 0, SQLITE_IOERR_WRITE);
 
 	/* Seek the wanted position in the file */
 	p->file->seek(iOfst);
 	ERR_FAIL_COND_V(p->file->get_position() != iOfst, SQLITE_IOERR_READ);
 
-	/* Write the data to the file */
-	PackedByteArray arr = PackedByteArray();
-	arr.resize(iAmt);
-	memcpy(arr.ptrw(), zBuf, iAmt);
-	p->file->store_buffer(arr);
+	/* Write directly from SQLite's buffer to avoid an allocation and copy per page. */
+	ERR_FAIL_COND_V(!p->file->store_buffer(static_cast<const uint8_t *>(zBuf), iAmt), SQLITE_IOERR_WRITE);
 
 	/* Was the write succesful? */
 	size_t bytes_written = p->file->get_position() - iOfst;
@@ -67,14 +62,19 @@ int gdsqlite_file::write(sqlite3_file *pFile, const void *zBuf, int iAmt, sqlite
 ** Truncate a file. This is a no-op for this VFS.
 */
 int gdsqlite_file::truncate(sqlite3_file *pFile, sqlite_int64 size) {
-	return SQLITE_OK;
+	gdsqlite_file *p = reinterpret_cast<gdsqlite_file *>(pFile);
+	ERR_FAIL_COND_V(!p->file->is_open() || size < 0, SQLITE_IOERR_TRUNCATE);
+	return p->file->resize(size) == OK ? SQLITE_OK : SQLITE_IOERR_TRUNCATE;
 }
 
 /*
 ** Sync the contents of the file to the persistent media.
 */
 int gdsqlite_file::sync(sqlite3_file *pFile, int flags) {
-	return SQLITE_OK;
+	gdsqlite_file *p = reinterpret_cast<gdsqlite_file *>(pFile);
+	ERR_FAIL_COND_V(!p->file->is_open(), SQLITE_IOERR_FSYNC);
+	p->file->flush();
+	return p->file->get_error() == OK ? SQLITE_OK : SQLITE_IOERR_FSYNC;
 }
 
 /*

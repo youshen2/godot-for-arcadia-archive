@@ -39,7 +39,7 @@
 			</description>
 		</method>
 		<method name="start">
-			<return type="Error" />
+			<return type="int" enum="Error" />
 			<param index="0" name="title" type="String" />
 			<param index="1" name="message" type="String" />
 			<description>
@@ -55,7 +55,7 @@
 			</description>
 		</method>
 		<method name="update">
-			<return type="Error" />
+			<return type="int" enum="Error" />
 			<param index="0" name="title" type="String" />
 			<param index="1" name="message" type="String" />
 			<description>

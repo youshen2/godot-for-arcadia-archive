@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import hashlib
 import os
 import platform
 import shlex
@@ -188,6 +189,28 @@ def ffmpeg_join_flags(flags):
     return " ".join(shlex.quote(flag) for flag in flags)
 
 
+def ffmpeg_source_revision():
+    try:
+        revision = subprocess.check_output(
+            ["git", "-C", ffmpeg_source_dir, "rev-parse", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        source_diff = subprocess.check_output(
+            ["git", "-C", ffmpeg_source_dir, "diff", "--no-ext-diff", "--binary", "HEAD", "--", "."],
+            stderr=subprocess.DEVNULL,
+        )
+        if source_diff:
+            revision += "-dirty-" + hashlib.sha256(source_diff).hexdigest()[:16]
+        return revision
+    except (OSError, subprocess.CalledProcessError):
+        try:
+            configure_stat = os.stat(ffmpeg_configure)
+            return "configure-%d-%d" % (configure_stat.st_size, configure_stat.st_mtime_ns)
+        except OSError:
+            return "missing"
+
+
 def ffmpeg_apple_embedded_toolchain_flags():
     if env["platform"] not in ["ios", "visionos"]:
         return []
@@ -225,7 +248,14 @@ def ffmpeg_macos_toolchain_flags():
     if env["platform"] != "macos":
         return []
 
-    arch_flags = ["-arch", expected_ffmpeg_binary_arch()]
+    minimum_version = "11.0" if env["arch"] == "arm64" else "10.13"
+    platform_flags = ["-arch", expected_ffmpeg_binary_arch(), "-mmacosx-version-min=%s" % minimum_version]
+    configure_flags = []
+
+    sdk_path = ffmpeg_subst("$MACOS_SDK_PATH")
+    if sdk_path and not sdk_path.startswith("$"):
+        platform_flags += ["-isysroot", sdk_path]
+        configure_flags.append("--sysroot=%s" % sdk_path)
 
     return (
         ffmpeg_tool_option("cc", "CC")
@@ -233,10 +263,11 @@ def ffmpeg_macos_toolchain_flags():
         + ffmpeg_tool_option("as", "S_compiler")
         + ffmpeg_tool_option("ar", "AR")
         + ffmpeg_tool_option("ranlib", "RANLIB")
+        + configure_flags
         + [
-            "--extra-cflags=%s" % ffmpeg_join_flags(arch_flags),
-            "--extra-cxxflags=%s" % ffmpeg_join_flags(arch_flags),
-            "--extra-ldflags=%s" % ffmpeg_join_flags(arch_flags),
+            "--extra-cflags=%s" % ffmpeg_join_flags(platform_flags),
+            "--extra-cxxflags=%s" % ffmpeg_join_flags(platform_flags),
+            "--extra-ldflags=%s" % ffmpeg_join_flags(platform_flags),
         ]
     )
 
@@ -370,8 +401,9 @@ def make_configure_flags():
 
 
 def make_build_stamp(configure_flags):
-    return "FFmpeg built for %s\nconfigure: %s\n" % (
+    return "FFmpeg built for %s\nsource: %s\nconfigure: %s\n" % (
         target_name(),
+        ffmpeg_source_id,
         ffmpeg_join_flags([ffmpeg_configure] + configure_flags),
     )
 
@@ -394,6 +426,7 @@ def clean_ffmpeg_install():
 
 ffmpeg_source_dir = rooted("#thirdparty/FFmpeg")
 ffmpeg_configure = os.path.join(ffmpeg_source_dir, "configure")
+ffmpeg_source_id = ffmpeg_source_revision()
 ffmpeg_prefix = selected_prefix()
 ffmpeg_include_dir = rooted(env.get("ffmpeg_include_path", "")) or os.path.join(ffmpeg_prefix, "include")
 ffmpeg_lib_dir = rooted(env.get("ffmpeg_lib_path", "")) or os.path.join(ffmpeg_prefix, "lib")

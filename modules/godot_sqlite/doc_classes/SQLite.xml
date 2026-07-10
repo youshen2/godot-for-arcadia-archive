@@ -124,7 +124,7 @@
 			<return type="bool" />
 			<param index="0" name="destination" type="String" />
 			<description>
-				将当前打开的数据库备份到 [param destination] 指定的路径。路径会通过 [ProjectSettings.globalize_path] 转换。返回 [code]true[/code] 表示备份成功；如果数据库未打开、目标路径无法打开或 SQLite 备份过程失败，返回 [code]false[/code]。
+				将当前打开的数据库备份到 [param destination] 指定的路径。路径会通过 [method ProjectSettings.globalize_path] 转换。返回 [code]true[/code] 表示备份成功；如果数据库未打开、目标路径无法打开或 SQLite 备份过程失败，返回 [code]false[/code]。
 			</description>
 		</method>
 		<method name="close">
@@ -160,7 +160,7 @@
 			<param index="0" name="table_name" type="String" />
 			<param index="1" name="table_data" type="Dictionary" />
 			<description>
-				根据 [param table_data] 创建表。[param table_data] 的每个键是列名，每个值是列定义字典。列定义必须包含 [code]data_type[/code]，支持 [code]int[/code]、[code]real[/code]、[code]text[/code]、[code]char(n)[/code] 和 [code]blob[/code]；可选键包括 [code]not_null[/code]、[code]unique[/code]、[code]default[/code]、[code]primary_key[/code]、[code]auto_increment[/code] 和 [code]foreign_key[/code]。返回 [code]false[/code] 表示表定义无效或 SQL 执行失败。
+				根据 [param table_data] 创建表。[param table_data] 的每个键是列名，每个值是列定义字典。列定义必须包含 [code skip-lint]data_type[/code]，支持 [code skip-lint]int[/code]、[code]real[/code]、[code]text[/code]、[code]char(n)[/code] 和 [code]blob[/code]；可选键包括 [code]not_null[/code]、[code]unique[/code]、[code]default[/code]、[code]primary_key[/code]、[code]auto_increment[/code] 和 [code]foreign_key[/code]。返回 [code]false[/code] 表示表定义无效或 SQL 执行失败。
 				[b]示例：使用字典描述表结构[/b]
 				[codeblocks]
 				[gdscript]
@@ -452,8 +452,8 @@
 		<member name="read_only" type="bool" setter="set_read_only" getter="get_read_only" default="false">
 			是否以只读模式打开数据库。只读模式使用 Godot VFS，可读取打包资源；不能创建或写入数据库，也不支持 [code]:memory:[/code]。
 		</member>
-		<member name="verbosity_level" type="int" setter="set_verbosity_level" getter="get_verbosity_level" default="1">
-			日志详细程度。高于 [constant NORMAL] 时会输出 SQL 或展开后的 SQL，可能明显降低大量查询的性能。
+		<member name="verbosity_level" type="int" setter="set_verbosity_level" getter="get_verbosity_level" enum="SQLite.VerbosityLevel" default="1">
+			日志详细程度。必须使用 [enum VerbosityLevel] 中的值；高于 [constant NORMAL] 时会输出 SQL 或展开后的 SQL，可能明显降低大量查询的性能。
 		</member>
 	</members>
 	<constants>

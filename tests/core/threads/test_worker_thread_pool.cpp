@@ -39,6 +39,9 @@ TEST_FORCE_LINK(test_worker_thread_pool)
 namespace TestWorkerThreadPool {
 
 static LocalVector<SafeNumeric<int>> counter;
+static SafeNumeric<int> parallel_range_count;
+static SafeNumeric<int> parallel_min_range;
+static SafeFlag parallel_range_too_small;
 static SafeFlag exit;
 
 static void static_test(void *p_arg) {
@@ -87,6 +90,10 @@ static void static_callable_group_test(uint32_t p_index) {
 	counter[0].sub(2);
 }
 static void static_parallel_range_test(int p_begin, int p_end) {
+	parallel_range_count.increment();
+	if (p_end - p_begin < parallel_min_range.get()) {
+		parallel_range_too_small.set();
+	}
 	for (int i = p_begin; i < p_end; i++) {
 		counter[i].increment();
 	}
@@ -118,6 +125,9 @@ TEST_CASE("[WorkerThreadPool] Process contiguous ranges using parallel tasks") {
 
 	counter.clear();
 	counter.resize(count);
+	parallel_range_count.set(0);
+	parallel_min_range.set(7);
+	parallel_range_too_small.clear();
 
 	WorkerThreadPool::GroupID group = WorkerThreadPool::get_singleton()->add_parallel_task(callable_mp_static(static_parallel_range_test), count, 7, true);
 	WorkerThreadPool::get_singleton()->wait_for_group_task_completion(group);
@@ -127,6 +137,24 @@ TEST_CASE("[WorkerThreadPool] Process contiguous ranges using parallel tasks") {
 		all_run_once &= counter[i].get() == 1;
 	}
 	CHECK(all_run_once);
+	CHECK(parallel_range_count.get() > 1);
+	CHECK_FALSE(parallel_range_too_small.is_set());
+
+	counter.clear();
+	counter.resize(25);
+	parallel_range_count.set(0);
+	parallel_min_range.set(6);
+	parallel_range_too_small.clear();
+
+	group = WorkerThreadPool::get_singleton()->add_parallel_task(callable_mp_static(static_parallel_range_test), 25, 6);
+	WorkerThreadPool::get_singleton()->wait_for_group_task_completion(group);
+
+	for (int i = 0; i < counter.size(); i++) {
+		CHECK(counter[i].get() == 1);
+	}
+	CHECK(parallel_range_count.get() > 0);
+	CHECK(parallel_range_count.get() <= 4);
+	CHECK_FALSE(parallel_range_too_small.is_set());
 }
 
 static void static_test_daemon(void *p_arg) {

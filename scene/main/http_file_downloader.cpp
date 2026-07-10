@@ -47,7 +47,7 @@ void HTTPFileDownloader::_segment_thread_func(void *p_userdata) {
 
 	ResponseInfo response;
 	int64_t written = 0;
-	segment->result = segment->downloader->_perform_request(segment->url, HTTPClient::METHOD_GET, segment->headers, segment->range_start, segment->range_end, false, segment->file, segment->write_offset, segment->item_index, true, &response, &written);
+	segment->result = segment->downloader->_perform_request(segment->url, HTTPClient::METHOD_GET, segment->headers, segment->range_start, segment->range_end, segment->expected_total, false, segment->file, segment->write_offset, segment->item_index, true, &response, &written);
 	segment->response_code = response.response_code;
 }
 
@@ -75,7 +75,19 @@ Error HTTPFileDownloader::_start_downloads(const Vector<DownloadItem> &p_items) 
 	finished.clear();
 	running.set();
 	set_process_internal(true);
-	coordinator_thread.start(_coordinator_thread_func, this);
+	const Thread::ID thread_id = coordinator_thread.start(_coordinator_thread_func, this);
+	if (thread_id == Thread::UNASSIGNED_ID) {
+		{
+			MutexLock lock(state_mutex);
+			batch_result = RESULT_UNAVAILABLE;
+			batch_finished_usec = OS::get_singleton()->get_ticks_usec();
+			completion_emitted = true;
+		}
+		running.clear();
+		finished.set();
+		set_process_internal(false);
+		return ERR_CANT_CREATE;
+	}
 
 	return OK;
 #endif
@@ -236,7 +248,7 @@ HTTPFileDownloader::Result HTTPFileDownloader::_download_item_single(int p_index
 
 	ResponseInfo response;
 	int64_t written = 0;
-	Result result = _perform_request(p_url, HTTPClient::METHOD_GET, headers, -1, -1, false, file, 0, p_index, false, &response, &written);
+	Result result = _perform_request(p_url, HTTPClient::METHOD_GET, headers, -1, -1, -1, false, file, 0, p_index, false, &response, &written);
 	file->flush();
 	return result;
 }
@@ -287,6 +299,7 @@ HTTPFileDownloader::Result HTTPFileDownloader::_download_item_parallel(int p_ind
 		segment->file = file;
 		segment->range_start = range_start;
 		segment->range_end = range_start + size - 1;
+		segment->expected_total = total_bytes;
 		segment->write_offset = range_start;
 		segments.write[i] = segment;
 
@@ -344,13 +357,16 @@ HTTPFileDownloader::Result HTTPFileDownloader::_probe_item(int p_index, Response
 		headers = items[p_index].headers;
 	}
 
-	Result result = _perform_request(url, HTTPClient::METHOD_GET, headers, 0, 0, true, Ref<FileAccess>(), 0, p_index, false, r_response, nullptr);
+	Result result = _perform_request(url, HTTPClient::METHOD_GET, headers, 0, 0, -1, true, Ref<FileAccess>(), 0, p_index, false, r_response, nullptr);
 	if (result != RESULT_SUCCESS) {
 		return result;
 	}
 
 	if (r_response->response_code == HTTPClient::RESPONSE_PARTIAL_CONTENT) {
-		r_response->range_supported = r_response->total_bytes >= 0;
+		int64_t range_start = -1;
+		int64_t range_end = -1;
+		int64_t range_total = -1;
+		r_response->range_supported = _parse_content_range(r_response->headers, &range_start, &range_end, &range_total) && range_start == 0 && range_end == 0 && range_total >= 0;
 	} else {
 		r_response->range_supported = false;
 	}
@@ -359,7 +375,7 @@ HTTPFileDownloader::Result HTTPFileDownloader::_probe_item(int p_index, Response
 	return RESULT_SUCCESS;
 }
 
-HTTPFileDownloader::Result HTTPFileDownloader::_perform_request(const String &p_url, HTTPClient::Method p_method, const Vector<String> &p_headers, int64_t p_range_start, int64_t p_range_end, bool p_headers_only, const Ref<FileAccess> &p_output_file, int64_t p_write_offset, int p_item_index, bool p_require_partial_response, ResponseInfo *r_response, int64_t *r_written) {
+HTTPFileDownloader::Result HTTPFileDownloader::_perform_request(const String &p_url, HTTPClient::Method p_method, const Vector<String> &p_headers, int64_t p_range_start, int64_t p_range_end, int64_t p_expected_total, bool p_headers_only, const Ref<FileAccess> &p_output_file, int64_t p_write_offset, int p_item_index, bool p_require_partial_response, ResponseInfo *r_response, int64_t *r_written) {
 	String current_url = p_url;
 	int redirect_count = 0;
 
@@ -518,6 +534,22 @@ HTTPFileDownloader::Result HTTPFileDownloader::_perform_request(const String &p_
 			client->close();
 			return _is_success_response(response.response_code) ? RESULT_RANGE_NOT_SUPPORTED : RESULT_HTTP_ERROR;
 		}
+		int64_t expected_body_length = client->get_response_body_length();
+		if (p_require_partial_response) {
+			int64_t response_range_start = -1;
+			int64_t response_range_end = -1;
+			int64_t response_range_total = -1;
+			if (!_parse_content_range(response.headers, &response_range_start, &response_range_end, &response_range_total) || response_range_start != p_range_start || response_range_end != p_range_end || (p_expected_total >= 0 && response_range_total != p_expected_total)) {
+				client->close();
+				return RESULT_RANGE_NOT_SUPPORTED;
+			}
+			expected_body_length = p_range_end - p_range_start + 1;
+			const int64_t response_body_length = client->get_response_body_length();
+			if (response_body_length >= 0 && response_body_length != expected_body_length) {
+				client->close();
+				return RESULT_RANGE_NOT_SUPPORTED;
+			}
+		}
 		if (!_is_success_response(response.response_code)) {
 			client->close();
 			return RESULT_HTTP_ERROR;
@@ -540,7 +572,7 @@ HTTPFileDownloader::Result HTTPFileDownloader::_perform_request(const String &p_
 			if (r_written != nullptr) {
 				*r_written = 0;
 			}
-			return RESULT_SUCCESS;
+			return expected_body_length <= 0 ? RESULT_SUCCESS : RESULT_CONNECTION_ERROR;
 		}
 
 		while (!cancel_requested.is_set()) {
@@ -553,11 +585,14 @@ HTTPFileDownloader::Result HTTPFileDownloader::_perform_request(const String &p_
 			if (client->get_status() == HTTPClient::STATUS_BODY) {
 				PackedByteArray chunk = client->read_response_body_chunk();
 				if (!chunk.is_empty()) {
+					if (expected_body_length >= 0 && written + chunk.size() > expected_body_length) {
+						client->close();
+						return p_require_partial_response ? RESULT_RANGE_NOT_SUPPORTED : RESULT_CONNECTION_ERROR;
+					}
 					if (p_output_file.is_valid()) {
 						MutexLock lock(file_mutex);
 						p_output_file->seek(write_offset);
-						p_output_file->store_buffer(chunk.ptr(), chunk.size());
-						if (p_output_file->get_error() != OK) {
+						if (!p_output_file->store_buffer(chunk.ptr(), chunk.size()) || p_output_file->get_error() != OK) {
 							client->close();
 							return RESULT_DOWNLOAD_FILE_WRITE_ERROR;
 						}
@@ -596,6 +631,9 @@ HTTPFileDownloader::Result HTTPFileDownloader::_perform_request(const String &p_
 		if (r_written != nullptr) {
 			*r_written = written;
 		}
+		if (expected_body_length >= 0 && written != expected_body_length) {
+			return RESULT_CONNECTION_ERROR;
+		}
 		return RESULT_SUCCESS;
 	}
 }
@@ -622,7 +660,6 @@ Error HTTPFileDownloader::_parse_url(const String &p_url, ParsedURL *r_url) cons
 	if (r_url->request.is_empty()) {
 		r_url->request = "/";
 	}
-	r_url->source_url = p_url;
 	return OK;
 }
 
@@ -705,6 +742,44 @@ String HTTPFileDownloader::_get_header_value(const Vector<String> &p_headers, co
 	return String();
 }
 
+bool HTTPFileDownloader::_parse_content_range(const Vector<String> &p_headers, int64_t *r_start, int64_t *r_end, int64_t *r_total) const {
+	const String content_range = _get_header_value(p_headers, "Content-Range").strip_edges();
+	if (content_range.length() < 7 || content_range.substr(0, 6).to_lower() != "bytes ") {
+		return false;
+	}
+
+	const int dash = content_range.find_char('-', 6);
+	const int slash = content_range.find_char('/');
+	if (dash < 7 || slash <= dash + 1) {
+		return false;
+	}
+
+	const String start_text = content_range.substr(6, dash - 6).strip_edges();
+	const String end_text = content_range.substr(dash + 1, slash - dash - 1).strip_edges();
+	const String total_text = content_range.substr(slash + 1).strip_edges();
+	if (!start_text.is_valid_int() || !end_text.is_valid_int() || (total_text != "*" && !total_text.is_valid_int())) {
+		return false;
+	}
+
+	const int64_t start = start_text.to_int();
+	const int64_t end = end_text.to_int();
+	const int64_t total = total_text == "*" ? -1 : total_text.to_int();
+	if (start < 0 || end < start || (total >= 0 && end >= total)) {
+		return false;
+	}
+
+	if (r_start != nullptr) {
+		*r_start = start;
+	}
+	if (r_end != nullptr) {
+		*r_end = end;
+	}
+	if (r_total != nullptr) {
+		*r_total = total;
+	}
+	return true;
+}
+
 bool HTTPFileDownloader::_is_redirect_response(int p_response_code) const {
 	return p_response_code == HTTPClient::RESPONSE_MOVED_PERMANENTLY ||
 			p_response_code == HTTPClient::RESPONSE_FOUND ||
@@ -745,13 +820,9 @@ String HTTPFileDownloader::_resolve_redirect_url(const ParsedURL &p_base_url, co
 
 int64_t HTTPFileDownloader::_get_total_bytes_from_headers(int p_response_code, const Vector<String> &p_headers) const {
 	if (p_response_code == HTTPClient::RESPONSE_PARTIAL_CONTENT) {
-		const String content_range = _get_header_value(p_headers, "Content-Range");
-		const int slash = content_range.find_char('/');
-		if (slash >= 0) {
-			const String total = content_range.substr(slash + 1).strip_edges();
-			if (!total.is_empty() && total != "*") {
-				return total.to_int();
-			}
+		int64_t total = -1;
+		if (_parse_content_range(p_headers, nullptr, nullptr, &total)) {
+			return total;
 		}
 	}
 
@@ -789,7 +860,12 @@ Ref<FileAccess> HTTPFileDownloader::_open_output_file(const String &p_path, bool
 	}
 
 	if (p_size >= 0) {
-		file->resize(p_size);
+		if (file->resize(p_size) != OK) {
+			if (r_result != nullptr) {
+				*r_result = RESULT_DOWNLOAD_FILE_WRITE_ERROR;
+			}
+			return Ref<FileAccess>();
+		}
 	}
 
 	return file;

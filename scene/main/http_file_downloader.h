@@ -78,7 +78,6 @@ private:
 	static constexpr int DEFAULT_DOWNLOAD_CHUNK_SIZE = 256 * 1024;
 
 	struct ParsedURL {
-		String source_url;
 		String host;
 		String request;
 		int port = 80;
@@ -117,6 +116,7 @@ private:
 		Ref<FileAccess> file;
 		int64_t range_start = 0;
 		int64_t range_end = 0;
+		int64_t expected_total = -1;
 		int64_t write_offset = 0;
 		Result result = RESULT_SUCCESS;
 		int response_code = 0;
@@ -163,13 +163,14 @@ private:
 	Result _download_item_single(int p_index, const String &p_url);
 	Result _download_item_parallel(int p_index, const String &p_url, int p_thread_count);
 	Result _probe_item(int p_index, ResponseInfo *r_response);
-	Result _perform_request(const String &p_url, HTTPClient::Method p_method, const Vector<String> &p_headers, int64_t p_range_start, int64_t p_range_end, bool p_headers_only, const Ref<FileAccess> &p_output_file, int64_t p_write_offset, int p_item_index, bool p_require_partial_response, ResponseInfo *r_response, int64_t *r_written);
+	Result _perform_request(const String &p_url, HTTPClient::Method p_method, const Vector<String> &p_headers, int64_t p_range_start, int64_t p_range_end, int64_t p_expected_total, bool p_headers_only, const Ref<FileAccess> &p_output_file, int64_t p_write_offset, int p_item_index, bool p_require_partial_response, ResponseInfo *r_response, int64_t *r_written);
 
 	Error _parse_url(const String &p_url, ParsedURL *r_url) const;
 	Vector<String> _make_request_headers(const Vector<String> &p_headers, int64_t p_range_start, int64_t p_range_end) const;
 	Error _validate_headers(const Vector<String> &p_headers) const;
 	Error _append_variant_headers(const Variant &p_headers, Vector<String> *r_headers) const;
 	String _get_header_value(const Vector<String> &p_headers, const String &p_header_name) const;
+	bool _parse_content_range(const Vector<String> &p_headers, int64_t *r_start, int64_t *r_end, int64_t *r_total) const;
 	bool _is_redirect_response(int p_response_code) const;
 	bool _is_success_response(int p_response_code) const;
 	String _resolve_redirect_url(const ParsedURL &p_base_url, const String &p_location) const;

@@ -163,24 +163,27 @@ bool GIFTexture::_ensure_metadata() const {
 	for (int frame_idx = 0; frame_idx < frame_count; frame_idx++) {
 		frame_delays_ptr[frame_idx] = reader->get_frame_delay(frame_idx) / 1000.0f;
 	}
+	lazy_reader = reader;
 
 	return size.x > 0 && size.y > 0 && frame_count > 0;
 }
 
 bool GIFTexture::_ensure_decoder() const {
-	if (lazy_reader.is_valid()) {
-		return true;
-	}
-
 	if (!_ensure_metadata()) {
 		return false;
 	}
 
-	lazy_reader.instantiate();
-	GIFReader::GIFError err = lazy_reader->open_from_buffer(gif_data);
-	if (err != GIFReader::SUCCEEDED) {
-		lazy_reader.unref();
-		return false;
+	if (lazy_reader.is_null()) {
+		lazy_reader.instantiate();
+		GIFReader::GIFError err = lazy_reader->open_from_buffer(gif_data);
+		if (err != GIFReader::SUCCEEDED) {
+			lazy_reader.unref();
+			return false;
+		}
+	}
+
+	if (frames.size() == frame_count) {
+		return true;
 	}
 
 	frames.clear();

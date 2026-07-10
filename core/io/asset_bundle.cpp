@@ -105,30 +105,34 @@ String AssetBundle::_get_dictionary_string(const Dictionary &p_dictionary, const
 	return String(value);
 }
 
-int AssetBundle::_get_dictionary_int(const Dictionary &p_dictionary, const String &p_key, int p_default) {
+int64_t AssetBundle::_get_dictionary_int64(const Dictionary &p_dictionary, const String &p_key, int64_t p_default, bool *r_valid) {
+	if (r_valid != nullptr) {
+		*r_valid = true;
+	}
 	if (!p_dictionary.has(p_key)) {
 		return p_default;
 	}
 
 	Variant value = p_dictionary[p_key];
-	if (value.get_type() != Variant::INT && value.get_type() != Variant::FLOAT) {
-		return p_default;
+	if (value.get_type() == Variant::INT) {
+		return int64_t(value);
 	}
 
-	return int(value);
-}
-
-int64_t AssetBundle::_get_dictionary_int64(const Dictionary &p_dictionary, const String &p_key, int64_t p_default) {
-	if (!p_dictionary.has(p_key)) {
-		return p_default;
+	if (value.get_type() == Variant::FLOAT) {
+		const double number = value;
+		if (Math::is_nan(number) || Math::is_inf(number) || number < -9223372036854775808.0 || number >= 9223372036854775808.0 || Math::floor(number) != number) {
+			if (r_valid != nullptr) {
+				*r_valid = false;
+			}
+			return p_default;
+		}
+		return int64_t(number);
 	}
 
-	Variant value = p_dictionary[p_key];
-	if (value.get_type() != Variant::INT && value.get_type() != Variant::FLOAT) {
-		return p_default;
+	if (r_valid != nullptr) {
+		*r_valid = false;
 	}
-
-	return int64_t(value);
+	return p_default;
 }
 
 bool AssetBundle::_get_dictionary_bool(const Dictionary &p_dictionary, const String &p_key, bool p_default) {
@@ -460,8 +464,13 @@ Error AssetBundle::_parse_bundle_dictionary(const Dictionary &p_bundle, const St
 
 	r_bundle.version = _get_dictionary_string(p_bundle, "version");
 	r_bundle.hash = _get_dictionary_string(p_bundle, "hash");
-	r_bundle.size = _get_dictionary_int64(p_bundle, "size", 0);
-	r_bundle.offset = _get_dictionary_int(p_bundle, "offset", 0);
+	bool size_valid = true;
+	bool offset_valid = true;
+	r_bundle.size = _get_dictionary_int64(p_bundle, "size", 0, &size_valid);
+	r_bundle.offset = _get_dictionary_int64(p_bundle, "offset", 0, &offset_valid);
+	if (!size_valid || !offset_valid || r_bundle.size < 0 || r_bundle.offset < 0) {
+		return _set_error(ERR_INVALID_DATA, vformat("AssetBundle manifest bundle '%s' has an invalid size or offset.", r_bundle.name));
+	}
 	r_bundle.dependencies = _get_dictionary_string_array(p_bundle, "dependencies");
 	if (r_bundle.dependencies.is_empty()) {
 		r_bundle.dependencies = _get_dictionary_string_array(p_bundle, "depends");
@@ -566,15 +575,21 @@ Error AssetBundle::_parse_bundle_resource_dictionary(const Dictionary &p_resourc
 	entry.chunk = _normalize_portable_path(_get_dictionary_string(p_resource, "chunk", p_inherited_chunk));
 	entry.hash = _get_dictionary_string(p_resource, "hash");
 	entry.md5 = _get_dictionary_string(p_resource, "md5");
-	entry.size = _get_dictionary_int64(p_resource, "size", 0);
-	entry.offset = _get_dictionary_int64(p_resource, "offset", 0);
+	bool size_valid = true;
+	bool offset_valid = true;
+	bool packed_size_valid = true;
+	entry.size = _get_dictionary_int64(p_resource, "size", 0, &size_valid);
+	entry.offset = _get_dictionary_int64(p_resource, "offset", 0, &offset_valid);
 	entry.encrypted = _get_dictionary_bool(p_resource, "encrypted", p_inherited_encrypted);
 	entry.file_only = _get_dictionary_bool(p_resource, "file_only", false);
-	entry.packed_size = _get_dictionary_int64(p_resource, "packed_size", 0);
+	entry.packed_size = _get_dictionary_int64(p_resource, "packed_size", 0, &packed_size_valid);
 	entry.packed_hash = _get_dictionary_string(p_resource, "packed_hash");
 
 	if (entry.path.is_empty()) {
 		return _set_error(ERR_INVALID_DATA, vformat("AssetBundle manifest bundle '%s' has a resource entry without a path.", r_bundle.name));
+	}
+	if (!size_valid || !offset_valid || !packed_size_valid || entry.size < 0 || entry.offset < 0 || entry.packed_size < 0) {
+		return _set_error(ERR_INVALID_DATA, vformat("AssetBundle manifest bundle '%s' has a resource entry with an invalid size or offset.", r_bundle.name));
 	}
 
 	r_bundle.resources.push_back(entry);
