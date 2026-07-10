@@ -1044,10 +1044,6 @@ static bool _is_csharp_control_declaration_name(const String &p_name) {
 			p_name == "catch" || p_name == "using" || p_name == "lock" || p_name == "return" || p_name == "new";
 }
 
-static bool _csharp_line_starts_with_word(const String &p_line, const String &p_word) {
-	return p_line == p_word || p_line.begins_with(p_word + " ");
-}
-
 static void _collect_csharp_function_names(const String &p_code, List<String> *r_functions) {
 	if (!r_functions) {
 		return;
@@ -1095,182 +1091,14 @@ static void _collect_csharp_function_names(const String &p_code, List<String> *r
 	}
 }
 
-struct CSharpPreprocessorBranch {
-	bool known = false;
-	bool active = true;
-};
-
-static bool _is_csharp_preprocessor_inactive(const Vector<CSharpPreprocessorBranch> &p_branches) {
-	for (int i = 0; i < p_branches.size(); i++) {
-		if (!p_branches[i].active) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
-static void _update_csharp_preprocessor_branch(const String &p_stripped_line, Vector<CSharpPreprocessorBranch> &r_branches) {
-	if (p_stripped_line.begins_with("#if ")) {
-		const String expression = p_stripped_line.substr(4).strip_edges();
-		CSharpPreprocessorBranch branch;
-		if (expression == "false" || expression == "0") {
-			branch.known = true;
-			branch.active = false;
-		} else if (expression == "true" || expression == "1") {
-			branch.known = true;
-			branch.active = true;
-		}
-		r_branches.push_back(branch);
-	} else if (p_stripped_line.begins_with("#else")) {
-		if (!r_branches.is_empty() && r_branches.write[r_branches.size() - 1].known) {
-			r_branches.write[r_branches.size() - 1].active = !r_branches[r_branches.size() - 1].active;
-		}
-	} else if (p_stripped_line.begins_with("#elif ")) {
-		if (!r_branches.is_empty() && r_branches.write[r_branches.size() - 1].known) {
-			const String expression = p_stripped_line.substr(6).strip_edges();
-			r_branches.write[r_branches.size() - 1].active = expression == "true" || expression == "1";
-		}
-	} else if (p_stripped_line.begins_with("#endif")) {
-		if (!r_branches.is_empty()) {
-			r_branches.resize(r_branches.size() - 1);
-		}
-	}
-}
-
-static bool _looks_like_csharp_method_declaration(const String &p_line, int p_paren_pos) {
-	if (p_line.contains("=") || p_line.contains("=>") || p_line.contains(".")) {
-		return false;
-	}
-
-	int name_end = p_paren_pos;
-	while (name_end > 0 && p_line[name_end - 1] <= 32) {
-		name_end--;
-	}
-
-	int name_start = name_end;
-	while (name_start > 0 && _is_csharp_identifier_body(p_line[name_start - 1])) {
-		name_start--;
-	}
-
-	if (name_start == name_end) {
-		return false;
-	}
-
-	const String before_name = p_line.substr(0, name_start).strip_edges();
-	if (before_name.is_empty()) {
-		return false;
-	}
-	if (before_name == "new" || before_name == "await" || before_name == "return" || before_name == "throw") {
-		return false;
-	}
-
-	const Vector<String> tokens = before_name.split(" ", false);
-	return tokens.size() >= 1;
-}
-
-static bool _looks_like_csharp_declaration_statement(const String &p_line) {
-	if (p_line.contains("(") || p_line.contains(".") || p_line.contains("=>")) {
-		return false;
-	}
-
-	const Vector<String> tokens = p_line.split(" ", false);
-	if (tokens.size() < 2) {
-		return false;
-	}
-
-	const String last_token = tokens[tokens.size() - 1];
-	if (last_token.is_empty() || !_is_csharp_identifier_body(last_token[0])) {
-		return false;
-	}
-
-	return true;
-}
-
-static bool _csharp_line_needs_semicolon(const String &p_line) {
-	const String line = p_line.strip_edges();
-	if (line.is_empty() || line.begins_with("#") || line.begins_with("[") || line.ends_with(";") || line.ends_with("{") || line.ends_with("}") ||
-			line.ends_with(",") || line.ends_with(":") || line.ends_with("?") || line.ends_with(".") || line.ends_with("+") ||
-			line.ends_with("-") || line.ends_with("*") || line.ends_with("/") || line.ends_with("%") || line.ends_with("&") ||
-			line.ends_with("|") || line.ends_with("^") || line.ends_with("=") || line.ends_with("<") || line.ends_with(">") ||
-			line.ends_with("!") || line.ends_with("~") || line.ends_with("(") || line.ends_with("[")) {
-		return false;
-	}
-
-	if (_csharp_line_starts_with_word(line, "if") || _csharp_line_starts_with_word(line, "else") || _csharp_line_starts_with_word(line, "for") ||
-			_csharp_line_starts_with_word(line, "foreach") || _csharp_line_starts_with_word(line, "while") || _csharp_line_starts_with_word(line, "switch") ||
-			_csharp_line_starts_with_word(line, "catch") || _csharp_line_starts_with_word(line, "try") || _csharp_line_starts_with_word(line, "finally") ||
-			_csharp_line_starts_with_word(line, "lock") || _csharp_line_starts_with_word(line, "do") || _csharp_line_starts_with_word(line, "class") ||
-			_csharp_line_starts_with_word(line, "namespace") || _csharp_line_starts_with_word(line, "interface") || _csharp_line_starts_with_word(line, "struct") ||
-			_csharp_line_starts_with_word(line, "enum")) {
-		return false;
-	}
-	if (line.contains(" class ") || line.contains(" namespace ") || line.contains(" interface ") || line.contains(" struct ") || line.contains(" enum ")) {
-		return false;
-	}
-
-	if (_csharp_line_starts_with_word(line, "using") && !line.contains("(")) {
-		return true;
-	}
-
-	if (_csharp_line_starts_with_word(line, "return") || _csharp_line_starts_with_word(line, "throw") ||
-			_csharp_line_starts_with_word(line, "break") || _csharp_line_starts_with_word(line, "continue") ||
-			line.begins_with("yield return ") || line == "yield break") {
-		return true;
-	}
-
-	if (line.contains("=") && !line.contains("=>")) {
-		return true;
-	}
-
-	const int paren_pos = line.find_char('(');
-	if (paren_pos >= 0 && line.find_char(')', paren_pos) > paren_pos) {
-		return !_looks_like_csharp_method_declaration(line, paren_pos);
-	}
-
-	return _looks_like_csharp_declaration_statement(line);
-}
-
-static bool _check_csharp_semicolons(const String &p_script, const String &p_path, List<ScriptLanguage::ScriptError> *r_errors) {
-	bool valid = true;
-	const String masked = _mask_csharp_comments_and_literals(p_script);
-	Vector<CSharpPreprocessorBranch> branches;
-	int line_start = 0;
-	int line_number = 1;
-
-	while (line_start <= masked.length()) {
-		int line_end = masked.find_char('\n', line_start);
-		if (line_end < 0) {
-			line_end = masked.length();
-		}
-
-		const String masked_line = masked.substr(line_start, line_end - line_start);
-		const String original_line = p_script.substr(line_start, line_end - line_start);
-		const String stripped_original = original_line.strip_edges();
-
-		_update_csharp_preprocessor_branch(stripped_original, branches);
-
-		if (!_is_csharp_preprocessor_inactive(branches) && _csharp_line_needs_semicolon(masked_line)) {
-			_push_csharp_script_error(r_errors, p_path, line_number, MAX(1, original_line.length()), "Expected ';'.");
-			valid = false;
-		}
-
-		if (line_end >= masked.length()) {
-			break;
-		}
-
-		line_start = line_end + 1;
-		line_number++;
-	}
-
-	return valid;
-}
-
 bool CSharpLanguage::validate(const String &p_script, const String &p_path, List<String> *r_functions,
 		List<ScriptLanguage::ScriptError> *r_errors, List<ScriptLanguage::Warning> *r_warnings, HashSet<int> *r_safe_lines) const {
 	(void)r_warnings;
 	(void)r_safe_lines;
 
+	// C# statements may span arbitrary lines, so semicolon validation requires the full Roslyn parser. Keep this
+	// lightweight validator structural to avoid rejecting valid expression-bodied members, switch expressions,
+	// nullable annotations, default parameters, and other modern C# syntax.
 	enum State {
 		NORMAL,
 		LINE_COMMENT,
@@ -1431,10 +1259,6 @@ bool CSharpLanguage::validate(const String &p_script, const String &p_path, List
 	if (!brackets.is_empty()) {
 		const CSharpBracketInfo &bracket = brackets[brackets.size() - 1];
 		_push_csharp_script_error(r_errors, p_path, bracket.line, bracket.column, "Unclosed '" + String::chr(bracket.bracket) + "'.");
-		valid = false;
-	}
-
-	if (!_check_csharp_semicolons(p_script, p_path, r_errors)) {
 		valid = false;
 	}
 
