@@ -90,6 +90,7 @@ private:
 		Vector<DrawRange> ranges;
 		Vector<ImageObject> images;
 		Vector<float> line_offsets;
+		int visual_line_start = 0;
 		float width = -1.0;
 		Size2 size;
 	};
@@ -176,6 +177,7 @@ private:
 	Array st_args;
 	String language;
 	bool fit_content = false;
+	float line_skew = 0.0f;
 
 	mutable bool parsed_dirty = true;
 	mutable bool layout_dirty = true;
@@ -290,6 +292,9 @@ public:
 
 	void set_fit_content(bool p_enabled);
 	bool is_fit_content_enabled() const;
+
+	void set_line_skew(float p_offset);
+	float get_line_skew() const;
 
 	int get_content_height() const;
 	int get_content_width() const;

@@ -234,6 +234,8 @@ private:
 		Vector2 scale = Vector2(1, 1);
 		Vector2 pivot_offset;
 		Vector2 pivot_offset_ratio;
+		Transform2D container_effect_transform;
+		bool container_effect_transform_enabled = false;
 
 		OffsetTransform *offset_transform = nullptr;
 
@@ -414,6 +416,10 @@ private:
 	void _invalidate_theme_cache();
 
 	void _ensure_allocated_offset_transform();
+	void _set_container_effect_transform(const Transform2D &p_transform);
+	void _clear_container_effect_transform();
+
+	friend class ScrollContainer;
 
 	// Extra properties.
 

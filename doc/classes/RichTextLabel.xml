@@ -754,6 +754,10 @@
 		<member name="language" type="String" setter="set_language" getter="get_language" default="&quot;&quot;">
 			Language code used for line-breaking and text shaping algorithms. If left empty, the current locale is used instead.
 		</member>
+		<member name="line_skew" type="float" setter="set_line_skew" getter="get_line_skew" default="0.0">
+			相邻可见文本行之间的水平偏移量，单位为像素。第一行保持原位，后续行逐行累加偏移；正值向右，负值向左。偏移应用于整行文本、内嵌对象、选择背景和元数据点击检测，不会拉斜单个字形；表格单元格内部会各自从第一行开始计算。
+			使用内置滚动条滚动时，控件会根据实际行高连续补偿所有行的水平偏移，使斜排位置固定在可视区域中；字体、字号、行距或控件尺寸导致排版变化后会按新的行位置重新计算。该属性只影响显示与命中位置，不改变自动换行宽度、滚动高度或 [member fit_content] 的尺寸计算。长文本或较大的偏移可能使后续行超出控件边界，应预留足够宽度。
+		</member>
 		<member name="meta_underlined" type="bool" setter="set_meta_underline" getter="is_meta_underlined" default="true" keywords="url_underlined">
 			If [code]true[/code], the label underlines meta tags such as [code skip-lint][url]{text}[/url][/code]. These tags can call a function when clicked if [signal meta_clicked] is connected to a function.
 		</member>

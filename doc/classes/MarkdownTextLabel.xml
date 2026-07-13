@@ -200,6 +200,10 @@
 		<member name="language" type="String" setter="set_language" getter="get_language" default="&quot;&quot;">
 			用于断行和字形排版的语言代码。留空时使用当前区域设置。
 		</member>
+		<member name="line_skew" type="float" setter="set_line_skew" getter="get_line_skew" default="0.0">
+			相邻排版行之间的水平偏移量，单位为像素。第一行保持原位，后续普通段落、标题、代码块和表格单元格中的行会按视觉顺序逐行累加偏移；正值向右，负值向左。此效果只移动完整行，不会使字形本身变形，链接的点击区域会跟随移动。
+			该属性不改变 Markdown 的自动换行宽度或 [member fit_content] 计算结果。由于该控件默认裁剪内容，较大的偏移可能使后面的行超出可视区域，应同时增加控件宽度或减小偏移值。
+		</member>
 		<member name="structured_text_bidi_override" type="int" setter="set_structured_text_bidi_override" getter="get_structured_text_bidi_override" enum="TextServer.StructuredTextParser" default="0">
 			设置结构化文本的双向文本解析方式。适用于包含 URL、文件路径、邮箱地址或混合方向文本的 Markdown 内容。
 		</member>

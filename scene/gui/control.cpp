@@ -748,6 +748,9 @@ Transform2D Control::_get_internal_transform() const {
 	if (is_offset_transform_enabled() && !data.offset_transform->visual_only) {
 		xform *= get_offset_transform();
 	}
+	if (data.container_effect_transform_enabled) {
+		xform *= data.container_effect_transform;
+	}
 
 	return xform;
 }
@@ -764,7 +767,6 @@ void Control::_update_canvas_item_transform() {
 	if (is_offset_transform_enabled() && data.offset_transform->visual_only) {
 		xform *= get_offset_transform();
 	}
-
 	RenderingServer::get_singleton()->canvas_item_set_transform(get_canvas_item(), xform);
 }
 
@@ -2511,6 +2513,30 @@ Transform2D Control::get_offset_transform() const {
 	Transform2D offset_xform(data.offset_transform->rotation, data.offset_transform->scale, 0.0f, combined_pivot + combined_translation);
 	offset_xform.translate_local(-combined_pivot);
 	return offset_xform;
+}
+
+void Control::_set_container_effect_transform(const Transform2D &p_transform) {
+	if (data.container_effect_transform_enabled && data.container_effect_transform == p_transform) {
+		return;
+	}
+	data.container_effect_transform = p_transform;
+	data.container_effect_transform_enabled = true;
+	_notify_transform();
+	if (is_inside_tree()) {
+		_update_canvas_item_transform();
+	}
+}
+
+void Control::_clear_container_effect_transform() {
+	if (!data.container_effect_transform_enabled) {
+		return;
+	}
+	data.container_effect_transform = Transform2D();
+	data.container_effect_transform_enabled = false;
+	_notify_transform();
+	if (is_inside_tree()) {
+		_update_canvas_item_transform();
+	}
 }
 
 // Input events.

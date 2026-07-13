@@ -43,6 +43,16 @@
 		<member name="draw_focus_border" type="bool" setter="set_draw_focus_border" getter="get_draw_focus_border" default="false">
 			If [code]true[/code], [theme_item focus] is drawn when the ScrollContainer or one of its descendant nodes is focused.
 		</member>
+		<member name="fisheye_enabled" type="bool" setter="set_fisheye_enabled" getter="is_fisheye_enabled" default="false">
+			启用后，对内容控件的一级 [Control] 子节点应用鱼眼放大效果。典型用法是在 [ScrollContainer] 中放置 [VBoxContainer] 或 [HBoxContainer]，其列表元素越接近可视区域中心，显示得越大。
+			使用 [BoxContainer] 作为直接内容控件时，鱼眼效果会根据缩放后的元素边界调整主轴位置，保持由主题常量 [theme_item BoxContainer.separation]（包括 [code]theme_override_constants/separation[/code]）产生的实际间隔，避免元素放大后相互覆盖。该调整不改变容器布局尺寸，也不会覆盖元素自身的 [member Control.scale] 或 [member Control.rotation]；鼠标命中和焦点区域会跟随最终显示变换。内容控件本身不会被缩放；如果列表元素嵌套在额外容器中，应让该容器成为内容控件的直接子节点。
+		</member>
+		<member name="fisheye_radius" type="float" setter="set_fisheye_radius" getter="get_fisheye_radius" default="0.0">
+			鱼眼效果从可视区域中心向外生效的半径，单位为像素。列表元素中心超出此半径后保持原始大小。值为 [code]0.0[/code] 时，自动使用可视区域较长边的一半；较大的半径会让更多元素同时受到影响。
+		</member>
+		<member name="fisheye_strength" type="float" setter="set_fisheye_strength" getter="get_fisheye_strength" default="0.25">
+			鱼眼中心的最大额外缩放比例。值为 [code]0.25[/code] 表示位于中心的列表元素最多显示为原始尺寸的 [code]1.25[/code] 倍，并向 [member fisheye_radius] 边缘平滑衰减到原始大小。值必须大于或等于 [code]0.0[/code]；对于非 [BoxContainer] 内容，过大的值可能使相邻元素在视觉上重叠。
+		</member>
 		<member name="follow_focus" type="bool" setter="set_follow_focus" getter="is_following_focus" default="false">
 			If [code]true[/code], the ScrollContainer will automatically scroll to focused children (including indirect children) to make sure they are fully visible.
 		</member>

@@ -238,6 +238,8 @@ void BoxContainer::_resort() {
 	}
 
 	int accumulated_size = 0;
+	const float skew_extent = Math::abs(item_skew) * MAX(children_count - 1, 0);
+	const float skew_origin = item_skew < 0.0f ? skew_extent : 0.0f;
 	for (int i = start; i != end; i += delta) {
 		Control *c = as_sortable_control(get_child(i));
 		if (!c) {
@@ -267,9 +269,9 @@ void BoxContainer::_resort() {
 		Rect2 rect;
 
 		if (vertical) {
-			rect = Rect2(0, from, new_size.width, size);
+			rect = Rect2(skew_origin + item_skew * idx, from, MAX(0.0f, new_size.width - skew_extent), size);
 		} else {
-			rect = Rect2(from, 0, size, new_size.height);
+			rect = Rect2(from, skew_origin + item_skew * idx, size, MAX(0.0f, new_size.height - skew_extent));
 		}
 
 		if (propagating_max_size) {
@@ -294,6 +296,7 @@ Size2 BoxContainer::_get_minimum_size(bool p_use_desired_sizes) const {
 	Size2i minimum;
 
 	bool first = true;
+	int children_count = 0;
 
 	for (int i = 0; i < get_child_count(); i++) {
 		Control *c = as_sortable_control(get_child(i), SortableVisibilityMode::VISIBLE);
@@ -321,6 +324,12 @@ Size2 BoxContainer::_get_minimum_size(bool p_use_desired_sizes) const {
 		}
 
 		first = false;
+		children_count++;
+	}
+	if (vertical) {
+		minimum.width += Math::ceil(Math::abs(item_skew) * MAX(children_count - 1, 0));
+	} else {
+		minimum.height += Math::ceil(Math::abs(item_skew) * MAX(children_count - 1, 0));
 	}
 
 	return minimum;
@@ -342,6 +351,7 @@ void BoxContainer::_notification(int p_what) {
 
 		case NOTIFICATION_THEME_CHANGED: {
 			update_minimum_size();
+			queue_sort();
 		} break;
 
 		case NOTIFICATION_TRANSLATION_CHANGED:
@@ -378,6 +388,20 @@ void BoxContainer::set_vertical(bool p_vertical) {
 
 bool BoxContainer::is_vertical() const {
 	return vertical;
+}
+
+void BoxContainer::set_item_skew(float p_offset) {
+	ERR_FAIL_COND(!Math::is_finite(p_offset));
+	if (item_skew == p_offset) {
+		return;
+	}
+	item_skew = p_offset;
+	update_minimum_size();
+	queue_sort();
+}
+
+float BoxContainer::get_item_skew() const {
+	return item_skew;
 }
 
 Control *BoxContainer::add_spacer(bool p_begin) {
@@ -432,6 +456,8 @@ void BoxContainer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_alignment"), &BoxContainer::get_alignment);
 	ClassDB::bind_method(D_METHOD("set_vertical", "vertical"), &BoxContainer::set_vertical);
 	ClassDB::bind_method(D_METHOD("is_vertical"), &BoxContainer::is_vertical);
+	ClassDB::bind_method(D_METHOD("set_item_skew", "offset"), &BoxContainer::set_item_skew);
+	ClassDB::bind_method(D_METHOD("get_item_skew"), &BoxContainer::get_item_skew);
 
 	BIND_ENUM_CONSTANT(ALIGNMENT_BEGIN);
 	BIND_ENUM_CONSTANT(ALIGNMENT_CENTER);
@@ -439,6 +465,7 @@ void BoxContainer::_bind_methods() {
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "alignment", PROPERTY_HINT_ENUM, "Begin,Center,End"), "set_alignment", "get_alignment");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "vertical"), "set_vertical", "is_vertical");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "item_skew", PROPERTY_HINT_RANGE, "-256,256,0.1,or_less,or_greater,suffix:px"), "set_item_skew", "get_item_skew");
 
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, BoxContainer, separation);
 }

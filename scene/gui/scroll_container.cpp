@@ -33,6 +33,7 @@
 #include "core/config/project_settings.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "scene/gui/box_container.h"
 #include "scene/gui/panel_container.h"
 #include "scene/gui/texture_rect.h"
 #include "scene/main/window.h"
@@ -131,6 +132,187 @@ void ScrollContainer::_cancel_drag() {
 		emit_signal(SNAME("scroll_ended"));
 		propagate_notification(NOTIFICATION_SCROLL_END);
 		beyond_deadzone = false;
+	}
+}
+
+void ScrollContainer::_clear_content_effects() {
+	for (const ObjectID &item_id : effect_items) {
+		Control *item = ObjectDB::get_instance<Control>(item_id);
+		if (item) {
+			item->_clear_container_effect_transform();
+		}
+	}
+	effect_items.clear();
+}
+
+void ScrollContainer::_update_content_effects() {
+	_clear_content_effects();
+	if (!is_inside_tree()) {
+		return;
+	}
+
+	Control *content = nullptr;
+	for (int i = 0; i < get_child_count(); i++) {
+		Control *child = as_sortable_control(get_child(i), SortableVisibilityMode::VISIBLE);
+		if (child && child != h_scroll && child != v_scroll && child != focus_panel && child != scroll_hint_top_left && child != scroll_hint_bottom_right) {
+			content = child;
+			break;
+		}
+	}
+	if (!content) {
+		return;
+	}
+	BoxContainer *box_content = Object::cast_to<BoxContainer>(content);
+	const bool compensate_item_skew = box_content && !Math::is_zero_approx(box_content->get_item_skew());
+	const bool apply_fisheye = fisheye_enabled && fisheye_strength > 0.0f;
+	if (!compensate_item_skew && !apply_fisheye) {
+		return;
+	}
+	if (box_content) {
+		const Callable update_effects = callable_mp(this, &ScrollContainer::_update_content_effects);
+		if (!box_content->is_connected(SceneStringName(sort_children), update_effects)) {
+			box_content->connect(SceneStringName(sort_children), update_effects);
+		}
+	}
+
+	Rect2 margins = _get_margins();
+	Rect2 viewport_rect(margins.position, get_size() - margins.position - margins.size);
+	if (_is_h_scroll_visible() || horizontal_scroll_mode == SCROLL_MODE_RESERVE) {
+		viewport_rect.size.y -= h_scroll->get_minimum_size().y + theme_cache.scrollbar_v_separation;
+	}
+	if (_is_v_scroll_visible() || vertical_scroll_mode == SCROLL_MODE_RESERVE) {
+		const float width = v_scroll->get_minimum_size().x + theme_cache.scrollbar_h_separation;
+		viewport_rect.size.x -= width;
+		if (is_layout_rtl()) {
+			viewport_rect.position.x += width;
+		}
+	}
+
+	const Transform2D scroll_inverse = get_global_transform().affine_inverse();
+	Vector<Control *> items;
+	Vector<Vector2> item_centers;
+	Vector<Vector2> item_sizes;
+	for (int i = 0; i < content->get_child_count(); i++) {
+		Control *item = Object::cast_to<Control>(content->get_child(i));
+		if (!item || item->is_set_as_top_level() || !item->is_visible_in_tree()) {
+			continue;
+		}
+
+		const Transform2D item_to_scroll = scroll_inverse * item->get_global_transform();
+		items.push_back(item);
+		item_centers.push_back(item_to_scroll.xform(item->get_size() * 0.5f));
+		item_sizes.push_back(item_to_scroll.xform(Rect2(Vector2(), item->get_size())).size);
+	}
+	if (items.is_empty()) {
+		return;
+	}
+
+	Vector2 scroll_compensation;
+	if (compensate_item_skew) {
+		const bool vertical = box_content->is_vertical();
+		const float scroll = vertical ? v_scroll->get_value() : h_scroll->get_value();
+		float scroll_progress = 0.0f;
+		if (item_centers.size() > 1 && scroll > 0.0f) {
+			// Express the pixel scroll as a fractional item index so the diagonal stays fixed in viewport space.
+			const float first = vertical ? item_centers[0].y : item_centers[0].x;
+			const float target = first + scroll;
+			for (int i = 1; i < item_centers.size(); i++) {
+				const float previous = vertical ? item_centers[i - 1].y : item_centers[i - 1].x;
+				const float current = vertical ? item_centers[i].y : item_centers[i].x;
+				if (target <= current) {
+					if (!Math::is_equal_approx(previous, current)) {
+						scroll_progress = (i - 1) + Math::inverse_lerp(previous, current, target);
+					}
+					break;
+				}
+				scroll_progress = i;
+				if (i == item_centers.size() - 1 && !Math::is_equal_approx(previous, current)) {
+					scroll_progress += (target - current) / (current - previous);
+				}
+			}
+		}
+		if (vertical) {
+			scroll_compensation.x = -box_content->get_item_skew() * scroll_progress;
+		} else {
+			scroll_compensation.y = -box_content->get_item_skew() * scroll_progress;
+		}
+	}
+
+	const Vector2 effect_center = viewport_rect.get_center();
+	const float radius = fisheye_radius > 0.0f ? fisheye_radius : MAX(viewport_rect.size.x, viewport_rect.size.y) * 0.5f;
+	Vector<float> item_scales;
+	Vector<Vector2> item_translations;
+	item_scales.resize(items.size());
+	item_translations.resize(items.size());
+	for (int i = 0; i < items.size(); i++) {
+		float scale = 1.0f;
+		if (apply_fisheye && radius > 0.0f) {
+			const float distance = (item_centers[i] + scroll_compensation).distance_to(effect_center);
+			const float weight = 1.0f - Math::smoothstep(0.0f, radius, distance);
+			scale += fisheye_strength * MAX(weight, 0.0f);
+		}
+		item_scales.write[i] = scale;
+		item_translations.write[i] = scroll_compensation;
+	}
+
+	if (box_content && apply_fisheye && radius > 0.0f && items.size() > 1) {
+		const bool vertical = box_content->is_vertical();
+		const float first_center = vertical ? item_centers[0].y : item_centers[0].x;
+		const float second_center = vertical ? item_centers[1].y : item_centers[1].x;
+		const float direction = second_center >= first_center ? 1.0f : -1.0f;
+		Vector<float> original_centers;
+		Vector<float> expanded_centers;
+		original_centers.resize(items.size());
+		expanded_centers.resize(items.size());
+		for (int i = 0; i < items.size(); i++) {
+			original_centers.write[i] = direction * (vertical ? item_centers[i].y : item_centers[i].x);
+		}
+		expanded_centers.write[0] = original_centers[0];
+		for (int i = 1; i < items.size(); i++) {
+			const float previous_half_size = (vertical ? item_sizes[i - 1].y : item_sizes[i - 1].x) * 0.5f;
+			const float current_half_size = (vertical ? item_sizes[i].y : item_sizes[i].x) * 0.5f;
+			const float separation = original_centers[i] - original_centers[i - 1] - previous_half_size - current_half_size;
+			expanded_centers.write[i] = expanded_centers[i - 1] + previous_half_size * item_scales[i - 1] + separation + current_half_size * item_scales[i];
+		}
+
+		// Anchor the expansion continuously at the fisheye center while preserving the BoxContainer's effective separation.
+		const float effect_position = direction * (vertical ? effect_center.y : effect_center.x);
+		float anchor_offset = expanded_centers[0] - original_centers[0];
+		if (effect_position >= original_centers[items.size() - 1]) {
+			anchor_offset = expanded_centers[items.size() - 1] - original_centers[items.size() - 1];
+		} else if (effect_position > original_centers[0]) {
+			for (int i = 1; i < items.size(); i++) {
+				if (effect_position <= original_centers[i]) {
+					const float weight = Math::is_equal_approx(original_centers[i - 1], original_centers[i]) ? 0.0f : Math::inverse_lerp(original_centers[i - 1], original_centers[i], effect_position);
+					anchor_offset = Math::lerp(expanded_centers[i - 1] - original_centers[i - 1], expanded_centers[i] - original_centers[i], weight);
+					break;
+				}
+			}
+		}
+
+		for (int i = 0; i < items.size(); i++) {
+			const float main_axis_offset = direction * (expanded_centers[i] - original_centers[i] - anchor_offset);
+			if (vertical) {
+				item_translations.write[i].y += main_axis_offset;
+			} else {
+				item_translations.write[i].x += main_axis_offset;
+			}
+		}
+	}
+
+	for (int i = 0; i < items.size(); i++) {
+		const float scale = item_scales[i];
+		const Vector2 translation = item_translations[i];
+		if (translation.is_zero_approx() && Math::is_equal_approx(scale, 1.0f)) {
+			continue;
+		}
+
+		Control *item = items[i];
+		const Vector2 pivot = item->get_size() * 0.5f;
+		Transform2D effect_transform(0.0f, Vector2(scale, scale), 0.0f, pivot + translation);
+		effect_transform.translate_local(-pivot);
+		item->_set_container_effect_transform(effect_transform);
+		effect_items.insert(item->get_instance_id());
 	}
 }
 
@@ -439,6 +621,7 @@ void ScrollContainer::_reposition_children() {
 	}
 
 	update_maximum_size();
+	_update_content_effects();
 	queue_redraw();
 }
 
@@ -519,6 +702,10 @@ void ScrollContainer::_notification(int p_what) {
 			ERR_FAIL_NULL(viewport);
 			viewport->connect("gui_focus_changed", callable_mp(this, &ScrollContainer::_gui_focus_changed));
 			_reposition_children();
+		} break;
+
+		case NOTIFICATION_EXIT_TREE: {
+			_clear_content_effects();
 		} break;
 
 		case NOTIFICATION_SORT_CHILDREN: {
@@ -786,6 +973,46 @@ bool ScrollContainer::is_scroll_horizontal_by_default() const {
 	return scroll_horizontal_by_default;
 }
 
+void ScrollContainer::set_fisheye_enabled(bool p_enabled) {
+	if (fisheye_enabled == p_enabled) {
+		return;
+	}
+	fisheye_enabled = p_enabled;
+	queue_sort();
+}
+
+bool ScrollContainer::is_fisheye_enabled() const {
+	return fisheye_enabled;
+}
+
+void ScrollContainer::set_fisheye_strength(float p_strength) {
+	ERR_FAIL_COND(!Math::is_finite(p_strength));
+	p_strength = MAX(p_strength, 0.0f);
+	if (fisheye_strength == p_strength) {
+		return;
+	}
+	fisheye_strength = p_strength;
+	queue_sort();
+}
+
+float ScrollContainer::get_fisheye_strength() const {
+	return fisheye_strength;
+}
+
+void ScrollContainer::set_fisheye_radius(float p_radius) {
+	ERR_FAIL_COND(!Math::is_finite(p_radius));
+	p_radius = MAX(p_radius, 0.0f);
+	if (fisheye_radius == p_radius) {
+		return;
+	}
+	fisheye_radius = p_radius;
+	queue_sort();
+}
+
+float ScrollContainer::get_fisheye_radius() const {
+	return fisheye_radius;
+}
+
 int ScrollContainer::get_deadzone() const {
 	return deadzone;
 }
@@ -884,6 +1111,12 @@ void ScrollContainer::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_scroll_horizontal_by_default", "enable"), &ScrollContainer::set_scroll_horizontal_by_default);
 	ClassDB::bind_method(D_METHOD("is_scroll_horizontal_by_default"), &ScrollContainer::is_scroll_horizontal_by_default);
+	ClassDB::bind_method(D_METHOD("set_fisheye_enabled", "enabled"), &ScrollContainer::set_fisheye_enabled);
+	ClassDB::bind_method(D_METHOD("is_fisheye_enabled"), &ScrollContainer::is_fisheye_enabled);
+	ClassDB::bind_method(D_METHOD("set_fisheye_strength", "strength"), &ScrollContainer::set_fisheye_strength);
+	ClassDB::bind_method(D_METHOD("get_fisheye_strength"), &ScrollContainer::get_fisheye_strength);
+	ClassDB::bind_method(D_METHOD("set_fisheye_radius", "radius"), &ScrollContainer::set_fisheye_radius);
+	ClassDB::bind_method(D_METHOD("get_fisheye_radius"), &ScrollContainer::get_fisheye_radius);
 
 	ClassDB::bind_method(D_METHOD("set_deadzone", "deadzone"), &ScrollContainer::set_deadzone);
 	ClassDB::bind_method(D_METHOD("get_deadzone"), &ScrollContainer::get_deadzone);
@@ -909,6 +1142,11 @@ void ScrollContainer::_bind_methods() {
 
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "follow_focus"), "set_follow_focus", "is_following_focus");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "draw_focus_border"), "set_draw_focus_border", "get_draw_focus_border");
+
+	ADD_GROUP("Fisheye", "fisheye_");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fisheye_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_fisheye_enabled", "is_fisheye_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "fisheye_strength", PROPERTY_HINT_RANGE, "0,2,0.01,or_greater"), "set_fisheye_strength", "get_fisheye_strength");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "fisheye_radius", PROPERTY_HINT_RANGE, "0,4096,1,or_greater,suffix:px"), "set_fisheye_radius", "get_fisheye_radius");
 
 	ADD_GROUP("Scrollbar", "");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "scroll_horizontal", PROPERTY_HINT_NONE, "suffix:px"), "set_h_scroll", "get_h_scroll");

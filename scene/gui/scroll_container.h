@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/templates/hash_set.h"
 #include "scene/gui/container.h"
 #include "scene/gui/scroll_bar.h"
 
@@ -88,6 +89,10 @@ private:
 	int scroll_border = 20;
 	int scroll_speed = 12;
 	bool scroll_horizontal_by_default = false;
+	bool fisheye_enabled = false;
+	float fisheye_strength = 0.25f;
+	float fisheye_radius = 0.0f;
+	HashSet<ObjectID> effect_items;
 
 	ScrollHintMode scroll_hint_mode = SCROLL_HINT_MODE_DISABLED;
 	bool tile_scroll_hint = false;
@@ -107,6 +112,8 @@ private:
 	} theme_cache;
 
 	void _cancel_drag();
+	void _update_content_effects();
+	void _clear_content_effects();
 
 	bool _is_h_scroll_visible() const;
 	bool _is_v_scroll_visible() const;
@@ -163,6 +170,13 @@ public:
 
 	void set_scroll_horizontal_by_default(bool p_enable);
 	bool is_scroll_horizontal_by_default() const;
+
+	void set_fisheye_enabled(bool p_enabled);
+	bool is_fisheye_enabled() const;
+	void set_fisheye_strength(float p_strength);
+	float get_fisheye_strength() const;
+	void set_fisheye_radius(float p_radius);
+	float get_fisheye_radius() const;
 
 	void set_deadzone(int p_deadzone);
 	int get_deadzone() const;

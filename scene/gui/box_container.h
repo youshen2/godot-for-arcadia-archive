@@ -45,6 +45,7 @@ public:
 private:
 	bool vertical = false;
 	AlignmentMode alignment = ALIGNMENT_BEGIN;
+	float item_skew = 0.0f;
 
 	struct ThemeCache {
 		int separation = 0;
@@ -68,6 +69,9 @@ public:
 
 	void set_vertical(bool p_vertical);
 	bool is_vertical() const;
+
+	void set_item_skew(float p_offset);
+	float get_item_skew() const;
 
 	virtual Size2 get_minimum_size() const override;
 	virtual Size2 get_desired_size() const override;

@@ -1078,6 +1078,51 @@ void RichTextLabel::_update_table_size(ItemTable *p_table) {
 	}
 }
 
+int RichTextLabel::_get_visual_line_index(ItemFrame *p_frame, int p_line) const {
+	int visual_line = 0;
+	for (int i = 0; i < p_line; i++) {
+		if (p_frame->lines[i].text_buf.is_valid()) {
+			visual_line += p_frame->lines[i].text_buf->get_line_count();
+		}
+	}
+	return visual_line;
+}
+
+void RichTextLabel::_update_line_skew_scroll_progress() {
+	line_skew_scroll_progress = 0.0f;
+	if (Math::is_zero_approx(line_skew) || vscroll->get_value() <= 0.0 || main->lines.is_empty()) {
+		return;
+	}
+
+	const float scroll = vscroll->get_value();
+	const int paragraph_count = MIN(main->first_invalid_line.load(), (int)main->lines.size());
+	float previous_top = 0.0f;
+	float previous_step = 1.0f;
+	int visual_line = 0;
+	bool has_previous = false;
+	for (int paragraph = 0; paragraph < paragraph_count; paragraph++) {
+		Line &line_data = main->lines[paragraph];
+		MutexLock lock(line_data.text_buf->get_mutex());
+		float line_offset = 0.0f;
+		for (int line = 0; line < line_data.text_buf->get_line_count(); line++) {
+			const float current_top = line_data.offset.y + line_offset;
+			if (has_previous && scroll <= current_top) {
+				const float weight = Math::is_equal_approx(previous_top, current_top) ? 0.0f : Math::inverse_lerp(previous_top, current_top, scroll);
+				line_skew_scroll_progress = (visual_line - 1) + weight;
+				return;
+			}
+			previous_top = current_top;
+			previous_step = line_data.text_buf->get_line_ascent(line) + line_data.text_buf->get_line_descent(line) + theme_cache.line_separation;
+			line_offset += previous_step;
+			visual_line++;
+			has_previous = true;
+		}
+	}
+	if (has_previous && previous_step > 0.0f) {
+		line_skew_scroll_progress = MAX(0.0f, (visual_line - 1) + (scroll - previous_top) / previous_step);
+	}
+}
+
 int RichTextLabel::_draw_line(ItemFrame *p_frame, int p_line, const Vector2 &p_ofs, int p_width, float p_vsep, const Color &p_base_color, int p_outline_size, const Color &p_outline_color, const Color &p_font_shadow_color, int p_shadow_outline_size, const Point2 &p_shadow_ofs, int &r_processed_glyphs) {
 	ERR_FAIL_NULL_V(p_frame, 0);
 	ERR_FAIL_COND_V(p_line < 0 || p_line >= (int)p_frame->lines.size(), 0);
@@ -1102,6 +1147,7 @@ int RichTextLabel::_draw_line(ItemFrame *p_frame, int p_line, const Vector2 &p_o
 	bool trim_glyphs_rtl = (visible_characters >= 0) && ((visible_chars_behavior == TextServer::VC_GLYPHS_RTL) || ((visible_chars_behavior == TextServer::VC_GLYPHS_AUTO) && lrtl));
 	int total_glyphs = (trim_glyphs_ltr || trim_glyphs_rtl) ? get_total_glyph_count() : 0;
 	int visible_glyphs = total_glyphs * visible_ratio;
+	const int visual_line_start = _get_visual_line_index(p_frame, p_line);
 
 	// Draw dropcap.
 	int dc_lines = l.text_buf->get_dropcap_lines();
@@ -1109,9 +1155,9 @@ int RichTextLabel::_draw_line(ItemFrame *p_frame, int p_line, const Vector2 &p_o
 	bool skip_dc = (trim_chars && l.char_offset > visible_characters) || (trim_glyphs_ltr && (r_processed_glyphs >= visible_glyphs)) || (trim_glyphs_rtl && (r_processed_glyphs < total_glyphs - visible_glyphs));
 	if (!skip_dc) {
 		if (l.dc_ol_size > 0) {
-			l.text_buf->draw_dropcap_outline(ci, p_ofs + ((rtl) ? Vector2() : Vector2(l.offset.x, 0)), l.dc_ol_size, l.dc_ol_color);
+			l.text_buf->draw_dropcap_outline(ci, p_ofs + Vector2(line_skew * (visual_line_start - line_skew_scroll_progress), 0) + ((rtl) ? Vector2() : Vector2(l.offset.x, 0)), l.dc_ol_size, l.dc_ol_color);
 		}
-		l.text_buf->draw_dropcap(ci, p_ofs + ((rtl) ? Vector2() : Vector2(l.offset.x, 0)), l.dc_color);
+		l.text_buf->draw_dropcap(ci, p_ofs + Vector2(line_skew * (visual_line_start - line_skew_scroll_progress), 0) + ((rtl) ? Vector2() : Vector2(l.offset.x, 0)), l.dc_color);
 	}
 
 	const Ref<TextParagraph> &text_buf = l.text_buf_disp.is_valid() ? l.text_buf_disp : l.text_buf;
@@ -1170,6 +1216,7 @@ int RichTextLabel::_draw_line(ItemFrame *p_frame, int p_line, const Vector2 &p_o
 				}
 			} break;
 		}
+		off.x += line_skew * (visual_line_start + line - line_skew_scroll_progress);
 
 		bool skip_prefix = (trim_chars && l.char_offset > visible_characters) || (trim_glyphs_ltr && (r_processed_glyphs >= visible_glyphs)) || (trim_glyphs_rtl && (r_processed_glyphs < total_glyphs - visible_glyphs));
 		if (l.text_prefix.is_valid() && line == 0 && !skip_prefix) {
@@ -1779,6 +1826,7 @@ int RichTextLabel::_draw_line(ItemFrame *p_frame, int p_line, const Vector2 &p_o
 }
 
 void RichTextLabel::_find_click(ItemFrame *p_frame, const Point2i &p_click, ItemFrame **r_click_frame, int *r_click_line, Item **r_click_item, int *r_click_char, bool *r_outside, bool p_meta) {
+	_update_line_skew_scroll_progress();
 	if (r_click_item) {
 		*r_click_item = nullptr;
 	}
@@ -1871,6 +1919,7 @@ float RichTextLabel::_find_click_in_line(ItemFrame *p_frame, int p_line, const V
 	int table_click_char = -1;
 
 	const Ref<TextParagraph> &text_buf = l.text_buf_disp.is_valid() ? l.text_buf_disp : l.text_buf;
+	const int visual_line_start = _get_visual_line_index(p_frame, p_line);
 
 	for (int line = 0; line < text_buf->get_line_count(); line++) {
 		RID rid = text_buf->get_line_rid(line);
@@ -1906,6 +1955,7 @@ float RichTextLabel::_find_click_in_line(ItemFrame *p_frame, int p_line, const V
 				}
 			} break;
 		}
+		off.x += line_skew * (visual_line_start + line - line_skew_scroll_progress);
 		// Adjust for dropcap.
 		int dc_lines = text_buf->get_dropcap_lines();
 		float h_off = text_buf->get_dropcap_size().x;
@@ -2253,10 +2303,16 @@ void RichTextLabel::_accessibility_update_line(RID p_id, ItemFrame *p_frame, int
 	l.accessibility_line_element = AccessibilityServer::get_singleton()->create_sub_element(p_id, AccessibilityServerEnums::AccessibilityRole::ROLE_CONTAINER);
 
 	MutexLock lock(l.text_buf->get_mutex());
+	const int visual_line_start = _get_visual_line_index(p_frame, p_line);
+	const int paragraph_line_count = l.text_buf->get_line_count();
+	const float first_line_shift = line_skew * (visual_line_start - line_skew_scroll_progress);
+	const float last_line_shift = line_skew * (visual_line_start + MAX(paragraph_line_count - 1, 0) - line_skew_scroll_progress);
+	const float minimum_line_shift = MIN(first_line_shift, last_line_shift);
+	const float line_shift_extent = Math::abs(last_line_shift - first_line_shift);
 
 	const RID &line_ae = l.accessibility_line_element;
 
-	Rect2 ae_rect = Rect2(p_ofs, Size2(p_width, l.text_buf->get_size().y + l.text_buf->get_line_count() * theme_cache.line_separation));
+	Rect2 ae_rect = Rect2(p_ofs + Vector2(minimum_line_shift, 0), Size2(p_width + line_shift_extent, l.text_buf->get_size().y + l.text_buf->get_line_count() * theme_cache.line_separation));
 	AccessibilityServer::get_singleton()->update_set_bounds(line_ae, ae_rect);
 	ac_element_bounds_cache[line_ae] = ae_rect;
 
@@ -2297,7 +2353,7 @@ void RichTextLabel::_accessibility_update_line(RID p_id, ItemFrame *p_frame, int
 
 		l.accessibility_text_element = AccessibilityServer::get_singleton()->create_sub_element(line_ae, AccessibilityServerEnums::AccessibilityRole::ROLE_STATIC_TEXT);
 		AccessibilityServer::get_singleton()->update_set_value(l.accessibility_text_element, l_text);
-		ae_rect = Rect2(p_ofs + off, text_buf->get_size());
+		ae_rect = Rect2(p_ofs + off + Vector2(minimum_line_shift, 0), text_buf->get_size() + Vector2(line_shift_extent, 0));
 		AccessibilityServer::get_singleton()->update_set_bounds(l.accessibility_text_element, ae_rect);
 		ac_element_bounds_cache[l.accessibility_text_element] = ae_rect;
 
@@ -2348,6 +2404,7 @@ void RichTextLabel::_accessibility_update_line(RID p_id, ItemFrame *p_frame, int
 				}
 			} break;
 		}
+		off.x += line_skew * (visual_line_start + line - line_skew_scroll_progress);
 
 		if (line <= dc_lines) {
 			if (rtl) {
@@ -2601,6 +2658,7 @@ void RichTextLabel::_notification(int p_what) {
 				AccessibilityServer::get_singleton()->update_set_flag(ae, AccessibilityServerEnums::AccessibilityFlags::FLAG_BUSY, true);
 				return; // Do not update internal elements if threaded procesisng is not done.
 			}
+			_update_line_skew_scroll_progress();
 
 			if (accessibility_scroll_element.is_null()) {
 				accessibility_scroll_element = AccessibilityServer::get_singleton()->create_sub_element(ae, AccessibilityServerEnums::AccessibilityRole::ROLE_CONTAINER);
@@ -2783,6 +2841,7 @@ void RichTextLabel::_notification(int p_what) {
 					}
 				}
 			}
+			_update_line_skew_scroll_progress();
 
 			// Draw main text.
 			Rect2 text_rect = _get_text_rect();
@@ -7513,6 +7572,20 @@ VerticalAlignment RichTextLabel::get_vertical_alignment() const {
 	return vertical_alignment;
 }
 
+void RichTextLabel::set_line_skew(float p_offset) {
+	ERR_FAIL_COND(!Math::is_finite(p_offset));
+	if (line_skew == p_offset) {
+		return;
+	}
+	line_skew = p_offset;
+	_invalidate_accessibility();
+	queue_redraw();
+}
+
+float RichTextLabel::get_line_skew() const {
+	return line_skew;
+}
+
 void RichTextLabel::set_justification_flags(BitField<TextServer::JustificationFlag> p_flags) {
 	_stop_thread();
 
@@ -7883,6 +7956,8 @@ void RichTextLabel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_horizontal_alignment"), &RichTextLabel::get_horizontal_alignment);
 	ClassDB::bind_method(D_METHOD("set_vertical_alignment", "alignment"), &RichTextLabel::set_vertical_alignment);
 	ClassDB::bind_method(D_METHOD("get_vertical_alignment"), &RichTextLabel::get_vertical_alignment);
+	ClassDB::bind_method(D_METHOD("set_line_skew", "offset"), &RichTextLabel::set_line_skew);
+	ClassDB::bind_method(D_METHOD("get_line_skew"), &RichTextLabel::get_line_skew);
 	ClassDB::bind_method(D_METHOD("set_justification_flags", "justification_flags"), &RichTextLabel::set_justification_flags);
 	ClassDB::bind_method(D_METHOD("get_justification_flags"), &RichTextLabel::get_justification_flags);
 	ClassDB::bind_method(D_METHOD("set_tab_stops", "tab_stops"), &RichTextLabel::set_tab_stops);
@@ -8021,6 +8096,7 @@ void RichTextLabel::_bind_methods() {
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "horizontal_alignment", PROPERTY_HINT_ENUM, "Left,Center,Right,Fill"), "set_horizontal_alignment", "get_horizontal_alignment");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "vertical_alignment", PROPERTY_HINT_ENUM, "Top,Center,Bottom,Fill"), "set_vertical_alignment", "get_vertical_alignment");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "line_skew", PROPERTY_HINT_RANGE, "-256,256,0.1,or_less,or_greater,suffix:px"), "set_line_skew", "get_line_skew");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "justification_flags", PROPERTY_HINT_FLAGS, "Kashida Justification:1,Word Justification:2,Justify Only After Last Tab:8,Skip Last Line:32,Skip Last Line With Visible Characters:64,Do Not Skip Single Line:128"), "set_justification_flags", "get_justification_flags");
 	ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "tab_stops"), "set_tab_stops", "get_tab_stops");
 

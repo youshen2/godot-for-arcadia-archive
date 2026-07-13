@@ -788,6 +788,24 @@ void MarkdownTextLabel::_ensure_layout() const {
 		y += block.rect.size.height + theme_cache.block_separation + theme_cache.paragraph_separation;
 		max_width = MAX(max_width, indent + block.rect.size.width);
 	}
+	int visual_line = 0;
+	for (Block &block : blocks) {
+		if (block.type == BLOCK_TABLE) {
+			for (TableRow &row : block.rows) {
+				for (TableCell &cell : row.cells) {
+					cell.render.visual_line_start = visual_line;
+					if (cell.render.paragraph.is_valid()) {
+						visual_line += cell.render.paragraph->get_line_count();
+					}
+				}
+			}
+		} else {
+			block.render.visual_line_start = visual_line;
+			if (block.render.paragraph.is_valid()) {
+				visual_line += block.render.paragraph->get_line_count();
+			}
+		}
+	}
 	if (!blocks.is_empty()) {
 		y -= theme_cache.block_separation + theme_cache.paragraph_separation;
 	}
@@ -834,7 +852,7 @@ Vector2 MarkdownTextLabel::_get_line_top(const RenderParagraph &p_render, int p_
 		default:
 			break;
 	}
-	return p_position + Vector2(x, p_render.line_offsets[p_line]);
+	return p_position + Vector2(x + line_skew * (p_render.visual_line_start + p_line), p_render.line_offsets[p_line]);
 }
 
 Vector2 MarkdownTextLabel::_get_line_baseline(const RenderParagraph &p_render, int p_line, const Vector2 &p_position) const {
@@ -1272,6 +1290,20 @@ bool MarkdownTextLabel::is_fit_content_enabled() const {
 	return fit_content;
 }
 
+void MarkdownTextLabel::set_line_skew(float p_offset) {
+	ERR_FAIL_COND(!Math::is_finite(p_offset));
+	if (line_skew == p_offset) {
+		return;
+	}
+	line_skew = p_offset;
+	layout_dirty = true;
+	queue_redraw();
+}
+
+float MarkdownTextLabel::get_line_skew() const {
+	return line_skew;
+}
+
 int MarkdownTextLabel::get_content_height() const {
 	_ensure_layout();
 	return content_size.height;
@@ -1307,6 +1339,8 @@ void MarkdownTextLabel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_structured_text_bidi_override_options"), &MarkdownTextLabel::get_structured_text_bidi_override_options);
 	ClassDB::bind_method(D_METHOD("set_fit_content", "enabled"), &MarkdownTextLabel::set_fit_content);
 	ClassDB::bind_method(D_METHOD("is_fit_content_enabled"), &MarkdownTextLabel::is_fit_content_enabled);
+	ClassDB::bind_method(D_METHOD("set_line_skew", "offset"), &MarkdownTextLabel::set_line_skew);
+	ClassDB::bind_method(D_METHOD("get_line_skew"), &MarkdownTextLabel::get_line_skew);
 	ClassDB::bind_method(D_METHOD("get_content_height"), &MarkdownTextLabel::get_content_height);
 	ClassDB::bind_method(D_METHOD("get_content_width"), &MarkdownTextLabel::get_content_width);
 
@@ -1324,6 +1358,7 @@ void MarkdownTextLabel::_bind_methods() {
 						 "Kashida Justification:1,Word Justification:2,Justify Only After Last Tab:8,Skip Last Line:32,Skip Last Line With Visible Characters:64,Do Not Skip Single Line:128"),
 			"set_justification_flags", "get_justification_flags");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fit_content"), "set_fit_content", "is_fit_content_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "line_skew", PROPERTY_HINT_RANGE, "-256,256,0.1,or_less,or_greater,suffix:px"), "set_line_skew", "get_line_skew");
 
 	ADD_GROUP("BiDi", "");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "text_direction", PROPERTY_HINT_ENUM, "Auto,Left-to-Right,Right-to-Left,Inherited"), "set_text_direction", "get_text_direction");

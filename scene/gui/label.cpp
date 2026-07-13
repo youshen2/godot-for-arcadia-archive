@@ -532,6 +532,11 @@ Rect2 Label::_get_line_rect(int p_para, int p_line) const {
 			}
 		} break;
 	}
+	int visual_line = p_line;
+	for (int i = 0; i < p_para; i++) {
+		visual_line += paragraphs[i].lines_rid.size();
+	}
+	offset.x += line_skew * MAX(visual_line - lines_skipped, 0);
 	return Rect2(offset, line_size);
 }
 
@@ -1422,6 +1427,19 @@ int Label::get_max_lines_visible() const {
 	return max_lines_visible;
 }
 
+void Label::set_line_skew(float p_offset) {
+	ERR_FAIL_COND(!Math::is_finite(p_offset));
+	if (line_skew == p_offset) {
+		return;
+	}
+	line_skew = p_offset;
+	queue_redraw();
+}
+
+float Label::get_line_skew() const {
+	return line_skew;
+}
+
 int Label::get_total_character_count() const {
 	return xl_text.length();
 }
@@ -1471,6 +1489,8 @@ void Label::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_lines_skipped"), &Label::get_lines_skipped);
 	ClassDB::bind_method(D_METHOD("set_max_lines_visible", "lines_visible"), &Label::set_max_lines_visible);
 	ClassDB::bind_method(D_METHOD("get_max_lines_visible"), &Label::get_max_lines_visible);
+	ClassDB::bind_method(D_METHOD("set_line_skew", "offset"), &Label::set_line_skew);
+	ClassDB::bind_method(D_METHOD("get_line_skew"), &Label::get_line_skew);
 	ClassDB::bind_method(D_METHOD("set_structured_text_bidi_override", "parser"), &Label::set_structured_text_bidi_override);
 	ClassDB::bind_method(D_METHOD("get_structured_text_bidi_override"), &Label::get_structured_text_bidi_override);
 	ClassDB::bind_method(D_METHOD("set_structured_text_bidi_override_options", "args"), &Label::set_structured_text_bidi_override_options);
@@ -1486,6 +1506,7 @@ void Label::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "autowrap_trim_flags", PROPERTY_HINT_FLAGS, vformat("Trim Spaces After Break:%d,Trim Spaces Before Break:%d", TextServer::BREAK_TRIM_START_EDGE_SPACES, TextServer::BREAK_TRIM_END_EDGE_SPACES)), "set_autowrap_trim_flags", "get_autowrap_trim_flags");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "justification_flags", PROPERTY_HINT_FLAGS, "Kashida Justification:1,Word Justification:2,Justify Only After Last Tab:8,Skip Last Line:32,Skip Last Line With Visible Characters:64,Do Not Skip Single Line:128"), "set_justification_flags", "get_justification_flags");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "paragraph_separator"), "set_paragraph_separator", "get_paragraph_separator");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "line_skew", PROPERTY_HINT_RANGE, "-256,256,0.1,or_less,or_greater,suffix:px"), "set_line_skew", "get_line_skew");
 
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clip_text"), "set_clip_text", "is_clipping_text");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "text_overrun_behavior", PROPERTY_HINT_ENUM, "Trim Nothing,Trim Characters,Trim Words,Ellipsis (6+ Characters),Word Ellipsis (6+ Characters),Ellipsis (Always),Word Ellipsis (Always)"), "set_text_overrun_behavior", "get_text_overrun_behavior");
