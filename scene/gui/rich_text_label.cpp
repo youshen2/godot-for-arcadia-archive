@@ -58,6 +58,10 @@
 #include "modules/regex/regex.h"
 #endif
 
+static _FORCE_INLINE_ Transform2D _get_text_skew_xform(float p_skew) {
+	return Transform2D(0.0f, Size2(1.0f, 1.0f), p_skew, Vector2());
+}
+
 RichTextLabel::ItemDropcap::~ItemDropcap() {
 	if (font.is_valid()) {
 		RichTextLabel *owner_rtl = ObjectDB::get_instance<RichTextLabel>(owner);
@@ -1141,6 +1145,7 @@ int RichTextLabel::_draw_line(ItemFrame *p_frame, int p_line, const Vector2 &p_o
 	RID ci = get_canvas_item();
 	bool rtl = (l.text_buf->get_direction() == TextServer::DIRECTION_RTL);
 	bool lrtl = is_layout_rtl();
+	const Transform2D text_skew_xform = _get_text_skew_xform(text_skew);
 
 	bool trim_chars = (visible_characters >= 0) && (visible_chars_behavior == TextServer::VC_CHARS_AFTER_SHAPING || visible_chars_behavior == TextServer::VC_CHARS_BEFORE_SHAPING);
 	bool trim_glyphs_ltr = (visible_characters >= 0) && ((visible_chars_behavior == TextServer::VC_GLYPHS_LTR) || ((visible_chars_behavior == TextServer::VC_GLYPHS_AUTO) && !lrtl));
@@ -1673,7 +1678,7 @@ int RichTextLabel::_draw_line(ItemFrame *p_frame, int p_line, const Vector2 &p_o
 						}
 
 						char_reverse_xform.set_origin(-char_off);
-						Transform2D char_final_xform = char_xform * char_reverse_xform;
+						Transform2D char_final_xform = text_skew_xform * char_xform * char_reverse_xform;
 						draw_set_transform_matrix(char_final_xform);
 					} else if (step == DRAW_STEP_SHADOW_OUTLINE || step == DRAW_STEP_SHADOW) {
 						font_color = font_shadow_color * Color(1, 1, 1, font_color.a);
@@ -1681,12 +1686,13 @@ int RichTextLabel::_draw_line(ItemFrame *p_frame, int p_line, const Vector2 &p_o
 						char_reverse_xform.set_origin(-char_off - p_shadow_ofs);
 						Transform2D char_final_xform = char_xform * char_reverse_xform;
 						char_final_xform.columns[2] += p_shadow_ofs;
+						char_final_xform = text_skew_xform * char_final_xform;
 						draw_set_transform_matrix(char_final_xform);
 					} else if (step == DRAW_STEP_OUTLINE) {
 						font_color = font_outline_color * Color(1, 1, 1, font_color.a);
 
 						char_reverse_xform.set_origin(-char_off);
-						Transform2D char_final_xform = char_xform * char_reverse_xform;
+						Transform2D char_final_xform = text_skew_xform * char_xform * char_reverse_xform;
 						draw_set_transform_matrix(char_final_xform);
 					}
 
@@ -1736,7 +1742,7 @@ int RichTextLabel::_draw_line(ItemFrame *p_frame, int p_line, const Vector2 &p_o
 						}
 						off_step.x += glyphs[i].advance;
 					}
-					draw_set_transform_matrix(Transform2D());
+					draw_set_transform_matrix(text_skew_xform);
 				}
 				// Draw boxes.
 				if (step == DRAW_STEP_BACKGROUND || step == DRAW_STEP_FOREGROUND) {
@@ -1837,6 +1843,12 @@ void RichTextLabel::_find_click(ItemFrame *p_frame, const Point2i &p_click, Item
 		*r_outside = true;
 	}
 
+	Point2i text_click = p_click;
+	if (!Math::is_zero_approx(text_skew)) {
+		const Vector2 transformed_click = _get_text_skew_xform(text_skew).affine_inverse().xform(Vector2(p_click));
+		text_click = Point2i((int32_t)transformed_click.x, (int32_t)transformed_click.y);
+	}
+
 	Size2 size = get_size();
 	Rect2 text_rect = _get_text_rect();
 
@@ -1884,7 +1896,7 @@ void RichTextLabel::_find_click(ItemFrame *p_frame, const Point2i &p_click, Item
 	Point2 ofs = text_rect.get_position() + Vector2(0, vbegin + main->lines[from_line].offset.y - vofs);
 	while (ofs.y < size.height && from_line < to_line) {
 		MutexLock lock(main->lines[from_line].text_buf->get_mutex());
-		_find_click_in_line(p_frame, from_line, ofs, text_rect.size.x, vsep, p_click, r_click_frame, r_click_line, r_click_item, r_click_char, false, p_meta);
+		_find_click_in_line(p_frame, from_line, ofs, text_rect.size.x, vsep, text_click, r_click_frame, r_click_line, r_click_item, r_click_char, false, p_meta);
 		ofs.y += main->lines[from_line].text_buf->get_size().y + main->lines[from_line].text_buf->get_line_count() * (theme_cache.line_separation + vsep) + (theme_cache.paragraph_separation);
 		if (((r_click_item != nullptr) && ((*r_click_item) != nullptr)) || ((r_click_frame != nullptr) && ((*r_click_frame) != nullptr))) {
 			if (r_outside != nullptr) {
@@ -2309,10 +2321,11 @@ void RichTextLabel::_accessibility_update_line(RID p_id, ItemFrame *p_frame, int
 	const float last_line_shift = line_skew * (visual_line_start + MAX(paragraph_line_count - 1, 0) - line_skew_scroll_progress);
 	const float minimum_line_shift = MIN(first_line_shift, last_line_shift);
 	const float line_shift_extent = Math::abs(last_line_shift - first_line_shift);
+	const Transform2D text_skew_xform = _get_text_skew_xform(text_skew);
 
 	const RID &line_ae = l.accessibility_line_element;
 
-	Rect2 ae_rect = Rect2(p_ofs + Vector2(minimum_line_shift, 0), Size2(p_width + line_shift_extent, l.text_buf->get_size().y + l.text_buf->get_line_count() * theme_cache.line_separation));
+	Rect2 ae_rect = text_skew_xform.xform(Rect2(p_ofs + Vector2(minimum_line_shift, 0), Size2(p_width + line_shift_extent, l.text_buf->get_size().y + l.text_buf->get_line_count() * theme_cache.line_separation)));
 	AccessibilityServer::get_singleton()->update_set_bounds(line_ae, ae_rect);
 	ac_element_bounds_cache[line_ae] = ae_rect;
 
@@ -2353,7 +2366,7 @@ void RichTextLabel::_accessibility_update_line(RID p_id, ItemFrame *p_frame, int
 
 		l.accessibility_text_element = AccessibilityServer::get_singleton()->create_sub_element(line_ae, AccessibilityServerEnums::AccessibilityRole::ROLE_STATIC_TEXT);
 		AccessibilityServer::get_singleton()->update_set_value(l.accessibility_text_element, l_text);
-		ae_rect = Rect2(p_ofs + off + Vector2(minimum_line_shift, 0), text_buf->get_size() + Vector2(line_shift_extent, 0));
+		ae_rect = text_skew_xform.xform(Rect2(p_ofs + off + Vector2(minimum_line_shift, 0), text_buf->get_size() + Vector2(line_shift_extent, 0)));
 		AccessibilityServer::get_singleton()->update_set_bounds(l.accessibility_text_element, ae_rect);
 		ac_element_bounds_cache[l.accessibility_text_element] = ae_rect;
 
@@ -2430,9 +2443,9 @@ void RichTextLabel::_accessibility_update_line(RID p_id, ItemFrame *p_frame, int
 						if (img->pad) {
 							Size2 pad_size = rect.size.min(img->image->get_size());
 							Vector2 pad_off = (rect.size - pad_size) / 2;
-							ae_rect = Rect2(p_ofs + rect.position + off + pad_off, pad_size);
+							ae_rect = text_skew_xform.xform(Rect2(p_ofs + rect.position + off + pad_off, pad_size));
 						} else {
-							ae_rect = Rect2(p_ofs + rect.position + off, rect.size);
+							ae_rect = text_skew_xform.xform(Rect2(p_ofs + rect.position + off, rect.size));
 						}
 						AccessibilityServer::get_singleton()->update_set_bounds(img_ae, ae_rect);
 						ac_element_bounds_cache[img_ae] = ae_rect;
@@ -2457,7 +2470,7 @@ void RichTextLabel::_accessibility_update_line(RID p_id, ItemFrame *p_frame, int
 						AccessibilityServer::get_singleton()->update_set_role(table_ae, AccessibilityServerEnums::AccessibilityRole::ROLE_TABLE);
 						AccessibilityServer::get_singleton()->update_set_table_column_count(table_ae, col_count);
 						AccessibilityServer::get_singleton()->update_set_table_row_count(table_ae, row_count);
-						ae_rect = Rect2(p_ofs + rect.position + off + Vector2(0, TS->shaped_text_get_ascent(rid)), rect.size);
+						ae_rect = text_skew_xform.xform(Rect2(p_ofs + rect.position + off + Vector2(0, TS->shaped_text_get_ascent(rid)), rect.size));
 						AccessibilityServer::get_singleton()->update_set_bounds(table_ae, ae_rect);
 						ac_element_bounds_cache[table_ae] = ae_rect;
 
@@ -2471,7 +2484,7 @@ void RichTextLabel::_accessibility_update_line(RID p_id, ItemFrame *p_frame, int
 							RID row_ae = AccessibilityServer::get_singleton()->create_sub_element(table_ae, AccessibilityServerEnums::AccessibilityRole::ROLE_ROW);
 
 							AccessibilityServer::get_singleton()->update_set_table_row_index(row_ae, j);
-							ae_rect = Rect2(p_ofs + rect.position + off + row_off, Size2(rect.size.x, table->rows[j]));
+							ae_rect = text_skew_xform.xform(Rect2(p_ofs + rect.position + off + row_off, Size2(rect.size.x, table->rows[j])));
 							AccessibilityServer::get_singleton()->update_set_bounds(row_ae, ae_rect);
 							ac_element_bounds_cache[row_ae] = ae_rect;
 							row_off.y += table->rows[j];
@@ -2495,7 +2508,7 @@ void RichTextLabel::_accessibility_update_line(RID p_id, ItemFrame *p_frame, int
 									if (rtl) {
 										coff.x = rect.size.width - table->columns[col].width - coff.x;
 									}
-									ae_rect = Rect2(p_ofs + rect.position + off + coff - frame->padding.position - Vector2(h_separation * 0.5, v_separation * 0.5).floor(), Size2(table->columns[col].width + h_separation + frame->padding.position.x + frame->padding.size.x, table->rows[row]));
+									ae_rect = text_skew_xform.xform(Rect2(p_ofs + rect.position + off + coff - frame->padding.position - Vector2(h_separation * 0.5, v_separation * 0.5).floor(), Size2(table->columns[col].width + h_separation + frame->padding.position.x + frame->padding.size.x, table->rows[row])));
 									AccessibilityServer::get_singleton()->update_set_bounds(cell_ae, ae_rect);
 									ac_element_bounds_cache[cell_ae] = ae_rect;
 								}
@@ -2896,6 +2909,9 @@ void RichTextLabel::_notification(int p_what) {
 			visible_rect = Rect2i();
 
 			// New cache draw.
+			if (!Math::is_zero_approx(text_skew)) {
+				draw_set_transform_matrix(_get_text_skew_xform(text_skew));
+			}
 			Point2 ofs = text_rect.get_position() + Vector2(0, vbegin + main->lines[from_line].offset.y - vofs);
 			int processed_glyphs = 0;
 			while (ofs.y < size.height - v_limit && from_line < to_line) {
@@ -2908,6 +2924,9 @@ void RichTextLabel::_notification(int p_what) {
 				}
 				ofs.y += main->lines[from_line].text_buf->get_size().y + main->lines[from_line].text_buf->get_line_count() * (theme_cache.line_separation + vsep) + (theme_cache.paragraph_separation);
 				from_line++;
+			}
+			if (!Math::is_zero_approx(text_skew)) {
+				draw_set_transform_matrix(Transform2D());
 			}
 			if (scroll_follow_visible_characters && scroll_active) {
 				scroll_visible = follow_vc_pos > 0;
@@ -7586,6 +7605,20 @@ float RichTextLabel::get_line_skew() const {
 	return line_skew;
 }
 
+void RichTextLabel::set_text_skew(float p_skew) {
+	ERR_FAIL_COND(!Math::is_finite(p_skew));
+	if (text_skew == p_skew) {
+		return;
+	}
+	text_skew = p_skew;
+	_invalidate_accessibility();
+	queue_redraw();
+}
+
+float RichTextLabel::get_text_skew() const {
+	return text_skew;
+}
+
 void RichTextLabel::set_justification_flags(BitField<TextServer::JustificationFlag> p_flags) {
 	_stop_thread();
 
@@ -7958,6 +7991,8 @@ void RichTextLabel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_vertical_alignment"), &RichTextLabel::get_vertical_alignment);
 	ClassDB::bind_method(D_METHOD("set_line_skew", "offset"), &RichTextLabel::set_line_skew);
 	ClassDB::bind_method(D_METHOD("get_line_skew"), &RichTextLabel::get_line_skew);
+	ClassDB::bind_method(D_METHOD("set_text_skew", "skew"), &RichTextLabel::set_text_skew);
+	ClassDB::bind_method(D_METHOD("get_text_skew"), &RichTextLabel::get_text_skew);
 	ClassDB::bind_method(D_METHOD("set_justification_flags", "justification_flags"), &RichTextLabel::set_justification_flags);
 	ClassDB::bind_method(D_METHOD("get_justification_flags"), &RichTextLabel::get_justification_flags);
 	ClassDB::bind_method(D_METHOD("set_tab_stops", "tab_stops"), &RichTextLabel::set_tab_stops);
@@ -8097,6 +8132,7 @@ void RichTextLabel::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "horizontal_alignment", PROPERTY_HINT_ENUM, "Left,Center,Right,Fill"), "set_horizontal_alignment", "get_horizontal_alignment");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "vertical_alignment", PROPERTY_HINT_ENUM, "Top,Center,Bottom,Fill"), "set_vertical_alignment", "get_vertical_alignment");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "line_skew", PROPERTY_HINT_RANGE, "-256,256,0.1,or_less,or_greater,suffix:px"), "set_line_skew", "get_line_skew");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "text_skew", PROPERTY_HINT_RANGE, "-89.9,89.9,0.1,radians_as_degrees"), "set_text_skew", "get_text_skew");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "justification_flags", PROPERTY_HINT_FLAGS, "Kashida Justification:1,Word Justification:2,Justify Only After Last Tab:8,Skip Last Line:32,Skip Last Line With Visible Characters:64,Do Not Skip Single Line:128"), "set_justification_flags", "get_justification_flags");
 	ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "tab_stops"), "set_tab_stops", "get_tab_stops");
 

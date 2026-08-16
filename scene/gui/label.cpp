@@ -38,6 +38,10 @@
 #include "servers/rendering/rendering_server.h"
 #include "servers/text/text_server.h"
 
+static _FORCE_INLINE_ Transform2D _get_text_skew_xform(float p_skew) {
+	return Transform2D(0.0f, Size2(1.0f, 1.0f), p_skew, Vector2());
+}
+
 void Label::set_autowrap_mode(TextServer::AutowrapMode p_mode) {
 	if (autowrap_mode == p_mode) {
 		return;
@@ -808,6 +812,10 @@ void Label::_notification(int p_what) {
 			int processed_glyphs = 0;
 			int visible_glyphs = total_glyphs * visible_ratio;
 
+			if (!Math::is_zero_approx(text_skew)) {
+				draw_set_transform_matrix(_get_text_skew_xform(text_skew));
+			}
+
 			int line_index = 0;
 			for (int p = 0; p < paragraphs.size(); p++) {
 				const Paragraph &para = paragraphs[p];
@@ -912,6 +920,10 @@ void Label::_notification(int p_what) {
 					line_index += para.lines_rid.size();
 				}
 			}
+
+			if (!Math::is_zero_approx(text_skew)) {
+				draw_set_transform_matrix(Transform2D());
+			}
 		} break;
 
 		case NOTIFICATION_THEME_CHANGED: {
@@ -972,7 +984,7 @@ Rect2 Label::get_character_bounds(int p_pos) const {
 							Rect2 rect;
 							rect.position = ofs + Vector2(gl_off, 0);
 							rect.size = Vector2(advance, line_rect.size.y);
-							return rect;
+							return _get_text_skew_xform(text_skew).xform(rect);
 						}
 					}
 					gl_off += glyphs[j].advance * glyphs[j].repeat;
@@ -1440,6 +1452,19 @@ float Label::get_line_skew() const {
 	return line_skew;
 }
 
+void Label::set_text_skew(float p_skew) {
+	ERR_FAIL_COND(!Math::is_finite(p_skew));
+	if (text_skew == p_skew) {
+		return;
+	}
+	text_skew = p_skew;
+	queue_redraw();
+}
+
+float Label::get_text_skew() const {
+	return text_skew;
+}
+
 int Label::get_total_character_count() const {
 	return xl_text.length();
 }
@@ -1491,6 +1516,8 @@ void Label::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_max_lines_visible"), &Label::get_max_lines_visible);
 	ClassDB::bind_method(D_METHOD("set_line_skew", "offset"), &Label::set_line_skew);
 	ClassDB::bind_method(D_METHOD("get_line_skew"), &Label::get_line_skew);
+	ClassDB::bind_method(D_METHOD("set_text_skew", "skew"), &Label::set_text_skew);
+	ClassDB::bind_method(D_METHOD("get_text_skew"), &Label::get_text_skew);
 	ClassDB::bind_method(D_METHOD("set_structured_text_bidi_override", "parser"), &Label::set_structured_text_bidi_override);
 	ClassDB::bind_method(D_METHOD("get_structured_text_bidi_override"), &Label::get_structured_text_bidi_override);
 	ClassDB::bind_method(D_METHOD("set_structured_text_bidi_override_options", "args"), &Label::set_structured_text_bidi_override_options);
@@ -1507,6 +1534,7 @@ void Label::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "justification_flags", PROPERTY_HINT_FLAGS, "Kashida Justification:1,Word Justification:2,Justify Only After Last Tab:8,Skip Last Line:32,Skip Last Line With Visible Characters:64,Do Not Skip Single Line:128"), "set_justification_flags", "get_justification_flags");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "paragraph_separator"), "set_paragraph_separator", "get_paragraph_separator");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "line_skew", PROPERTY_HINT_RANGE, "-256,256,0.1,or_less,or_greater,suffix:px"), "set_line_skew", "get_line_skew");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "text_skew", PROPERTY_HINT_RANGE, "-89.9,89.9,0.1,radians_as_degrees"), "set_text_skew", "get_text_skew");
 
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clip_text"), "set_clip_text", "is_clipping_text");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "text_overrun_behavior", PROPERTY_HINT_ENUM, "Trim Nothing,Trim Characters,Trim Words,Ellipsis (6+ Characters),Word Ellipsis (6+ Characters),Ellipsis (Always),Word Ellipsis (Always)"), "set_text_overrun_behavior", "get_text_overrun_behavior");

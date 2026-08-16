@@ -799,6 +799,10 @@
 		<member name="text_direction" type="int" setter="set_text_direction" getter="get_text_direction" enum="Control.TextDirection" default="0">
 			Base text writing direction.
 		</member>
+		<member name="text_skew" type="float" setter="set_text_skew" getter="get_text_skew" default="0.0">
+			对整个文本内容应用的二维斜切角度，单位为弧度。字形、描边、阴影、下划线、删除线、选择背景、文本高亮、内嵌图片、表格以及 [member line_skew] 产生的逐行偏移都会随文本一起倾斜；正值让文本的下半部分向左偏移，负值向右偏移，通常可用负值模拟斜体效果。
+			文本命中检测和辅助功能边界会按斜切后的位置同步补偿，但该属性不改变自动换行宽度、滚动高度、[member fit_content] 的尺寸计算或内部滚动补偿。斜切角度较大时文本可能超出控件边界，应预留足够空间或减小角度。
+		</member>
 		<member name="threaded" type="bool" setter="set_threaded" getter="is_threaded" default="false">
 			If [code]true[/code], text processing is done in a background thread.
 		</member>

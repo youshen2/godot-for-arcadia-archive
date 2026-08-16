@@ -38,6 +38,10 @@
 #include "servers/rendering/rendering_server.h"
 #include "servers/text/text_server.h"
 
+static _FORCE_INLINE_ Transform2D _get_text_skew_xform(float p_skew) {
+	return Transform2D(0.0f, Size2(1.0f, 1.0f), p_skew, Vector2());
+}
+
 String MarkdownTextLabel::_markdown_text_to_string(MD_TEXTTYPE p_type, const MD_CHAR *p_text, MD_SIZE p_size) {
 	if (p_type == MD_TEXT_NULLCHAR) {
 		String ret;
@@ -864,6 +868,7 @@ void MarkdownTextLabel::_collect_link_rects(const RenderParagraph &p_render, con
 		return;
 	}
 
+	const Transform2D skew_xform = _get_text_skew_xform(text_skew);
 	for (const DrawRange &range : p_render.ranges) {
 		if (!range.link) {
 			continue;
@@ -883,7 +888,7 @@ void MarkdownTextLabel::_collect_link_rects(const RenderParagraph &p_render, con
 			const float height = p_render.paragraph->get_line_ascent(line) + p_render.paragraph->get_line_descent(line);
 			for (const Vector2 &segment : selection) {
 				LinkRect link_rect;
-				link_rect.rect = Rect2(baseline.x + segment.x, baseline.y - ascent, segment.y - segment.x, height);
+				link_rect.rect = skew_xform.xform(Rect2(baseline.x + segment.x, baseline.y - ascent, segment.y - segment.x, height));
 				link_rect.meta = range.meta;
 				link_rect.tooltip = range.tooltip;
 				link_rects.push_back(link_rect);
@@ -916,6 +921,14 @@ void MarkdownTextLabel::_draw_render_paragraph(const RenderParagraph &p_render, 
 		const float descent = p_render.paragraph->get_line_descent(line);
 		const float line_height = ascent + descent;
 
+		if (p_code_background) {
+			RenderingServer::get_singleton()->canvas_item_add_rect(ci, Rect2(top, Size2(MAX(p_render.width, p_render.paragraph->get_size().width), line_height)), theme_cache.code_bg_color);
+		}
+
+		if (!Math::is_zero_approx(text_skew)) {
+			draw_set_transform_matrix(_get_text_skew_xform(text_skew));
+		}
+
 		for (const DrawRange &range : p_render.ranges) {
 			if (!range.code) {
 				continue;
@@ -931,10 +944,6 @@ void MarkdownTextLabel::_draw_render_paragraph(const RenderParagraph &p_render, 
 				Rect2 rect = Rect2(baseline.x + segment.x - 2, baseline.y - ascent, segment.y - segment.x + 4, line_height);
 				RenderingServer::get_singleton()->canvas_item_add_rect(ci, rect, theme_cache.code_bg_color);
 			}
-		}
-
-		if (p_code_background) {
-			RenderingServer::get_singleton()->canvas_item_add_rect(ci, Rect2(top, Size2(MAX(p_render.width, p_render.paragraph->get_size().width), line_height)), theme_cache.code_bg_color);
 		}
 
 		if (theme_cache.outline_size > 0) {
@@ -987,6 +996,10 @@ void MarkdownTextLabel::_draw_render_paragraph(const RenderParagraph &p_render, 
 			}
 			Rect2 object_rect = TS->shaped_text_get_object_rect(line_rid, key_variant);
 			image->texture->draw_rect(ci, Rect2(baseline + object_rect.position, object_rect.size), false, image->color);
+		}
+
+		if (!Math::is_zero_approx(text_skew)) {
+			draw_set_transform_matrix(Transform2D());
 		}
 	}
 }
@@ -1304,6 +1317,20 @@ float MarkdownTextLabel::get_line_skew() const {
 	return line_skew;
 }
 
+void MarkdownTextLabel::set_text_skew(float p_skew) {
+	ERR_FAIL_COND(!Math::is_finite(p_skew));
+	if (text_skew == p_skew) {
+		return;
+	}
+	text_skew = p_skew;
+	layout_dirty = true;
+	queue_redraw();
+}
+
+float MarkdownTextLabel::get_text_skew() const {
+	return text_skew;
+}
+
 int MarkdownTextLabel::get_content_height() const {
 	_ensure_layout();
 	return content_size.height;
@@ -1341,6 +1368,8 @@ void MarkdownTextLabel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_fit_content_enabled"), &MarkdownTextLabel::is_fit_content_enabled);
 	ClassDB::bind_method(D_METHOD("set_line_skew", "offset"), &MarkdownTextLabel::set_line_skew);
 	ClassDB::bind_method(D_METHOD("get_line_skew"), &MarkdownTextLabel::get_line_skew);
+	ClassDB::bind_method(D_METHOD("set_text_skew", "skew"), &MarkdownTextLabel::set_text_skew);
+	ClassDB::bind_method(D_METHOD("get_text_skew"), &MarkdownTextLabel::get_text_skew);
 	ClassDB::bind_method(D_METHOD("get_content_height"), &MarkdownTextLabel::get_content_height);
 	ClassDB::bind_method(D_METHOD("get_content_width"), &MarkdownTextLabel::get_content_width);
 
@@ -1359,6 +1388,7 @@ void MarkdownTextLabel::_bind_methods() {
 			"set_justification_flags", "get_justification_flags");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fit_content"), "set_fit_content", "is_fit_content_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "line_skew", PROPERTY_HINT_RANGE, "-256,256,0.1,or_less,or_greater,suffix:px"), "set_line_skew", "get_line_skew");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "text_skew", PROPERTY_HINT_RANGE, "-89.9,89.9,0.1,radians_as_degrees"), "set_text_skew", "get_text_skew");
 
 	ADD_GROUP("BiDi", "");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "text_direction", PROPERTY_HINT_ENUM, "Auto,Left-to-Right,Right-to-Left,Inherited"), "set_text_direction", "get_text_direction");

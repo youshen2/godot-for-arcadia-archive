@@ -77,6 +77,7 @@ private:
 	int lines_skipped = 0;
 	int max_lines_visible = -1;
 	float line_skew = 0.0f;
+	float text_skew = 0.0f;
 	PackedFloat32Array tab_stops;
 
 	Ref<LabelSettings> settings;
@@ -189,6 +190,9 @@ public:
 
 	void set_line_skew(float p_offset);
 	float get_line_skew() const;
+
+	void set_text_skew(float p_skew);
+	float get_text_skew() const;
 
 	int get_line_height(int p_line = -1) const;
 	int get_line_count() const;

@@ -178,6 +178,7 @@ private:
 	String language;
 	bool fit_content = false;
 	float line_skew = 0.0f;
+	float text_skew = 0.0f;
 
 	mutable bool parsed_dirty = true;
 	mutable bool layout_dirty = true;
@@ -295,6 +296,9 @@ public:
 
 	void set_line_skew(float p_offset);
 	float get_line_skew() const;
+
+	void set_text_skew(float p_skew);
+	float get_text_skew() const;
 
 	int get_content_height() const;
 	int get_content_width() const;

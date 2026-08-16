@@ -105,6 +105,10 @@
 		<member name="text_overrun_behavior" type="int" setter="set_text_overrun_behavior" getter="get_text_overrun_behavior" enum="TextServer.OverrunBehavior" default="0">
 			The clipping behavior when the text exceeds the node's bounding rectangle.
 		</member>
+		<member name="text_skew" type="float" setter="set_text_skew" getter="get_text_skew" default="0.0">
+			对最终显示的文本应用的二维斜切角度，单位为弧度。该变换会同时作用于字形、描边、阴影和 [member line_skew] 产生的逐行偏移，使整段文本真正向一侧倾斜；正值让文本的下半部分向左偏移，负值向右偏移，通常可用负值模拟斜体效果。
+			该属性只影响绘制结果和 [method get_character_bounds] 的返回值，不改变自动换行宽度、控件最小尺寸或文本命中位置。斜切角度较大时文本会超出原有边界，启用 [member clip_text] 后超出部分会被裁剪，应预留额外空间。
+		</member>
 		<member name="uppercase" type="bool" setter="set_uppercase" getter="is_uppercase" default="false">
 			If [code]true[/code], all the text displays as UPPERCASE.
 		</member>

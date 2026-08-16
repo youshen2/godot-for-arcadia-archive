@@ -561,6 +561,7 @@ private:
 	HorizontalAlignment default_alignment = HORIZONTAL_ALIGNMENT_LEFT;
 	VerticalAlignment vertical_alignment = VERTICAL_ALIGNMENT_TOP;
 	float line_skew = 0.0f;
+	float text_skew = 0.0f;
 	BitField<TextServer::JustificationFlag> default_jst_flags = TextServer::JUSTIFICATION_WORD_BOUND | TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_SKIP_LAST_LINE | TextServer::JUSTIFICATION_DO_NOT_SKIP_SINGLE_LINE;
 	PackedFloat32Array default_tab_stops;
 
@@ -987,6 +988,9 @@ public:
 
 	void set_line_skew(float p_offset);
 	float get_line_skew() const;
+
+	void set_text_skew(float p_skew);
+	float get_text_skew() const;
 
 	void set_justification_flags(BitField<TextServer::JustificationFlag> p_flags);
 	BitField<TextServer::JustificationFlag> get_justification_flags() const;

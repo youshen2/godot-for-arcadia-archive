@@ -10,6 +10,7 @@
 - `HTTPFileDownloader`：高性能 HTTP/HTTPS 文件下载节点，支持自适应或固定线程数的 Range 分段下载、批量下载、失败自动单连接回退、实时进度/字节数/总字节数/耗时/预计剩余时间/速度查询，以及 GDScript 和 Mono / C# 绑定可见的信号与状态接口。分段响应会严格校验 `Content-Range`、`Content-Length` 和实际接收长度，截断或越界响应不会再被误报为下载成功。
 - `MarkdownTextLabel`：独立 Markdown 显示控件，基于 md4c 解析 CommonMark/GFM Markdown，提供 `text`、`parse_markdown`、`append_text`、`clear`、纯文本、内容尺寸、链接点击信号、自动换行和 BiDi 排版接口，GDScript 和 Mono / C# 可用。
 - `Label`、`MarkdownTextLabel`、`RichTextLabel`：新增 `line_skew` 属性，以像素设置相邻文本行的逐行水平偏移，使文本块斜向排列而不拉斜字形；`Label.lines_skipped` 和 `RichTextLabel` 的连续像素滚动会补偿水平偏移，使斜排位置固定在可视区域中，并在行高或排版尺寸变化时重新计算。通过 ClassDB 注册，GDScript 和 Mono / C# 均可用。
+- `Label`、`MarkdownTextLabel`、`RichTextLabel`：新增 `text_skew` 属性，以弧度对最终文本绘制应用二维斜切，使字形、描边、阴影、下划线等随文本真正倾斜（正值向左，负值向右），可与 `line_skew` 叠加；`Label.get_character_bounds()`、`RichTextLabel` 的元数据命中检测与辅助功能边界、`MarkdownTextLabel` 的链接点击区域会按斜切后的位置同步补偿。该属性只影响绘制和命中位置，不改变布局与尺寸计算。通过 ClassDB 注册，GDScript 和 Mono / C# 均可用。
 - `BoxContainer`：新增 `item_skew` 属性，使 `VBoxContainer` 的列表元素逐项水平偏移、`HBoxContainer` 的列表元素逐项垂直偏移，并将偏移范围计入布局；作为 `ScrollContainer` 的直接内容控件时会按滚动进度连续补偿交叉轴偏移，使列表在屏幕内保持固定的倾斜程度。通过 ClassDB 注册，GDScript 和 Mono / C# 均可用。
 - `ScrollContainer`：新增 `fisheye_enabled`、`fisheye_strength` 和 `fisheye_radius` 属性，对内容容器的一级列表元素应用以可视区域中心为焦点的平滑鱼眼放大。使用 `BoxContainer` 时会按缩放后的元素边界重新分布主轴位置，保持 `theme_override_constants/separation` 对应的实际间隔，避免放大后重叠；效果不改变布局，输入命中和焦点区域会跟随最终显示变换。通过 ClassDB 注册，GDScript 和 Mono / C# 均可用。
 - `FileAccess.humanize_size(size)`：将字节数转换为人类可读的 IEC 存储大小字符串，供 GDScript 和 Mono / C# 调用。
