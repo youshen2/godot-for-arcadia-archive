@@ -1088,6 +1088,7 @@ class Godot private constructor(val context: Context) {
 
 	fun onBackPressed() {
 		for (plugin in pluginRegistry.allPlugins) {
+			Log.v(TAG, "Invoking onMainBackPressed for plugin ${plugin.pluginName}")
 			plugin.onMainBackPressed()
 		}
 		runOnRenderThread { GodotLib.back() }
