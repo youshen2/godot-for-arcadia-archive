@@ -49,6 +49,9 @@ private:
 	TextServer::OverrunBehavior overrun_behavior = TextServer::OVERRUN_NO_TRIMMING;
 	mutable Size2 minsize;
 	bool uppercase = false;
+	bool marquee_enabled = false;
+	float marquee_speed = 30.0f;
+	double marquee_scroll = 0.0;
 
 	struct Paragraph {
 		bool lines_dirty = true;
@@ -159,6 +162,12 @@ public:
 
 	void set_uppercase(bool p_uppercase);
 	bool is_uppercase() const;
+
+	void set_marquee_enabled(bool p_enabled);
+	bool is_marquee_enabled() const;
+
+	void set_marquee_speed(float p_speed);
+	float get_marquee_speed() const;
 
 	void set_visible_characters_behavior(TextServer::VisibleCharactersBehavior p_behavior);
 	TextServer::VisibleCharactersBehavior get_visible_characters_behavior() const;

@@ -118,6 +118,44 @@ bool Label::is_uppercase() const {
 	return uppercase;
 }
 
+void Label::set_marquee_enabled(bool p_enabled) {
+	if (marquee_enabled == p_enabled) {
+		return;
+	}
+
+	marquee_enabled = p_enabled;
+	marquee_scroll = 0.0;
+	for (Paragraph &para : paragraphs) {
+		para.lines_dirty = true;
+	}
+	set_process_internal(p_enabled);
+
+	queue_redraw();
+	update_minimum_size();
+	update_desired_size();
+	update_configuration_warnings();
+}
+
+bool Label::is_marquee_enabled() const {
+	return marquee_enabled;
+}
+
+void Label::set_marquee_speed(float p_speed) {
+	ERR_FAIL_COND(!Math::is_finite(p_speed));
+	ERR_FAIL_COND(p_speed < 0.0f);
+
+	if (marquee_speed == p_speed) {
+		return;
+	}
+
+	marquee_speed = p_speed;
+	queue_redraw();
+}
+
+float Label::get_marquee_speed() const {
+	return marquee_speed;
+}
+
 int Label::get_line_height(int p_line) const {
 	Ref<Font> font = (settings.is_valid() && settings->get_font().is_valid()) ? settings->get_font() : theme_cache.font;
 	int font_size = settings.is_valid() ? settings->get_font_size() : theme_cache.font_size;
@@ -151,7 +189,7 @@ void Label::_shape() const {
 	Ref<StyleBox> style = theme_cache.normal_style;
 	int width = (get_size().width - style->get_minimum_size().width);
 	float combined_maximum_width = get_combined_maximum_size().x;
-	bool wrap_with_max_width = autowrap_mode != TextServer::AUTOWRAP_OFF && combined_maximum_width > 0;
+	bool wrap_with_max_width = !marquee_enabled && autowrap_mode != TextServer::AUTOWRAP_OFF && combined_maximum_width > 0;
 	int maximum_width = -1;
 	if (wrap_with_max_width) {
 		maximum_width = int(combined_maximum_width - style->get_minimum_size().width);
@@ -227,18 +265,20 @@ void Label::_shape() const {
 			para.lines_rid.clear();
 
 			BitField<TextServer::LineBreakFlag> autowrap_flags = TextServer::BREAK_MANDATORY;
-			switch (autowrap_mode) {
-				case TextServer::AUTOWRAP_WORD_SMART:
-					autowrap_flags = TextServer::BREAK_WORD_BOUND | TextServer::BREAK_ADAPTIVE | TextServer::BREAK_MANDATORY;
-					break;
-				case TextServer::AUTOWRAP_WORD:
-					autowrap_flags = TextServer::BREAK_WORD_BOUND | TextServer::BREAK_MANDATORY;
-					break;
-				case TextServer::AUTOWRAP_ARBITRARY:
-					autowrap_flags = TextServer::BREAK_GRAPHEME_BOUND | TextServer::BREAK_MANDATORY;
-					break;
-				case TextServer::AUTOWRAP_OFF:
-					break;
+			if (!marquee_enabled) {
+				switch (autowrap_mode) {
+					case TextServer::AUTOWRAP_WORD_SMART:
+						autowrap_flags = TextServer::BREAK_WORD_BOUND | TextServer::BREAK_ADAPTIVE | TextServer::BREAK_MANDATORY;
+						break;
+					case TextServer::AUTOWRAP_WORD:
+						autowrap_flags = TextServer::BREAK_WORD_BOUND | TextServer::BREAK_MANDATORY;
+						break;
+					case TextServer::AUTOWRAP_ARBITRARY:
+						autowrap_flags = TextServer::BREAK_GRAPHEME_BOUND | TextServer::BREAK_MANDATORY;
+						break;
+					case TextServer::AUTOWRAP_OFF:
+						break;
+				}
 			}
 			autowrap_flags = autowrap_flags | autowrap_flags_trim;
 
@@ -265,11 +305,11 @@ void Label::_shape() const {
 	bool lines_hidden = visible_lines > 0 && visible_lines < total_line_count;
 
 	int line_index = 0;
-	if (autowrap_mode == TextServer::AUTOWRAP_OFF || wrap_with_max_width) {
+	if (autowrap_mode == TextServer::AUTOWRAP_OFF || marquee_enabled || wrap_with_max_width) {
 		minsize.width = 0.0f;
 	}
 	for (Paragraph &para : paragraphs) {
-		if (autowrap_mode == TextServer::AUTOWRAP_OFF) {
+		if (autowrap_mode == TextServer::AUTOWRAP_OFF || marquee_enabled) {
 			for (const RID &line_rid : para.lines_rid) {
 				if (minsize.width < TS->shaped_text_get_size(line_rid).x) {
 					minsize.width = TS->shaped_text_get_size(line_rid).x;
@@ -279,7 +319,7 @@ void Label::_shape() const {
 			minsize.width = MAX(minsize.width, TS->shaped_text_get_size(para.text_rid).x);
 		}
 
-		if (para.lines_dirty) {
+		if (para.lines_dirty && !marquee_enabled) {
 			BitField<TextServer::TextOverrunFlag> overrun_flags = TextServer::get_overrun_flags_from_behavior(overrun_behavior);
 
 			// Fill after min_size calculation.
@@ -353,6 +393,8 @@ void Label::_shape() const {
 				}
 			}
 			para.lines_dirty = false;
+		} else if (marquee_enabled) {
+			para.lines_dirty = false;
 		}
 		line_index += para.lines_rid.size();
 	}
@@ -362,7 +404,7 @@ void Label::_shape() const {
 
 	_update_visible();
 
-	if (autowrap_mode == TextServer::AUTOWRAP_OFF || !clip || overrun_behavior == TextServer::OVERRUN_NO_TRIMMING) {
+	if (autowrap_mode == TextServer::AUTOWRAP_OFF || !clip || overrun_behavior == TextServer::OVERRUN_NO_TRIMMING || marquee_enabled) {
 		const_cast<Label *>(this)->update_minimum_size();
 	}
 }
@@ -536,6 +578,21 @@ Rect2 Label::_get_line_rect(int p_para, int p_line) const {
 			}
 		} break;
 	}
+	if (marquee_enabled) {
+		double content_width = size.width - style->get_minimum_size().width;
+		if (content_width > 0.0 && line_size.width > content_width) {
+			double range = content_width + line_size.width;
+			double scroll = Math::fmod(marquee_scroll, range);
+			if (scroll < 0.0) {
+				scroll += range;
+			}
+			if (rtl_layout) {
+				offset.x = style->get_offset().x - line_size.width + scroll;
+			} else {
+				offset.x = size.width - style->get_margin(SIDE_RIGHT) - scroll;
+			}
+		}
+	}
 	int visual_line = p_line;
 	for (int i = 0; i < p_para; i++) {
 		visual_line += paragraphs[i].lines_rid.size();
@@ -656,7 +713,7 @@ PackedStringArray Label::get_configuration_warnings() const {
 	// but for now we have to warn about this impossible to resolve combination.
 	// See GH-83546.
 	if (is_inside_tree() && get_tree()->get_edited_scene_root() != this) {
-		if (autowrap_mode != TextServer::AUTOWRAP_OFF && get_combined_maximum_size().width <= 0 && get_custom_minimum_size().width <= 0) {
+		if (!marquee_enabled && autowrap_mode != TextServer::AUTOWRAP_OFF && get_combined_maximum_size().width <= 0 && get_custom_minimum_size().width <= 0) {
 			warnings.push_back(RTR("Labels with autowrapping enabled must have a positive custom minimum or maximum width configured to work correctly."));
 		}
 	}
@@ -740,6 +797,7 @@ void Label::_notification(int p_what) {
 			const String new_text = atr(text);
 			if (new_text != xl_text) {
 				xl_text = new_text;
+				marquee_scroll = 0.0;
 				if (visible_ratio < 1) {
 					visible_chars = get_total_character_count() * visible_ratio;
 				}
@@ -755,8 +813,15 @@ void Label::_notification(int p_what) {
 			queue_redraw();
 		} break;
 
+		case NOTIFICATION_INTERNAL_PROCESS: {
+			if (marquee_enabled && marquee_speed > 0.0f) {
+				marquee_scroll += get_process_delta_time() * marquee_speed;
+				queue_redraw();
+			}
+		} break;
+
 		case NOTIFICATION_DRAW: {
-			if (clip) {
+			if (clip || marquee_enabled) {
 				RenderingServer::get_singleton()->canvas_item_set_clip(get_canvas_item(), true);
 			}
 
@@ -1017,15 +1082,15 @@ Size2 Label::get_minimum_size() const {
 
 	Size2 min_style = theme_cache.normal_style->get_minimum_size();
 	if (autowrap_mode != TextServer::AUTOWRAP_OFF) {
-		if (!clip && overrun_behavior != TextServer::OVERRUN_NO_TRIMMING && max_lines_visible > 0) {
+		if (!clip && !marquee_enabled && overrun_behavior != TextServer::OVERRUN_NO_TRIMMING && max_lines_visible > 0) {
 			int line_spacing = settings.is_valid() ? settings->get_line_spacing() : theme_cache.line_spacing;
 			min_size.height = MIN(min_size.height, (font->get_height(font_size) + line_spacing) * max_lines_visible);
-		} else if (clip || overrun_behavior != TextServer::OVERRUN_NO_TRIMMING) {
+		} else if (clip || (!marquee_enabled && overrun_behavior != TextServer::OVERRUN_NO_TRIMMING)) {
 			min_size.height = 1;
 		}
 		return Size2(1, min_size.height) + min_style;
 	} else {
-		if (clip || overrun_behavior != TextServer::OVERRUN_NO_TRIMMING) {
+		if (clip || marquee_enabled || overrun_behavior != TextServer::OVERRUN_NO_TRIMMING) {
 			min_size.width = 1;
 		}
 		return min_size + min_style;
@@ -1152,6 +1217,7 @@ void Label::set_text(const String &p_string) {
 	text = p_string;
 	xl_text = atr(p_string);
 	text_dirty = true;
+	marquee_scroll = 0.0;
 	if (visible_ratio < 1) {
 		visible_chars = get_total_character_count() * visible_ratio;
 	}
@@ -1169,7 +1235,7 @@ void Label::_invalidate() {
 }
 
 void Label::_maximum_size_changed() {
-	if (autowrap_mode == TextServer::AUTOWRAP_OFF && overrun_behavior == TextServer::OVERRUN_NO_TRIMMING) {
+	if (!marquee_enabled && autowrap_mode == TextServer::AUTOWRAP_OFF && overrun_behavior == TextServer::OVERRUN_NO_TRIMMING) {
 		return;
 	}
 
@@ -1500,6 +1566,10 @@ void Label::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_ellipsis_char"), &Label::get_ellipsis_char);
 	ClassDB::bind_method(D_METHOD("set_uppercase", "enable"), &Label::set_uppercase);
 	ClassDB::bind_method(D_METHOD("is_uppercase"), &Label::is_uppercase);
+	ClassDB::bind_method(D_METHOD("set_marquee_enabled", "enabled"), &Label::set_marquee_enabled);
+	ClassDB::bind_method(D_METHOD("is_marquee_enabled"), &Label::is_marquee_enabled);
+	ClassDB::bind_method(D_METHOD("set_marquee_speed", "speed"), &Label::set_marquee_speed);
+	ClassDB::bind_method(D_METHOD("get_marquee_speed"), &Label::get_marquee_speed);
 	ClassDB::bind_method(D_METHOD("get_line_height", "line"), &Label::get_line_height, DEFVAL(-1));
 	ClassDB::bind_method(D_METHOD("get_line_count"), &Label::get_line_count);
 	ClassDB::bind_method(D_METHOD("get_visible_line_count"), &Label::get_visible_line_count);
@@ -1537,6 +1607,8 @@ void Label::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "text_skew", PROPERTY_HINT_RANGE, "-89.9,89.9,0.1,radians_as_degrees"), "set_text_skew", "get_text_skew");
 
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clip_text"), "set_clip_text", "is_clipping_text");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "marquee_enabled"), "set_marquee_enabled", "is_marquee_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "marquee_speed", PROPERTY_HINT_RANGE, "0,1000,1,or_greater,suffix:px/s"), "set_marquee_speed", "get_marquee_speed");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "text_overrun_behavior", PROPERTY_HINT_ENUM, "Trim Nothing,Trim Characters,Trim Words,Ellipsis (6+ Characters),Word Ellipsis (6+ Characters),Ellipsis (Always),Word Ellipsis (Always)"), "set_text_overrun_behavior", "get_text_overrun_behavior");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "ellipsis_char"), "set_ellipsis_char", "get_ellipsis_char");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "uppercase"), "set_uppercase", "is_uppercase");
