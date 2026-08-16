@@ -926,7 +926,7 @@ void MarkdownTextLabel::_draw_render_paragraph(const RenderParagraph &p_render, 
 		}
 
 		if (!Math::is_zero_approx(text_skew)) {
-			draw_set_transform_matrix(_get_text_skew_xform(text_skew));
+			RenderingServer::get_singleton()->canvas_item_add_set_transform(ci, _get_text_skew_xform(text_skew));
 		}
 
 		for (const DrawRange &range : p_render.ranges) {
@@ -999,7 +999,7 @@ void MarkdownTextLabel::_draw_render_paragraph(const RenderParagraph &p_render, 
 		}
 
 		if (!Math::is_zero_approx(text_skew)) {
-			draw_set_transform_matrix(Transform2D());
+			RenderingServer::get_singleton()->canvas_item_add_set_transform(ci, Transform2D());
 		}
 	}
 }
