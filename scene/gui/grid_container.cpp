@@ -113,6 +113,9 @@ void GridContainer::_resort() {
 	int max_col = MIN(valid_controls_index, columns);
 	int max_row = std::ceil((float)valid_controls_index / (float)columns);
 
+	const float skew_x_extent = Math::abs(item_skew.x) * MAX(max_row - 1, 0);
+	const float skew_y_extent = Math::abs(item_skew.y) * MAX(max_col - 1, 0);
+
 	// Consider all empty columns expanded.
 	for (int i = valid_controls_index; i < columns; i++) {
 		col_expanded.insert(i);
@@ -120,6 +123,8 @@ void GridContainer::_resort() {
 
 	// Evaluate the remaining space for expanded columns/rows.
 	Size2 remaining_space = get_size();
+	remaining_space.width = MAX(0.0f, remaining_space.width - skew_x_extent);
+	remaining_space.height = MAX(0.0f, remaining_space.height - skew_y_extent);
 	for (const KeyValue<int, int> &E : col_minw) {
 		if (!col_expanded.has(E.key)) {
 			remaining_space.width -= E.value;
@@ -233,6 +238,9 @@ void GridContainer::_resort() {
 
 	bool rtl = is_layout_rtl();
 
+	const float skew_x_origin = item_skew.x < 0.0f ? skew_x_extent : (rtl ? -skew_x_extent : 0.0f);
+	const float skew_y_origin = item_skew.y < 0.0f ? skew_y_extent : 0.0f;
+
 	int col_ofs = 0;
 	int row_ofs = 0;
 
@@ -301,22 +309,25 @@ void GridContainer::_resort() {
 		if (is_propagating_maximum_size()) {
 			Size2 ms = combined_max_size;
 			if (ms.width >= 0) {
+				ms.width -= skew_x_extent;
 				ms.width -= accumulated_width;
 				ms.width = MAX(ms.width, 0);
 			}
 			if (ms.height >= 0) {
+				ms.height -= skew_y_extent;
 				ms.height -= accumulated_height;
 				ms.height = MAX(ms.height, 0);
 			}
 			c->set_parent_maximum_size_cache(ms);
 		}
 
+		const Vector2 skew_offset(skew_x_origin + item_skew.x * row, skew_y_origin + item_skew.y * col);
 		if (rtl) {
-			Point2 p(col_ofs - s.width, row_ofs);
+			Point2 p(col_ofs - s.width + skew_offset.x, row_ofs + skew_offset.y);
 			fit_child_in_rect(c, Rect2(p, s));
 			col_ofs -= s.width + theme_cache.h_separation;
 		} else {
-			Point2 p(col_ofs, row_ofs);
+			Point2 p(col_ofs + skew_offset.x, row_ofs + skew_offset.y);
 			fit_child_in_rect(c, Rect2(p, s));
 			col_ofs += s.width + theme_cache.h_separation;
 		}
@@ -364,6 +375,20 @@ int GridContainer::get_columns() const {
 	return columns;
 }
 
+void GridContainer::set_item_skew(const Vector2 &p_offset) {
+	ERR_FAIL_COND(!p_offset.is_finite());
+	if (item_skew == p_offset) {
+		return;
+	}
+	item_skew = p_offset;
+	update_minimum_size();
+	queue_sort();
+}
+
+Vector2 GridContainer::get_item_skew() const {
+	return item_skew;
+}
+
 int GridContainer::get_h_separation() const {
 	return theme_cache.h_separation;
 }
@@ -371,8 +396,11 @@ int GridContainer::get_h_separation() const {
 void GridContainer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_columns", "columns"), &GridContainer::set_columns);
 	ClassDB::bind_method(D_METHOD("get_columns"), &GridContainer::get_columns);
+	ClassDB::bind_method(D_METHOD("set_item_skew", "offset"), &GridContainer::set_item_skew);
+	ClassDB::bind_method(D_METHOD("get_item_skew"), &GridContainer::get_item_skew);
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "columns", PROPERTY_HINT_RANGE, "1,1024,1"), "set_columns", "get_columns");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "item_skew", PROPERTY_HINT_RANGE, "-256,256,0.1,or_less,or_greater,suffix:px"), "set_item_skew", "get_item_skew");
 
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, GridContainer, h_separation);
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, GridContainer, v_separation);
@@ -423,6 +451,9 @@ Size2 GridContainer::_get_minimum_size(bool p_use_desired_sizes) const {
 
 	ms.height += theme_cache.v_separation * max_row;
 	ms.width += theme_cache.h_separation * max_col;
+
+	ms.width += Math::ceil(Math::abs(item_skew.x) * max_row);
+	ms.height += Math::ceil(Math::abs(item_skew.y) * max_col);
 
 	return ms;
 }

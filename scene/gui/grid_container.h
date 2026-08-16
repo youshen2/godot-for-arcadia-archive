@@ -36,6 +36,7 @@ class GridContainer : public Container {
 	GDCLASS(GridContainer, Container);
 
 	int columns = 1;
+	Vector2 item_skew;
 
 	struct ThemeCache {
 		int h_separation = 0;
@@ -53,6 +54,10 @@ protected:
 public:
 	void set_columns(int p_columns);
 	int get_columns() const;
+
+	void set_item_skew(const Vector2 &p_offset);
+	Vector2 get_item_skew() const;
+
 	virtual Size2 get_minimum_size() const override;
 	virtual Size2 get_desired_size() const override;
 
