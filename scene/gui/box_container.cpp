@@ -336,7 +336,7 @@ Size2 BoxContainer::_get_minimum_size(bool p_use_desired_sizes) const {
 }
 
 Size2 BoxContainer::get_minimum_size() const {
-	return _get_minimum_size(false);
+	return _get_minimum_size(fit_child_content);
 }
 
 Size2 BoxContainer::get_desired_size() const {
@@ -377,6 +377,21 @@ void BoxContainer::set_alignment(AlignmentMode p_alignment) {
 
 BoxContainer::AlignmentMode BoxContainer::get_alignment() const {
 	return alignment;
+}
+
+void BoxContainer::set_fit_child_content(bool p_enabled) {
+	if (fit_child_content == p_enabled) {
+		return;
+	}
+
+	fit_child_content = p_enabled;
+	update_minimum_size();
+	update_desired_size();
+	queue_sort();
+}
+
+bool BoxContainer::is_fit_child_content() const {
+	return fit_child_content;
 }
 
 void BoxContainer::set_vertical(bool p_vertical) {
@@ -454,6 +469,8 @@ void BoxContainer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("add_spacer", "begin"), &BoxContainer::add_spacer);
 	ClassDB::bind_method(D_METHOD("set_alignment", "alignment"), &BoxContainer::set_alignment);
 	ClassDB::bind_method(D_METHOD("get_alignment"), &BoxContainer::get_alignment);
+	ClassDB::bind_method(D_METHOD("set_fit_child_content", "enabled"), &BoxContainer::set_fit_child_content);
+	ClassDB::bind_method(D_METHOD("is_fit_child_content"), &BoxContainer::is_fit_child_content);
 	ClassDB::bind_method(D_METHOD("set_vertical", "vertical"), &BoxContainer::set_vertical);
 	ClassDB::bind_method(D_METHOD("is_vertical"), &BoxContainer::is_vertical);
 	ClassDB::bind_method(D_METHOD("set_item_skew", "offset"), &BoxContainer::set_item_skew);
@@ -464,6 +481,7 @@ void BoxContainer::_bind_methods() {
 	BIND_ENUM_CONSTANT(ALIGNMENT_END);
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "alignment", PROPERTY_HINT_ENUM, "Begin,Center,End"), "set_alignment", "get_alignment");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fit_child_content"), "set_fit_child_content", "is_fit_child_content");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "vertical"), "set_vertical", "is_vertical");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "item_skew", PROPERTY_HINT_RANGE, "-256,256,0.1,or_less,or_greater,suffix:px"), "set_item_skew", "get_item_skew");
 

@@ -45,6 +45,7 @@ public:
 private:
 	bool vertical = false;
 	AlignmentMode alignment = ALIGNMENT_BEGIN;
+	bool fit_child_content = false;
 	float item_skew = 0.0f;
 
 	struct ThemeCache {
@@ -66,6 +67,9 @@ public:
 
 	void set_alignment(AlignmentMode p_alignment);
 	AlignmentMode get_alignment() const;
+
+	void set_fit_child_content(bool p_enabled);
+	bool is_fit_child_content() const;
 
 	void set_vertical(bool p_vertical);
 	bool is_vertical() const;
