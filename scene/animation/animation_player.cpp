@@ -353,25 +353,32 @@ Variant AnimationPlayer::_post_process_key_value(const Ref<Animation> &p_anim, i
 	} else if (is_position_y) {
 		return (real_t)value + position_delta.y;
 	} else if (is_size) {
-		Vector2 adjusted = Vector2(value) + size_delta;
+		// Keep the same minimum/maximum clamping as Control::_size_changed(),
+		// so container children are never forced below their layout minimum.
 		const Size2 min_size = control->get_combined_minimum_size();
-		if (size_delta.x < 0) {
-			adjusted.x = MAX(adjusted.x, min_size.x);
+		const Size2 max_size = control->get_combined_maximum_size();
+		Vector2 adjusted = Vector2(value) + size_delta;
+		adjusted.x = MAX(adjusted.x, min_size.x);
+		adjusted.y = MAX(adjusted.y, min_size.y);
+		if (max_size.x >= 0) {
+			adjusted.x = MIN(adjusted.x, max_size.x);
 		}
-		if (size_delta.y < 0) {
-			adjusted.y = MAX(adjusted.y, min_size.y);
+		if (max_size.y >= 0) {
+			adjusted.y = MIN(adjusted.y, max_size.y);
 		}
 		return adjusted;
 	} else if (is_size_x) {
-		real_t adjusted = (real_t)value + size_delta.x;
-		if (size_delta.x < 0) {
-			adjusted = MAX(adjusted, control->get_combined_minimum_size().x);
+		real_t adjusted = MAX((real_t)value + size_delta.x, control->get_combined_minimum_size().x);
+		real_t max_x = control->get_combined_maximum_size().x;
+		if (max_x >= 0) {
+			adjusted = MIN(adjusted, max_x);
 		}
 		return adjusted;
 	} else {
-		real_t adjusted = (real_t)value + size_delta.y;
-		if (size_delta.y < 0) {
-			adjusted = MAX(adjusted, control->get_combined_minimum_size().y);
+		real_t adjusted = MAX((real_t)value + size_delta.y, control->get_combined_minimum_size().y);
+		real_t max_y = control->get_combined_maximum_size().y;
+		if (max_y >= 0) {
+			adjusted = MIN(adjusted, max_y);
 		}
 		return adjusted;
 	}
