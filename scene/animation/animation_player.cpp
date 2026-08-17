@@ -321,7 +321,10 @@ Variant AnimationPlayer::_post_process_key_value(const Ref<Animation> &p_anim, i
 	const bool is_position = property == SNAME("position");
 	const bool is_position_x = property == SNAME("position:x");
 	const bool is_position_y = property == SNAME("position:y");
-	if (!is_position && !is_position_x && !is_position_y) {
+	const bool is_size = property == SNAME("size");
+	const bool is_size_x = property == SNAME("size:x");
+	const bool is_size_y = property == SNAME("size:y");
+	if (!is_position && !is_position_x && !is_position_y && !is_size && !is_size_x && !is_size_y) {
 		return value;
 	}
 
@@ -329,14 +332,23 @@ Variant AnimationPlayer::_post_process_key_value(const Ref<Animation> &p_anim, i
 	const real_t base_width = GLOBAL_GET("display/window/size/viewport_width");
 	const real_t base_height = GLOBAL_GET("display/window/size/viewport_height");
 	const Vector2 parent_delta = current_parent_size - Size2(base_width, base_height);
-	const Vector2 anchor_delta(control->get_anchor(SIDE_LEFT) * parent_delta.x, control->get_anchor(SIDE_TOP) * parent_delta.y);
+	const Vector2 position_delta(control->get_anchor(SIDE_LEFT) * parent_delta.x, control->get_anchor(SIDE_TOP) * parent_delta.y);
+	const Vector2 size_delta(
+			(control->get_anchor(SIDE_RIGHT) - control->get_anchor(SIDE_LEFT)) * parent_delta.x,
+			(control->get_anchor(SIDE_BOTTOM) - control->get_anchor(SIDE_TOP)) * parent_delta.y);
 
 	if (is_position) {
-		return Vector2(value) + anchor_delta;
+		return Vector2(value) + position_delta;
 	} else if (is_position_x) {
-		return (real_t)value + anchor_delta.x;
+		return (real_t)value + position_delta.x;
+	} else if (is_position_y) {
+		return (real_t)value + position_delta.y;
+	} else if (is_size) {
+		return Vector2(value) + size_delta;
+	} else if (is_size_x) {
+		return (real_t)value + size_delta.x;
 	} else {
-		return (real_t)value + anchor_delta.y;
+		return (real_t)value + size_delta.y;
 	}
 }
 
