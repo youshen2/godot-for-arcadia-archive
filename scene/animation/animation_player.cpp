@@ -32,9 +32,11 @@
 #include "animation_player.compat.inc"
 
 #include "core/config/engine.h"
+#include "core/config/project_settings.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
+#include "scene/gui/control.h"
 #include "scene/main/scene_tree.h"
 
 bool AnimationPlayer::_set(const StringName &p_name, const Variant &p_value) {
@@ -301,6 +303,40 @@ void AnimationPlayer::_blend_playback_data(double p_delta, bool p_started) {
 	}
 	for (int i = to_erase.size() - 1; i >= 0; i--) {
 		c.blend.remove_at(to_erase[i]);
+	}
+}
+
+Variant AnimationPlayer::_post_process_key_value(const Ref<Animation> &p_anim, int p_track, Variant &p_value, ObjectID p_object_id, int p_object_sub_idx) {
+	Variant value = AnimationMixer::_post_process_key_value(p_anim, p_track, p_value, p_object_id, p_object_sub_idx);
+	if (!adaptive || p_anim.is_null() || p_anim->track_get_type(p_track) != Animation::TYPE_VALUE) {
+		return value;
+	}
+
+	Control *control = ObjectDB::get_instance<Control>(p_object_id);
+	if (!control || !control->is_inside_tree()) {
+		return value;
+	}
+
+	const StringName property = p_anim->track_get_path(p_track).get_concatenated_subnames();
+	const bool is_position = property == SNAME("position");
+	const bool is_position_x = property == SNAME("position:x");
+	const bool is_position_y = property == SNAME("position:y");
+	if (!is_position && !is_position_x && !is_position_y) {
+		return value;
+	}
+
+	const Size2 current_parent_size = control->get_parent_area_size();
+	const real_t base_width = GLOBAL_GET("display/window/size/viewport_width");
+	const real_t base_height = GLOBAL_GET("display/window/size/viewport_height");
+	const Vector2 parent_delta = current_parent_size - Size2(base_width, base_height);
+	const Vector2 anchor_delta(control->get_anchor(SIDE_LEFT) * parent_delta.x, control->get_anchor(SIDE_TOP) * parent_delta.y);
+
+	if (is_position) {
+		return Vector2(value) + anchor_delta;
+	} else if (is_position_x) {
+		return (real_t)value + anchor_delta.x;
+	} else {
+		return (real_t)value + anchor_delta.y;
 	}
 }
 
@@ -801,6 +837,14 @@ bool AnimationPlayer::is_movie_quit_on_finish_enabled() const {
 	return movie_quit_on_finish;
 }
 
+void AnimationPlayer::set_adaptive(bool p_enabled) {
+	adaptive = p_enabled;
+}
+
+bool AnimationPlayer::is_adaptive() const {
+	return adaptive;
+}
+
 void AnimationPlayer::_animation_changed(const StringName &p_name) {
 	AnimationMixer::_animation_changed(p_name);
 	if (playback.current.is_enabled && playback.current.animation_name == p_name && animation_set.has(p_name)) {
@@ -1038,6 +1082,9 @@ void AnimationPlayer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_movie_quit_on_finish_enabled", "enabled"), &AnimationPlayer::set_movie_quit_on_finish_enabled);
 	ClassDB::bind_method(D_METHOD("is_movie_quit_on_finish_enabled"), &AnimationPlayer::is_movie_quit_on_finish_enabled);
 
+	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &AnimationPlayer::set_adaptive);
+	ClassDB::bind_method(D_METHOD("is_adaptive"), &AnimationPlayer::is_adaptive);
+
 	ClassDB::bind_method(D_METHOD("get_current_animation_position"), &AnimationPlayer::get_current_animation_position);
 	ClassDB::bind_method(D_METHOD("get_current_animation_length"), &AnimationPlayer::get_current_animation_length);
 
@@ -1054,6 +1101,7 @@ void AnimationPlayer::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::STRING_NAME, "current_animation", PROPERTY_HINT_ENUM, "", PROPERTY_USAGE_EDITOR), "set_current_animation", "get_current_animation");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING_NAME, "assigned_animation", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "set_assigned_animation", "get_assigned_animation");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING_NAME, "autoplay", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR), "set_autoplay", "get_autoplay");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "current_animation_length", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "", "get_current_animation_length");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "current_animation_position", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "", "get_current_animation_position");
 

@@ -56,6 +56,7 @@ private:
 
 	float speed_scale = 1.0;
 	double default_blend_time = 0.0;
+	bool adaptive = false;
 
 	bool auto_capture = true;
 	double auto_capture_duration = -1.0;
@@ -149,6 +150,7 @@ protected:
 	static void _bind_methods();
 
 	// Make animation instances.
+	virtual Variant _post_process_key_value(const Ref<Animation> &p_anim, int p_track, Variant &p_value, ObjectID p_object_id, int p_object_sub_idx = -1) override;
 	virtual bool _blend_pre_process(double p_delta, int p_track_count, const AHashMap<NodePath, int> &p_track_map) override;
 	virtual void _blend_capture(double p_delta) override;
 	virtual void _blend_post_process() override;
@@ -230,6 +232,9 @@ public:
 
 	void set_movie_quit_on_finish_enabled(bool p_enabled);
 	bool is_movie_quit_on_finish_enabled() const;
+
+	void set_adaptive(bool p_enabled);
+	bool is_adaptive() const;
 
 	void seek_internal(double p_time, bool p_update = false, bool p_update_only = false, bool p_is_internal_seek = false);
 	void seek(double p_time, bool p_update = false, bool p_update_only = false);
