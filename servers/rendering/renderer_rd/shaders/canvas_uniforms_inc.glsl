@@ -57,7 +57,10 @@ layout(push_constant, std430) uniform Params {
 
 	vec2 msdf;
 	vec2 color_texture_pixel_size;
-	vec4 clip_vertices[4];
+	vec2 clip_origin;
+	vec2 clip_axis_x;
+	vec2 clip_axis_y;
+	vec2 clip_pad;
 #ifdef USE_ATTRIBUTES
 	// Particles and meshes
 	vec2 world_x;

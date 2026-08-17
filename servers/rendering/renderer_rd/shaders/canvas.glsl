@@ -858,10 +858,10 @@ void main() {
 
 	if (bool(params.batch_flags & BATCH_FLAGS_SKEW_CLIP)) {
 		vec2 clip_polygon[4] = vec2[](
-				params.clip_vertices[0].xy,
-				params.clip_vertices[1].xy,
-				params.clip_vertices[2].xy,
-				params.clip_vertices[3].xy);
+				params.clip_origin,
+				params.clip_origin + params.clip_axis_x,
+				params.clip_origin + params.clip_axis_x + params.clip_axis_y,
+				params.clip_origin + params.clip_axis_y);
 		float clip_area = 0.0;
 		for (int i = 0; i < 4; i++) {
 			vec2 a = clip_polygon[i];

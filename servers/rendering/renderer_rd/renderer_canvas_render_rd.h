@@ -388,7 +388,10 @@ class RendererCanvasRenderRD : public RendererCanvasRender {
 
 		float msdf[2];
 		float color_texture_pixel_size[2];
-		float clip_vertices[16];
+		float clip_origin[2];
+		float clip_axis_x[2];
+		float clip_axis_y[2];
+		float clip_pad[2];
 	};
 
 	struct PushConstantAttributes {
@@ -404,6 +407,10 @@ class RendererCanvasRenderRD : public RendererCanvasRender {
 			return base;
 		}
 	};
+
+	// Metal (and the compatibility guarantee in RenderingDevice) limits push constants to 128 bytes.
+	static_assert(sizeof(PushConstant) <= 128, "Canvas push constant exceeds the 128 byte limit.");
+	static_assert(sizeof(PushConstantAttributes) <= 128, "Canvas attribute push constant exceeds the 128 byte limit.");
 
 	// TextureState is used to determine when a new batch is required due to a change of texture state.
 	struct TextureState {
@@ -566,7 +573,12 @@ class RendererCanvasRenderRD : public RendererCanvasRender {
 			pc.color_texture_pixel_size[1] = tex_info->texpixel_size.y;
 			if (clip != nullptr && clip->clip_skew_active) {
 				pc.batch_flags |= BATCH_FLAGS_SKEW_CLIP;
-				memcpy(pc.clip_vertices, clip->clip_vertices, sizeof(clip->clip_vertices));
+				pc.clip_origin[0] = clip->clip_vertices[0].x;
+				pc.clip_origin[1] = clip->clip_vertices[0].y;
+				pc.clip_axis_x[0] = clip->clip_vertices[1].x - clip->clip_vertices[0].x;
+				pc.clip_axis_x[1] = clip->clip_vertices[1].y - clip->clip_vertices[0].y;
+				pc.clip_axis_y[0] = clip->clip_vertices[3].x - clip->clip_vertices[0].x;
+				pc.clip_axis_y[1] = clip->clip_vertices[3].y - clip->clip_vertices[0].y;
 			}
 			return pc;
 		}
