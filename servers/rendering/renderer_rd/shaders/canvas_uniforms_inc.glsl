@@ -47,6 +47,7 @@ struct InstanceData {
 
 #define BATCH_FLAGS_DEFAULT_NORMAL_MAP_USED (1 << 9)
 #define BATCH_FLAGS_DEFAULT_SPECULAR_MAP_USED (1 << 10)
+#define BATCH_FLAGS_SKEW_CLIP (1 << 11)
 
 layout(push_constant, std430) uniform Params {
 	uint sc_packed_0;
@@ -56,6 +57,7 @@ layout(push_constant, std430) uniform Params {
 
 	vec2 msdf;
 	vec2 color_texture_pixel_size;
+	vec4 clip_vertices[4];
 #ifdef USE_ATTRIBUTES
 	// Particles and meshes
 	vec2 world_x;

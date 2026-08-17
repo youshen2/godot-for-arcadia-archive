@@ -3598,6 +3598,22 @@ bool Control::is_clipping_contents() {
 	return data.clip_contents;
 }
 
+void Control::set_clip_skew(const Vector2 &p_skew) {
+	ERR_MAIN_THREAD_GUARD;
+	ERR_FAIL_COND(!p_skew.is_finite());
+	if (data.clip_skew == p_skew) {
+		return;
+	}
+	data.clip_skew = p_skew;
+	RenderingServer::get_singleton()->canvas_item_set_clip_skew(get_canvas_item(), data.clip_skew);
+	queue_redraw();
+}
+
+Vector2 Control::get_clip_skew() const {
+	ERR_READ_THREAD_GUARD_V(Vector2());
+	return data.clip_skew;
+}
+
 // Theming.
 
 void Control::_theme_changed() {
@@ -4644,6 +4660,7 @@ void Control::_notification(int p_notification) {
 			_update_canvas_item_transform();
 			RenderingServer::get_singleton()->canvas_item_set_custom_rect(get_canvas_item(), !data.disable_visibility_clip, Rect2(Point2(), get_size()));
 			RenderingServer::get_singleton()->canvas_item_set_clip(get_canvas_item(), data.clip_contents);
+			RenderingServer::get_singleton()->canvas_item_set_clip_skew(get_canvas_item(), data.clip_skew);
 		} break;
 
 		case NOTIFICATION_FOCUS_ENTER: {
@@ -4902,6 +4919,8 @@ void Control::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_clip_contents", "enable"), &Control::set_clip_contents);
 	ClassDB::bind_method(D_METHOD("is_clipping_contents"), &Control::is_clipping_contents);
+	ClassDB::bind_method(D_METHOD("set_clip_skew", "skew"), &Control::set_clip_skew);
+	ClassDB::bind_method(D_METHOD("get_clip_skew"), &Control::get_clip_skew);
 
 	ClassDB::bind_method(D_METHOD("grab_click_focus"), &Control::grab_click_focus);
 
@@ -4934,6 +4953,7 @@ void Control::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "custom_maximum_size", PROPERTY_HINT_NONE, "suffix:px"), "set_custom_maximum_size", "get_custom_maximum_size");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "propagate_maximum_size"), "set_propagate_maximum_size", "is_propagating_maximum_size");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clip_contents"), "set_clip_contents", "is_clipping_contents");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "clip_skew"), "set_clip_skew", "get_clip_skew");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "layout_mode", PROPERTY_HINT_ENUM, "Position,Anchors,Container,Uncontrolled", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_INTERNAL), "_set_layout_mode", "_get_layout_mode");
 	ADD_PROPERTY_DEFAULT("layout_mode", LayoutMode::LAYOUT_MODE_POSITION);
 

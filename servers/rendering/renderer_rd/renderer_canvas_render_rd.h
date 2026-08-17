@@ -83,6 +83,7 @@ class RendererCanvasRenderRD : public RendererCanvasRender {
 
 		BATCH_FLAGS_DEFAULT_NORMAL_MAP_USED = (1 << 9),
 		BATCH_FLAGS_DEFAULT_SPECULAR_MAP_USED = (1 << 10),
+		BATCH_FLAGS_SKEW_CLIP = (1 << 11),
 	};
 
 	enum {
@@ -387,6 +388,7 @@ class RendererCanvasRenderRD : public RendererCanvasRender {
 
 		float msdf[2];
 		float color_texture_pixel_size[2];
+		float clip_vertices[16];
 	};
 
 	struct PushConstantAttributes {
@@ -553,7 +555,7 @@ class RendererCanvasRenderRD : public RendererCanvasRender {
 		uint32_t flags = 0;
 
 		_FORCE_INLINE_ PushConstant push_constant() const {
-			PushConstant pc;
+			PushConstant pc = {};
 			pc.specular_shininess = tex_info->specular_shininess;
 			pc.batch_flags = tex_info->flags | flags;
 			pc.pad0 = 0;
@@ -562,6 +564,10 @@ class RendererCanvasRenderRD : public RendererCanvasRender {
 			pc.msdf[1] = msdf_outline;
 			pc.color_texture_pixel_size[0] = tex_info->texpixel_size.x;
 			pc.color_texture_pixel_size[1] = tex_info->texpixel_size.y;
+			if (clip != nullptr && clip->clip_skew_active) {
+				pc.batch_flags |= BATCH_FLAGS_SKEW_CLIP;
+				memcpy(pc.clip_vertices, clip->clip_vertices, sizeof(clip->clip_vertices));
+			}
 			return pc;
 		}
 

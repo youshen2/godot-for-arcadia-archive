@@ -288,6 +288,7 @@ private:
 		bool force_pass_scroll_events = true;
 
 		bool clip_contents = false;
+		Vector2 clip_skew;
 		bool disable_visibility_clip = false;
 
 		CursorShape default_cursor = CURSOR_ARROW;
@@ -781,6 +782,9 @@ public:
 
 	void set_clip_contents(bool p_clip);
 	bool is_clipping_contents();
+
+	void set_clip_skew(const Vector2 &p_skew);
+	Vector2 get_clip_skew() const;
 
 	void set_disable_visibility_clip(bool p_ignore);
 	bool is_visibility_clip_disabled() const;

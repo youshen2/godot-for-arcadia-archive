@@ -410,18 +410,55 @@ void RendererCanvasCull::_cull_canvas_item(Item *p_canvas_item, const Transform2
 	int child_item_count = ci->child_items.size();
 	Item **child_items = ci->child_items.ptrw();
 
+	ci->clip_skew_active = false;
 	if (ci->clip) {
+		Rect2 clip_global_rect = global_rect;
+		if (!ci->clip_skew.is_zero_approx()) {
+			// Apply the same slanted-edge distortion StyleBoxFlat uses, but only to the clip shape.
+			// The clip polygon is kept in canvas coordinates so the renderer can discard fragments outside it.
+			const Rect2 clip_rect = ci->get_rect();
+			const Vector2 clip_center = clip_rect.get_center();
+			const Point2 local_vertices[4] = {
+				clip_rect.position,
+				Point2(clip_rect.position.x + clip_rect.size.x, clip_rect.position.y),
+				clip_rect.position + clip_rect.size,
+				Point2(clip_rect.position.x, clip_rect.position.y + clip_rect.size.y),
+			};
+
+			Rect2 polygon_rect;
+			for (int i = 0; i < 4; i++) {
+				Vector2 p = local_vertices[i];
+				p.x -= ci->clip_skew.x * (p.y - clip_center.y);
+				p.y -= ci->clip_skew.y * (p.x - clip_center.x);
+				p = final_xform.xform(p);
+				ci->clip_vertices[i] = p;
+				if (i == 0) {
+					polygon_rect = Rect2(p, Size2());
+				} else {
+					polygon_rect.expand_to(p);
+				}
+			}
+			clip_global_rect = polygon_rect;
+			ci->clip_skew_active = true;
+		}
+
 		if (p_canvas_clip != nullptr) {
-			ci->final_clip_rect = p_canvas_clip->final_clip_rect.intersection(global_rect);
+			ci->final_clip_rect = p_canvas_clip->final_clip_rect.intersection(clip_global_rect);
 		} else {
-			ci->final_clip_rect = p_clip_rect.intersection(global_rect);
+			ci->final_clip_rect = p_clip_rect.intersection(clip_global_rect);
 		}
 		if (ci->final_clip_rect.size.width < 0.5 || ci->final_clip_rect.size.height < 0.5) {
 			// The clip rect area is 0, so don't draw the item.
 			return;
 		}
-		ci->final_clip_rect.position = ci->final_clip_rect.position.round();
-		ci->final_clip_rect.size = ci->final_clip_rect.size.round();
+		if (ci->clip_skew_active) {
+			// Keep the scissor AABB at least as large as the skewed polygon. Fragment discard does the precise clipping.
+			ci->final_clip_rect.position = ci->final_clip_rect.position.floor();
+			ci->final_clip_rect.size = ci->final_clip_rect.size.ceil();
+		} else {
+			ci->final_clip_rect.position = ci->final_clip_rect.position.round();
+			ci->final_clip_rect.size = ci->final_clip_rect.size.round();
+		}
 		ci->final_clip_owner = ci;
 
 	} else {
@@ -669,6 +706,13 @@ void RendererCanvasCull::canvas_item_set_clip(RID p_item, bool p_clip) {
 	ERR_FAIL_NULL(canvas_item);
 
 	canvas_item->clip = p_clip;
+}
+
+void RendererCanvasCull::canvas_item_set_clip_skew(RID p_item, const Vector2 &p_skew) {
+	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
+	ERR_FAIL_NULL(canvas_item);
+
+	canvas_item->clip_skew = p_skew;
 }
 
 void RendererCanvasCull::canvas_item_set_distance_field_mode(RID p_item, bool p_enable) {

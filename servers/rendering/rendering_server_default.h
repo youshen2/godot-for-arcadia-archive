@@ -1016,6 +1016,7 @@ public:
 
 	FUNC2(canvas_item_set_transform, RID, const Transform2D &)
 	FUNC2(canvas_item_set_clip, RID, bool)
+	FUNC2(canvas_item_set_clip_skew, RID, const Vector2 &)
 	FUNC2(canvas_item_set_distance_field_mode, RID, bool)
 	FUNC3(canvas_item_set_custom_rect, RID, bool, const Rect2 &)
 	FUNC2(canvas_item_set_modulate, RID, const Color &)

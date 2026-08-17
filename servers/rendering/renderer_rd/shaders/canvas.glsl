@@ -856,5 +856,27 @@ void main() {
 	color.a *= light_only_alpha;
 #endif
 
+	if (bool(params.batch_flags & BATCH_FLAGS_SKEW_CLIP)) {
+		vec2 clip_polygon[4] = vec2[](
+				params.clip_vertices[0].xy,
+				params.clip_vertices[1].xy,
+				params.clip_vertices[2].xy,
+				params.clip_vertices[3].xy);
+		float clip_area = 0.0;
+		for (int i = 0; i < 4; i++) {
+			vec2 a = clip_polygon[i];
+			vec2 b = clip_polygon[(i + 1) % 4];
+			clip_area += a.x * b.y - b.x * a.y;
+		}
+		for (int i = 0; i < 4; i++) {
+			vec2 a = clip_polygon[i];
+			vec2 b = clip_polygon[(i + 1) % 4];
+			float cross = (b.x - a.x) * (vertex.y - a.y) - (b.y - a.y) * (vertex.x - a.x);
+			if (cross * clip_area < 0.0) {
+				discard;
+			}
+		}
+	}
+
 	frag_color = color;
 }

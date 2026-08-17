@@ -359,6 +359,9 @@ public:
 		Color final_modulate;
 		Transform2D final_transform;
 		Rect2 final_clip_rect;
+		Vector2 clip_skew;
+		Point2 clip_vertices[4];
+		bool clip_skew_active = false;
 		Item *final_clip_owner = nullptr;
 		Item *material_owner = nullptr;
 		Item *canvas_group_owner = nullptr;
