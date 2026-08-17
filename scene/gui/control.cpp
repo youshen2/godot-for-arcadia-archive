@@ -3614,6 +3614,22 @@ Vector2 Control::get_clip_skew() const {
 	return data.clip_skew;
 }
 
+void Control::set_clip_inset(const Vector4 &p_inset) {
+	ERR_MAIN_THREAD_GUARD;
+	ERR_FAIL_COND(!p_inset.is_finite());
+	if (data.clip_inset == p_inset) {
+		return;
+	}
+	data.clip_inset = p_inset;
+	RenderingServer::get_singleton()->canvas_item_set_clip_inset(get_canvas_item(), data.clip_inset);
+	queue_redraw();
+}
+
+Vector4 Control::get_clip_inset() const {
+	ERR_READ_THREAD_GUARD_V(Vector4());
+	return data.clip_inset;
+}
+
 // Theming.
 
 void Control::_theme_changed() {
@@ -4661,6 +4677,7 @@ void Control::_notification(int p_notification) {
 			RenderingServer::get_singleton()->canvas_item_set_custom_rect(get_canvas_item(), !data.disable_visibility_clip, Rect2(Point2(), get_size()));
 			RenderingServer::get_singleton()->canvas_item_set_clip(get_canvas_item(), data.clip_contents);
 			RenderingServer::get_singleton()->canvas_item_set_clip_skew(get_canvas_item(), data.clip_skew);
+			RenderingServer::get_singleton()->canvas_item_set_clip_inset(get_canvas_item(), data.clip_inset);
 		} break;
 
 		case NOTIFICATION_FOCUS_ENTER: {
@@ -4921,6 +4938,8 @@ void Control::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_clipping_contents"), &Control::is_clipping_contents);
 	ClassDB::bind_method(D_METHOD("set_clip_skew", "skew"), &Control::set_clip_skew);
 	ClassDB::bind_method(D_METHOD("get_clip_skew"), &Control::get_clip_skew);
+	ClassDB::bind_method(D_METHOD("set_clip_inset", "inset"), &Control::set_clip_inset);
+	ClassDB::bind_method(D_METHOD("get_clip_inset"), &Control::get_clip_inset);
 
 	ClassDB::bind_method(D_METHOD("grab_click_focus"), &Control::grab_click_focus);
 
@@ -4954,6 +4973,7 @@ void Control::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "propagate_maximum_size"), "set_propagate_maximum_size", "is_propagating_maximum_size");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clip_contents"), "set_clip_contents", "is_clipping_contents");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "clip_skew"), "set_clip_skew", "get_clip_skew");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR4, "clip_inset", PROPERTY_HINT_NONE, "suffix:px"), "set_clip_inset", "get_clip_inset");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "layout_mode", PROPERTY_HINT_ENUM, "Position,Anchors,Container,Uncontrolled", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_INTERNAL), "_set_layout_mode", "_get_layout_mode");
 	ADD_PROPERTY_DEFAULT("layout_mode", LayoutMode::LAYOUT_MODE_POSITION);
 

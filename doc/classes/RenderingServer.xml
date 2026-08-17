@@ -520,6 +520,15 @@
 				Vulkan、Metal、Direct3D 12 等 RenderingDevice 渲染器以及 GL Compatibility 渲染器都会按斜四边形进行片段级精确裁切。对应节点接口为 [member Control.clip_skew]。
 			</description>
 		</method>
+		<method name="canvas_item_set_clip_inset">
+			<return type="void" />
+			<param index="0" name="item" type="RID" />
+			<param index="1" name="inset" type="Vector4" />
+			<description>
+				设置由 [param item] 指定的画布项在启用 [method canvas_item_set_clip] 时使用的向内收缩量，单位为像素。[param inset] 的四个分量依次为 left、top、right、bottom；正值把对应裁剪边缘向中心收缩，负值按 [code]0[/code] 处理。
+				收缩会先于 [method canvas_item_set_clip_skew] 应用，可用于在斜切边框内侧预留安全距离。对应节点接口为 [member Control.clip_inset]。
+			</description>
+		</method>
 		<method name="canvas_item_set_copy_to_backbuffer">
 			<return type="void" />
 			<param index="0" name="item" type="RID" />

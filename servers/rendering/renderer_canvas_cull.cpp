@@ -413,10 +413,20 @@ void RendererCanvasCull::_cull_canvas_item(Item *p_canvas_item, const Transform2
 	ci->clip_skew_active = false;
 	if (ci->clip) {
 		Rect2 clip_global_rect = global_rect;
+
+		const float inset_left = MAX(0.0f, ci->clip_inset.x);
+		const float inset_top = MAX(0.0f, ci->clip_inset.y);
+		const float inset_right = MAX(0.0f, ci->clip_inset.z);
+		const float inset_bottom = MAX(0.0f, ci->clip_inset.w);
+		Rect2 clip_rect = ci->get_rect();
+		clip_rect.position.x += inset_left;
+		clip_rect.position.y += inset_top;
+		clip_rect.size.width = MAX(0.0f, clip_rect.size.width - inset_left - inset_right);
+		clip_rect.size.height = MAX(0.0f, clip_rect.size.height - inset_top - inset_bottom);
+
 		if (!ci->clip_skew.is_zero_approx()) {
 			// Apply the same slanted-edge distortion StyleBoxFlat uses, but only to the clip shape.
 			// The clip polygon is kept in canvas coordinates so the renderer can discard fragments outside it.
-			const Rect2 clip_rect = ci->get_rect();
 			const Vector2 clip_center = clip_rect.get_center();
 			const Point2 local_vertices[4] = {
 				clip_rect.position,
@@ -440,6 +450,9 @@ void RendererCanvasCull::_cull_canvas_item(Item *p_canvas_item, const Transform2
 			}
 			clip_global_rect = polygon_rect;
 			ci->clip_skew_active = true;
+		} else {
+			clip_global_rect = final_xform.xform(clip_rect);
+			clip_global_rect.position += p_clip_rect.position;
 		}
 
 		if (p_canvas_clip != nullptr) {
@@ -713,6 +726,13 @@ void RendererCanvasCull::canvas_item_set_clip_skew(RID p_item, const Vector2 &p_
 	ERR_FAIL_NULL(canvas_item);
 
 	canvas_item->clip_skew = p_skew;
+}
+
+void RendererCanvasCull::canvas_item_set_clip_inset(RID p_item, const Vector4 &p_inset) {
+	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
+	ERR_FAIL_NULL(canvas_item);
+
+	canvas_item->clip_inset = p_inset;
 }
 
 void RendererCanvasCull::canvas_item_set_distance_field_mode(RID p_item, bool p_enable) {

@@ -289,6 +289,7 @@ private:
 
 		bool clip_contents = false;
 		Vector2 clip_skew;
+		Vector4 clip_inset;
 		bool disable_visibility_clip = false;
 
 		CursorShape default_cursor = CURSOR_ARROW;
@@ -785,6 +786,9 @@ public:
 
 	void set_clip_skew(const Vector2 &p_skew);
 	Vector2 get_clip_skew() const;
+
+	void set_clip_inset(const Vector4 &p_inset);
+	Vector4 get_clip_inset() const;
 
 	void set_disable_visibility_clip(bool p_ignore);
 	bool is_visibility_clip_disabled() const;

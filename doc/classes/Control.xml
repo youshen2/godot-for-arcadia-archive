@@ -1078,6 +1078,10 @@
 			仅对 [member clip_contents] 的矩形裁切区域应用的斜切量。开启 [member clip_contents] 后，[code]x[/code] 分量使裁切区域按与控件中心的垂直距离发生水平偏移，正值让上半部分向右、下半部分向左；[code]y[/code] 分量使裁切区域按与控件中心的水平距离发生垂直偏移，正值让左半部分向下、右半部分向上。子控件本身不会变形，只有超出斜切后的四边形区域的部分会被裁掉。
 			该属性不改变布局、最小尺寸或命中测试区域。Vulkan、Metal、Direct3D 12 等 RenderingDevice 渲染器和 GL Compatibility 渲染器都会按斜四边形做片段级精确裁切。
 		</member>
+		<member name="clip_inset" type="Vector4" setter="set_clip_inset" getter="get_clip_inset" default="Vector4(0, 0, 0, 0)">
+			仅对 [member clip_contents] 的裁切区域应用的向内收缩量，单位为像素。四个分量依次为 left、top、right、bottom，正值表示对应边缘向控件中心收缩，使子控件在边缘内侧更早被裁掉；负值会被按 [code]0[/code] 处理，不会向外扩大裁切区域。
+			该属性会先收缩矩形，再应用 [member clip_skew] 的斜切，因此可以在倾斜裁切边框内侧留出安全边距。该属性不改变布局、最小尺寸或命中测试区域。
+		</member>
 		<member name="custom_maximum_size" type="Vector2" setter="set_custom_maximum_size" getter="get_custom_maximum_size" default="Vector2(-1, -1)">
 			The maximum size of this Control's bounding rectangle. If set to a value greater than or equal to [code](0, 0)[/code], the node's bounding rectangle will never exceed this size. A value below [code](0, 0)[/code] means there is no maximum size.
 			[b]Note:[/b] The final effective maximum size may be subject to parent Container sizing and propagated maximum sizes. See also: [method get_combined_maximum_size].
