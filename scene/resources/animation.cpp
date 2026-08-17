@@ -1740,7 +1740,7 @@ int Animation::track_find_key(int p_track, double p_time, FindMode p_find_mode, 
 	return -1;
 }
 
-int Animation::track_insert_key(int p_track, double p_time, const Variant &p_key, real_t p_transition) {
+int Animation::track_insert_key(int p_track, double p_time, const Variant &p_key, real_t p_transition, bool p_adaptive) {
 	ERR_FAIL_UNSIGNED_INDEX_V((uint32_t)p_track, tracks.size(), -1);
 	Track *t = tracks[p_track];
 
@@ -1850,6 +1850,10 @@ int Animation::track_insert_key(int p_track, double p_time, const Variant &p_key
 			ret = _insert(p_time, at->values, ak);
 
 		} break;
+	}
+
+	if (p_adaptive && ret >= 0) {
+		_set_key_adaptive(p_track, ret, true);
 	}
 
 	emit_changed();
@@ -4144,7 +4148,7 @@ void Animation::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("scale_track_interpolate", "track_idx", "time_sec", "backward"), &Animation::scale_track_interpolate, DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("blend_shape_track_interpolate", "track_idx", "time_sec", "backward"), &Animation::blend_shape_track_interpolate, DEFVAL(false));
 
-	ClassDB::bind_method(D_METHOD("track_insert_key", "track_idx", "time", "key", "transition"), &Animation::track_insert_key, DEFVAL(1));
+	ClassDB::bind_method(D_METHOD("track_insert_key", "track_idx", "time", "key", "transition", "adaptive"), &Animation::track_insert_key, DEFVAL(1), DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("track_remove_key", "track_idx", "key_idx"), &Animation::track_remove_key);
 	ClassDB::bind_method(D_METHOD("track_remove_key_at_time", "track_idx", "time"), &Animation::track_remove_key_at_time);
 	ClassDB::bind_method(D_METHOD("track_set_key_value", "track_idx", "key", "value"), &Animation::track_set_key_value);

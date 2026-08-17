@@ -878,6 +878,7 @@ class AnimationTrackEditor : public VBoxContainer {
 			float time = 0;
 			float transition = 0;
 			Variant value;
+			bool adaptive = false;
 		};
 		Vector<Key> keys;
 	};
@@ -891,6 +892,7 @@ class AnimationTrackEditor : public VBoxContainer {
 			float time = 0;
 			float transition = 0;
 			Variant value;
+			bool adaptive = false;
 		};
 		Vector<Key> keys;
 	};
@@ -1035,6 +1037,7 @@ class AnimationTrackKeyEditEditor : public EditorProperty {
 		real_t time = 0.0;
 		float transition = 0.0;
 		Variant value;
+		bool adaptive = false;
 	} key_data_cache;
 
 	void _time_edit_spun();

@@ -513,8 +513,10 @@
 			<param index="1" name="time" type="float" />
 			<param index="2" name="key" type="Variant" />
 			<param index="3" name="transition" type="float" default="1" />
+			<param index="4" name="adaptive" type="bool" default="false" />
 			<description>
 				Inserts a generic key in a given track. Returns the key index.
+				当 [param adaptive] 为 [code]true[/code] 时，新插入的关键帧会开启关键帧级自适应标记；替换同一时间的已有关键帧且未显式传入该参数时，保留原有标记。
 			</description>
 		</method>
 		<method name="track_is_compressed" qualifiers="const">

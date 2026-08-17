@@ -2358,7 +2358,7 @@ void SceneTreeDock::perform_node_renames(Node *p_base, HashMap<Node *, NodePath>
 									undo_redo->add_undo_method(anim.ptr(), "track_set_path", idx, track_np);
 									undo_redo->add_undo_method(anim.ptr(), "track_set_interpolation_type", idx, anim->track_get_interpolation_type(i));
 									for (int j = 0; j < anim->track_get_key_count(i); j++) {
-										undo_redo->add_undo_method(anim.ptr(), "track_insert_key", idx, anim->track_get_key_time(i, j), anim->track_get_key_value(i, j), anim->track_get_key_transition(i, j));
+										undo_redo->add_undo_method(anim.ptr(), "track_insert_key", idx, anim->track_get_key_time(i, j), anim->track_get_key_value(i, j), anim->track_get_key_transition(i, j), anim->track_is_key_adaptive(i, j));
 									}
 
 									ran.erase(i); //byebye channel
