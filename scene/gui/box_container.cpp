@@ -30,6 +30,7 @@
 
 #include "box_container.h"
 
+#include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "scene/gui/label.h"
 #include "scene/gui/margin_container.h"
@@ -392,6 +393,33 @@ void BoxContainer::set_fit_child_content(bool p_enabled) {
 
 bool BoxContainer::is_fit_child_content() const {
 	return fit_child_content;
+}
+
+void BoxContainer::_child_content_size_changed() {
+	if (!fit_child_content) {
+		return;
+	}
+
+	update_minimum_size();
+	queue_sort();
+}
+
+void BoxContainer::add_child_notify(Node *p_child) {
+	Container::add_child_notify(p_child);
+
+	Control *control = Object::cast_to<Control>(p_child);
+	if (control) {
+		control->connect(SNAME("_desired_size_changed"), callable_mp(this, &BoxContainer::_child_content_size_changed));
+	}
+}
+
+void BoxContainer::remove_child_notify(Node *p_child) {
+	Control *control = Object::cast_to<Control>(p_child);
+	if (control) {
+		control->disconnect(SNAME("_desired_size_changed"), callable_mp(this, &BoxContainer::_child_content_size_changed));
+	}
+
+	Container::remove_child_notify(p_child);
 }
 
 void BoxContainer::set_vertical(bool p_vertical) {

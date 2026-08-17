@@ -53,6 +53,7 @@ private:
 	} theme_cache;
 
 	void _resort();
+	void _child_content_size_changed();
 	Size2 _get_minimum_size(bool p_use_desired_sizes) const;
 
 protected:
@@ -61,6 +62,8 @@ protected:
 	void _notification(int p_what);
 	void _validate_property(PropertyInfo &p_property) const;
 	static void _bind_methods();
+	virtual void add_child_notify(Node *p_child) override;
+	virtual void remove_child_notify(Node *p_child) override;
 
 public:
 	Control *add_spacer(bool p_begin = false);
