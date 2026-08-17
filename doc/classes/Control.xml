@@ -1076,7 +1076,7 @@
 		</member>
 		<member name="clip_skew" type="Vector2" setter="set_clip_skew" getter="get_clip_skew" default="Vector2(0, 0)">
 			仅对 [member clip_contents] 的矩形裁切区域应用的斜切量。开启 [member clip_contents] 后，[code]x[/code] 分量使裁切区域按与控件中心的垂直距离发生水平偏移，正值让上半部分向右、下半部分向左；[code]y[/code] 分量使裁切区域按与控件中心的水平距离发生垂直偏移，正值让左半部分向下、右半部分向上。子控件本身不会变形，只有超出斜切后的四边形区域的部分会被裁掉。
-			该属性不改变布局、最小尺寸或命中测试区域。使用 Vulkan、Metal、Direct3D 12 等 RenderingDevice 渲染器时按斜四边形精确裁切；GL Compatibility 渲染器会退回使用斜切后四边形的包围矩形裁切，边缘精度较低。
+			该属性不改变布局、最小尺寸或命中测试区域。Vulkan、Metal、Direct3D 12 等 RenderingDevice 渲染器和 GL Compatibility 渲染器都会按斜四边形做片段级精确裁切。
 		</member>
 		<member name="custom_maximum_size" type="Vector2" setter="set_custom_maximum_size" getter="get_custom_maximum_size" default="Vector2(-1, -1)">
 			The maximum size of this Control's bounding rectangle. If set to a value greater than or equal to [code](0, 0)[/code], the node's bounding rectangle will never exceed this size. A value below [code](0, 0)[/code] means there is no maximum size.

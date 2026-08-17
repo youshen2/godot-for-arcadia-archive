@@ -517,7 +517,7 @@
 			<param index="1" name="skew" type="Vector2" />
 			<description>
 				设置由 [param item] 指定的画布项在启用 [method canvas_item_set_clip] 时使用的斜切裁切量。[param skew] 的 [code]x[/code] 分量使裁切区域按垂直距离发生水平偏移，[code]y[/code] 分量使裁切区域按水平距离发生垂直偏移，从而把矩形裁切区域变为斜四边形；画布项自身及子项不会被斜切。
-				RenderingDevice 渲染器（Vulkan、Metal、Direct3D 12）会按斜四边形进行片段级裁切；GL Compatibility 渲染器使用该四边形的包围矩形作为回退。对应节点接口为 [member Control.clip_skew]。
+				Vulkan、Metal、Direct3D 12 等 RenderingDevice 渲染器以及 GL Compatibility 渲染器都会按斜四边形进行片段级精确裁切。对应节点接口为 [member Control.clip_skew]。
 			</description>
 		</method>
 		<method name="canvas_item_set_copy_to_backbuffer">

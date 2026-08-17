@@ -342,6 +342,8 @@ uniform sampler2D color_texture; //texunit:0
 
 uniform mediump uint batch_flags;
 uniform highp uint specular_shininess_in;
+uniform mediump uint clip_skew_enabled;
+uniform highp vec4 clip_vertices[4];
 
 layout(location = 0) out vec4 frag_color;
 
@@ -865,6 +867,28 @@ void main() {
 #ifdef MODE_LIGHT_ONLY
 	color.a *= light_only_alpha;
 #endif
+
+	if (clip_skew_enabled != 0u) {
+		vec2 clip_polygon[4] = vec2[](
+				clip_vertices[0].xy,
+				clip_vertices[1].xy,
+				clip_vertices[2].xy,
+				clip_vertices[3].xy);
+		float clip_area = 0.0;
+		for (int i = 0; i < 4; i++) {
+			vec2 a = clip_polygon[i];
+			vec2 b = clip_polygon[(i + 1) % 4];
+			clip_area += a.x * b.y - b.x * a.y;
+		}
+		for (int i = 0; i < 4; i++) {
+			vec2 a = clip_polygon[i];
+			vec2 b = clip_polygon[(i + 1) % 4];
+			float cross = (b.x - a.x) * (vertex.y - a.y) - (b.y - a.y) * (vertex.x - a.x);
+			if (cross * clip_area < 0.0) {
+				discard;
+			}
+		}
+	}
 
 	frag_color = color;
 }

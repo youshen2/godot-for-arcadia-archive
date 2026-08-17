@@ -679,6 +679,7 @@ void RasterizerCanvasGLES3::_render_items(RID p_to_render_target, int p_item_cou
 
 	glDisable(GL_SCISSOR_TEST);
 	current_clip = nullptr;
+	bool clip_skew_active = false;
 
 	GLES3::CanvasShaderData::BlendMode last_blend_mode = GLES3::CanvasShaderData::BLEND_MODE_MIX;
 	Color last_blend_color;
@@ -696,6 +697,7 @@ void RasterizerCanvasGLES3::_render_items(RID p_to_render_target, int p_item_cou
 		//setup clip
 		if (current_clip != state.canvas_instance_batches[i].clip) {
 			current_clip = state.canvas_instance_batches[i].clip;
+			clip_skew_active = current_clip && current_clip->clip_skew_active;
 			if (current_clip) {
 				glEnable(GL_SCISSOR_TEST);
 				glScissor(current_clip->final_clip_rect.position.x, current_clip->final_clip_rect.position.y, current_clip->final_clip_rect.size.x, current_clip->final_clip_rect.size.y);
@@ -726,6 +728,15 @@ void RasterizerCanvasGLES3::_render_items(RID p_to_render_target, int p_item_cou
 		// Bind per-batch uniforms.
 		material_storage->shaders.canvas_shader.version_set_uniform(CanvasShaderGLES3::BATCH_FLAGS, state.canvas_instance_batches[i].flags, shader_version, variant, specialization);
 		material_storage->shaders.canvas_shader.version_set_uniform(CanvasShaderGLES3::SPECULAR_SHININESS_IN, state.canvas_instance_batches[i].specular_shininess, shader_version, variant, specialization);
+		material_storage->shaders.canvas_shader.version_set_uniform(CanvasShaderGLES3::CLIP_SKEW_ENABLED, clip_skew_active ? 1u : 0u, shader_version, variant, specialization);
+		int clip_vertices_location = material_storage->shaders.canvas_shader.version_get_uniform(CanvasShaderGLES3::CLIP_VERTICES, shader_version, variant, specialization);
+		if (clip_vertices_location >= 0) {
+			float clip_vertex_data[16] = {};
+			if (clip_skew_active) {
+				memcpy(clip_vertex_data, current_clip->clip_vertices, sizeof(current_clip->clip_vertices));
+			}
+			glUniform4fv(clip_vertices_location, 4, clip_vertex_data);
+		}
 
 		GLES3::CanvasShaderData::BlendMode blend_mode = state.canvas_instance_batches[i].blend_mode;
 		Color blend_color = state.canvas_instance_batches[i].blend_color;
