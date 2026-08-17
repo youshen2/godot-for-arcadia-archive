@@ -15,11 +15,30 @@
 		<member name="columns" type="int" setter="set_columns" getter="get_columns" default="1">
 			The number of columns in the [GridContainer]. If modified, [GridContainer] reorders its Control-derived children to accommodate the new layout.
 		</member>
+		<member name="horizontal_alignment" type="int" setter="set_horizontal_alignment" getter="get_horizontal_alignment" enum="GridContainer.AlignmentMode" default="0">
+			当整个网格的实际占用宽度小于控件宽度时，控制网格在水平方向上的对齐方式。取值必须为 [constant ALIGNMENT_BEGIN]、[constant ALIGNMENT_CENTER] 或 [constant ALIGNMENT_END]。
+			该属性移动的是整块网格，不改变各子控件在自身单元格内的对齐方式。若存在展开的列占满剩余宽度，或者 [member item_skew] 的 [code]x[/code] 分量已经占满可用空间，则该属性可能没有可见效果。在从右到左布局中，起始和结束方向会自动镜像。
+		</member>
 		<member name="item_skew" type="Vector2" setter="set_item_skew" getter="get_item_skew" default="Vector2(0, 0)">
 			网格中每一行和每一列的逐项偏移量，单位为像素。第 0 行和第 0 列保持原位；[code]x[/code] 分量使后续每一行整体水平偏移该值，正值向右、负值向左，[code]y[/code] 分量使后续每一列整体垂直偏移该值，正值向下、负值向上。两个分量可以同时使用，使整个网格沿行和列两个方向斜向排列。
 			偏移范围会计入最小尺寸和期望尺寸：宽度额外增加 [code]abs(item_skew.x) * (行数 - 1)[/code]，高度额外增加 [code]abs(item_skew.y) * (列数 - 1)[/code]。倾斜只改变子控件的最终矩形位置，不改变每个子控件自身的大小，也不会拉伸或旋转子控件。在从右到左布局中，[code]x[/code] 分量仍然按控件坐标的正方向解释。
 		</member>
+		<member name="vertical_alignment" type="int" setter="set_vertical_alignment" getter="get_vertical_alignment" enum="GridContainer.AlignmentMode" default="0">
+			当整个网格的实际占用高度小于控件高度时，控制网格在垂直方向上的对齐方式。取值必须为 [constant ALIGNMENT_BEGIN]、[constant ALIGNMENT_CENTER] 或 [constant ALIGNMENT_END]。
+			该属性移动的是整块网格，不改变各子控件在自身单元格内的对齐方式。若存在展开的行占满剩余高度，或者 [member item_skew] 的 [code]y[/code] 分量已经占满可用空间，则该属性可能没有可见效果。
+		</member>
 	</members>
+	<constants>
+		<constant name="ALIGNMENT_BEGIN" value="0" enum="AlignmentMode">
+			网格内容对齐到容器的起始位置：水平方向为左侧（从右到左布局中为右侧），垂直方向为顶部。
+		</constant>
+		<constant name="ALIGNMENT_CENTER" value="1" enum="AlignmentMode">
+			网格内容在容器中居中。
+		</constant>
+		<constant name="ALIGNMENT_END" value="2" enum="AlignmentMode">
+			网格内容对齐到容器的结束位置：水平方向为右侧（从右到左布局中为左侧），垂直方向为底部。
+		</constant>
+	</constants>
 	<theme_items>
 		<theme_item name="h_separation" data_type="constant" type="int" default="4">
 			The horizontal separation of child nodes.

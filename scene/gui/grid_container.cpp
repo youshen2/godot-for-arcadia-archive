@@ -241,8 +241,8 @@ void GridContainer::_resort() {
 	const float skew_x_origin = item_skew.x < 0.0f ? skew_x_extent : (rtl ? -skew_x_extent : 0.0f);
 	const float skew_y_origin = item_skew.y < 0.0f ? skew_y_extent : 0.0f;
 
-	int col_ofs = 0;
-	int row_ofs = 0;
+	float col_ofs = 0.0f;
+	float row_ofs = 0.0f;
 
 	// Calculate the index of rows and columns that receive the remaining pixel.
 	int col_remaining_pixel_index = 0;
@@ -266,6 +266,53 @@ void GridContainer::_resort() {
 		}
 	}
 
+	float grid_width = skew_x_extent + theme_cache.h_separation * MAX(max_col - 1, 0);
+	for (int i = 0; i < max_col; i++) {
+		int col_size = col_expanded.has(i) ? col_expand : (col_fixed_size.has(i) ? col_fixed_size[i] : (col_minw.has(i) ? col_minw[i] : 0));
+		if (col_expanded.has(i) && i < col_remaining_pixel_index) {
+			col_size++;
+		}
+		grid_width += col_size;
+	}
+
+	float grid_height = skew_y_extent + theme_cache.v_separation * MAX(max_row - 1, 0);
+	for (int i = 0; i < max_row; i++) {
+		int row_size = row_expanded.has(i) ? row_expand : (row_fixed_size.has(i) ? row_fixed_size[i] : (row_minh.has(i) ? row_minh[i] : 0));
+		if (row_expanded.has(i) && i < row_remaining_pixel_index) {
+			row_size++;
+		}
+		grid_height += row_size;
+	}
+
+	float horizontal_alignment_offset = 0.0f;
+	switch (horizontal_alignment) {
+		case ALIGNMENT_CENTER: {
+			horizontal_alignment_offset = MAX(0.0f, get_size().width - grid_width) * 0.5f;
+		} break;
+		case ALIGNMENT_END: {
+			horizontal_alignment_offset = MAX(0.0f, get_size().width - grid_width);
+		} break;
+		case ALIGNMENT_BEGIN:
+		default:
+			break;
+	}
+	if (rtl) {
+		horizontal_alignment_offset = -horizontal_alignment_offset;
+	}
+
+	float vertical_alignment_offset = 0.0f;
+	switch (vertical_alignment) {
+		case ALIGNMENT_CENTER: {
+			vertical_alignment_offset = MAX(0.0f, get_size().height - grid_height) * 0.5f;
+		} break;
+		case ALIGNMENT_END: {
+			vertical_alignment_offset = MAX(0.0f, get_size().height - grid_height);
+		} break;
+		case ALIGNMENT_BEGIN:
+		default:
+			break;
+	}
+
 	int accumulated_width = 0;
 	int accumulated_height = 0;
 	valid_controls_index = 0;
@@ -280,11 +327,13 @@ void GridContainer::_resort() {
 
 		if (col == 0) {
 			if (rtl) {
-				col_ofs = get_size().width;
+				col_ofs = get_size().width + horizontal_alignment_offset;
 			} else {
-				col_ofs = 0;
+				col_ofs = horizontal_alignment_offset;
 			}
-			if (row > 0) {
+			if (row == 0) {
+				row_ofs = vertical_alignment_offset;
+			} else {
 				row_ofs += (row_expanded.has(row - 1) ? row_expand : row_minh[row - 1]) + theme_cache.v_separation;
 
 				if (row_expanded.has(row - 1) && row - 1 < row_remaining_pixel_index) {
@@ -389,6 +438,30 @@ Vector2 GridContainer::get_item_skew() const {
 	return item_skew;
 }
 
+void GridContainer::set_horizontal_alignment(AlignmentMode p_alignment) {
+	if (horizontal_alignment == p_alignment) {
+		return;
+	}
+	horizontal_alignment = p_alignment;
+	queue_sort();
+}
+
+GridContainer::AlignmentMode GridContainer::get_horizontal_alignment() const {
+	return horizontal_alignment;
+}
+
+void GridContainer::set_vertical_alignment(AlignmentMode p_alignment) {
+	if (vertical_alignment == p_alignment) {
+		return;
+	}
+	vertical_alignment = p_alignment;
+	queue_sort();
+}
+
+GridContainer::AlignmentMode GridContainer::get_vertical_alignment() const {
+	return vertical_alignment;
+}
+
 int GridContainer::get_h_separation() const {
 	return theme_cache.h_separation;
 }
@@ -398,9 +471,19 @@ void GridContainer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_columns"), &GridContainer::get_columns);
 	ClassDB::bind_method(D_METHOD("set_item_skew", "offset"), &GridContainer::set_item_skew);
 	ClassDB::bind_method(D_METHOD("get_item_skew"), &GridContainer::get_item_skew);
+	ClassDB::bind_method(D_METHOD("set_horizontal_alignment", "alignment"), &GridContainer::set_horizontal_alignment);
+	ClassDB::bind_method(D_METHOD("get_horizontal_alignment"), &GridContainer::get_horizontal_alignment);
+	ClassDB::bind_method(D_METHOD("set_vertical_alignment", "alignment"), &GridContainer::set_vertical_alignment);
+	ClassDB::bind_method(D_METHOD("get_vertical_alignment"), &GridContainer::get_vertical_alignment);
+
+	BIND_ENUM_CONSTANT(ALIGNMENT_BEGIN);
+	BIND_ENUM_CONSTANT(ALIGNMENT_CENTER);
+	BIND_ENUM_CONSTANT(ALIGNMENT_END);
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "columns", PROPERTY_HINT_RANGE, "1,1024,1"), "set_columns", "get_columns");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "item_skew", PROPERTY_HINT_RANGE, "-256,256,0.1,or_less,or_greater,suffix:px"), "set_item_skew", "get_item_skew");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "horizontal_alignment", PROPERTY_HINT_ENUM, "Begin,Center,End"), "set_horizontal_alignment", "get_horizontal_alignment");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "vertical_alignment", PROPERTY_HINT_ENUM, "Begin,Center,End"), "set_vertical_alignment", "get_vertical_alignment");
 
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, GridContainer, h_separation);
 	BIND_THEME_ITEM(Theme::DATA_TYPE_CONSTANT, GridContainer, v_separation);

@@ -35,8 +35,18 @@
 class GridContainer : public Container {
 	GDCLASS(GridContainer, Container);
 
+public:
+	enum AlignmentMode {
+		ALIGNMENT_BEGIN,
+		ALIGNMENT_CENTER,
+		ALIGNMENT_END,
+	};
+
+private:
 	int columns = 1;
 	Vector2 item_skew;
+	AlignmentMode horizontal_alignment = ALIGNMENT_BEGIN;
+	AlignmentMode vertical_alignment = ALIGNMENT_BEGIN;
 
 	struct ThemeCache {
 		int h_separation = 0;
@@ -58,8 +68,16 @@ public:
 	void set_item_skew(const Vector2 &p_offset);
 	Vector2 get_item_skew() const;
 
+	void set_horizontal_alignment(AlignmentMode p_alignment);
+	AlignmentMode get_horizontal_alignment() const;
+
+	void set_vertical_alignment(AlignmentMode p_alignment);
+	AlignmentMode get_vertical_alignment() const;
+
 	virtual Size2 get_minimum_size() const override;
 	virtual Size2 get_desired_size() const override;
 
 	int get_h_separation() const;
 };
+
+VARIANT_ENUM_CAST(GridContainer::AlignmentMode);
