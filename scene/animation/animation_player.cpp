@@ -353,11 +353,27 @@ Variant AnimationPlayer::_post_process_key_value(const Ref<Animation> &p_anim, i
 	} else if (is_position_y) {
 		return (real_t)value + position_delta.y;
 	} else if (is_size) {
-		return Vector2(value) + size_delta;
+		Vector2 adjusted = Vector2(value) + size_delta;
+		const Size2 min_size = control->get_combined_minimum_size();
+		if (size_delta.x < 0) {
+			adjusted.x = MAX(adjusted.x, min_size.x);
+		}
+		if (size_delta.y < 0) {
+			adjusted.y = MAX(adjusted.y, min_size.y);
+		}
+		return adjusted;
 	} else if (is_size_x) {
-		return (real_t)value + size_delta.x;
+		real_t adjusted = (real_t)value + size_delta.x;
+		if (size_delta.x < 0) {
+			adjusted = MAX(adjusted, control->get_combined_minimum_size().x);
+		}
+		return adjusted;
 	} else {
-		return (real_t)value + size_delta.y;
+		real_t adjusted = (real_t)value + size_delta.y;
+		if (size_delta.y < 0) {
+			adjusted = MAX(adjusted, control->get_combined_minimum_size().y);
+		}
+		return adjusted;
 	}
 }
 
