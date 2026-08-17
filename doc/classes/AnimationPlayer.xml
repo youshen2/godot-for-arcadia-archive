@@ -294,11 +294,6 @@
 		<member name="assigned_animation" type="StringName" setter="set_assigned_animation" getter="get_assigned_animation">
 			If playing, the current animation's key, otherwise, the animation last played. When set, this changes the animation, but will not play it unless already playing. See also [member current_animation].
 		</member>
-		<member name="adaptive" type="bool" setter="set_adaptive" getter="is_adaptive" default="false">
-			启用后，值轨道中作用于 [Control] 的 [member Control.position]、[member Control.size] 以及 [code]position:x[/code]、[code]position:y[/code]、[code]size:x[/code]、[code]size:y[/code] 会按照目标控件自身的锚点自适应。
-			计算方式与锚点布局一致：以 [member ProjectSettings.display/window/size/viewport_width] 和 [member ProjectSettings.display/window/size/viewport_height] 作为设计分辨率，按目标控件当前父级尺寸与设计分辨率的差值调整动画键值。[code]position[/code] 使用 [member Control.anchor_left] / [member Control.anchor_top] 平移；[code]size[/code] 使用左右锚点差值和上下锚点差值缩放。锚点为 [code]0[/code] 的轴保持原始动画值，锚点为 [code]1[/code] 的轴会跟随父级尺寸变化，使动画位置和尺寸始终对齐在动画制作时锚定的屏幕区域。
-			该属性不修改动画资源本身，也不影响 [code]offset_left[/code] 等本身就相对锚点的轨道；运行时修改 [member adaptive] 会立即在后续帧生效。对非 [Control] 目标或不在树内的目标，该开关不生效。
-		</member>
 		<member name="autoplay" type="StringName" setter="set_autoplay" getter="get_autoplay" default="&amp;&quot;&quot;">
 			The key of the animation to play when the scene loads.
 		</member>

@@ -538,6 +538,14 @@
 				Returns [code]true[/code] if the given track is imported. Else, return [code]false[/code].
 			</description>
 		</method>
+		<method name="track_is_key_adaptive" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="track_idx" type="int" />
+			<param index="1" name="key_idx" type="int" />
+			<description>
+				返回指定轨道 [param track_idx] 中第 [param key_idx] 个关键帧的自适应标记。该标记表示此关键帧之后、下一个关键帧之前的动画取值是否需要按当前父容器尺寸相对设计分辨率进行自适应修正。新插入的关键帧默认返回 [code]false[/code]；压缩轨道不支持该标记，始终返回 [code]false[/code]。
+			</description>
+		</method>
 		<method name="track_move_down">
 			<return type="void" />
 			<param index="0" name="track_idx" type="int" />
@@ -606,6 +614,15 @@
 			<param index="1" name="interpolation" type="int" enum="Animation.InterpolationType" />
 			<description>
 				Sets the interpolation type of a given track.
+			</description>
+		</method>
+		<method name="track_set_key_adaptive">
+			<return type="void" />
+			<param index="0" name="track_idx" type="int" />
+			<param index="1" name="key_idx" type="int" />
+			<param index="2" name="adaptive" type="bool" />
+			<description>
+				设置指定轨道 [param track_idx] 中第 [param key_idx] 个关键帧的自适应标记。当 [param adaptive] 为 [code]true[/code] 时，该关键帧之后、下一个关键帧之前由 [AnimationPlayer] 播放产生的属性值会按当前父容器尺寸相对项目设计分辨率进行自适应修正。压缩轨道不支持该标记，调用不会产生效果。
 			</description>
 		</method>
 		<method name="track_set_key_time">

@@ -126,6 +126,7 @@ private:
 	struct Key {
 		real_t transition = 1.0;
 		double time = 0.0; // Time in secs.
+		bool adaptive = false;
 	};
 
 	// Transform key holds either Vector3 or Quaternion.
@@ -261,6 +262,9 @@ private:
 	HashSet<StringName> folded_groups;
 	bool folded_groups_dirty = false; // Set when changing folding state to access .cfg to store the state.
 #endif // TOOLS_ENABLED
+
+	void _set_key_adaptive(int p_track, int p_key_idx, bool p_adaptive);
+	bool _get_key_adaptive(int p_track, int p_key_idx) const;
 
 	template <typename T, typename V>
 	int _insert(double p_time, T &p_keys, const V &p_value);
@@ -453,6 +457,8 @@ public:
 	Variant track_get_key_value(int p_track, int p_key_idx) const;
 	double track_get_key_time(int p_track, int p_key_idx) const;
 	real_t track_get_key_transition(int p_track, int p_key_idx) const;
+	void track_set_key_adaptive(int p_track, int p_key_idx, bool p_adaptive);
+	bool track_is_key_adaptive(int p_track, int p_key_idx) const;
 	bool track_is_compressed(int p_track) const;
 
 	int position_track_insert_key(int p_track, double p_time, const Vector3 &p_position);

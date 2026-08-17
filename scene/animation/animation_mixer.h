@@ -361,8 +361,11 @@ protected:
 	virtual void _process_animation(double p_delta, bool p_update_only = false);
 
 	// For post process with retrieved key value during blending.
-	virtual Variant _post_process_key_value(const Ref<Animation> &p_anim, int p_track, Variant &p_value, ObjectID p_object_id, int p_object_sub_idx = -1);
-	Variant post_process_key_value(const Ref<Animation> &p_anim, int p_track, Variant p_value, ObjectID p_object_id, int p_object_sub_idx = -1);
+	// p_time and p_backward are only passed to the C++ implementation; the
+	// script virtual `_post_process_key_value` keeps its 5-argument signature
+	// for GDScript / GDExtension compatibility.
+	virtual Variant _post_process_key_value(const Ref<Animation> &p_anim, int p_track, Variant &p_value, ObjectID p_object_id, int p_object_sub_idx = -1, double p_time = 0.0, bool p_backward = false);
+	Variant post_process_key_value(const Ref<Animation> &p_anim, int p_track, Variant p_value, ObjectID p_object_id, int p_object_sub_idx = -1, double p_time = 0.0, bool p_backward = false);
 	GDVIRTUAL5RC(Variant, _post_process_key_value, Ref<Animation>, int, Variant, ObjectID, int);
 
 	void _blend_init();

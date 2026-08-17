@@ -57,6 +57,10 @@ bool AnimationPlayer::_set(const StringName &p_name, const Variant &p_value) {
 			float time = array[i * 3 + 2];
 			set_blend_time(from, to, time);
 		}
+	} else if (p_name == SNAME("adaptive")) {
+		// The global adaptive property was replaced by per-key adaptive flags on Animation.
+		// Accept and ignore old saved values so scenes keep loading.
+		return true;
 #ifndef DISABLE_DEPRECATED
 	} else if (p_name == "method_call_mode") {
 		set_callback_mode_method(static_cast<AnimationCallbackModeMethod>((int)p_value));
@@ -306,9 +310,14 @@ void AnimationPlayer::_blend_playback_data(double p_delta, bool p_started) {
 	}
 }
 
-Variant AnimationPlayer::_post_process_key_value(const Ref<Animation> &p_anim, int p_track, Variant &p_value, ObjectID p_object_id, int p_object_sub_idx) {
-	Variant value = AnimationMixer::_post_process_key_value(p_anim, p_track, p_value, p_object_id, p_object_sub_idx);
-	if (!adaptive || p_anim.is_null() || p_anim->track_get_type(p_track) != Animation::TYPE_VALUE) {
+Variant AnimationPlayer::_post_process_key_value(const Ref<Animation> &p_anim, int p_track, Variant &p_value, ObjectID p_object_id, int p_object_sub_idx, double p_time, bool p_backward) {
+	Variant value = AnimationMixer::_post_process_key_value(p_anim, p_track, p_value, p_object_id, p_object_sub_idx, p_time, p_backward);
+	if (p_anim.is_null() || p_anim->track_get_type(p_track) != Animation::TYPE_VALUE) {
+		return value;
+	}
+
+	int key_idx = p_anim->track_find_key(p_track, p_time, Animation::FIND_MODE_NEAREST, false, p_backward);
+	if (key_idx < 0 || !p_anim->track_is_key_adaptive(p_track, key_idx)) {
 		return value;
 	}
 
@@ -849,14 +858,6 @@ bool AnimationPlayer::is_movie_quit_on_finish_enabled() const {
 	return movie_quit_on_finish;
 }
 
-void AnimationPlayer::set_adaptive(bool p_enabled) {
-	adaptive = p_enabled;
-}
-
-bool AnimationPlayer::is_adaptive() const {
-	return adaptive;
-}
-
 void AnimationPlayer::_animation_changed(const StringName &p_name) {
 	AnimationMixer::_animation_changed(p_name);
 	if (playback.current.is_enabled && playback.current.animation_name == p_name && animation_set.has(p_name)) {
@@ -1094,9 +1095,6 @@ void AnimationPlayer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_movie_quit_on_finish_enabled", "enabled"), &AnimationPlayer::set_movie_quit_on_finish_enabled);
 	ClassDB::bind_method(D_METHOD("is_movie_quit_on_finish_enabled"), &AnimationPlayer::is_movie_quit_on_finish_enabled);
 
-	ClassDB::bind_method(D_METHOD("set_adaptive", "enabled"), &AnimationPlayer::set_adaptive);
-	ClassDB::bind_method(D_METHOD("is_adaptive"), &AnimationPlayer::is_adaptive);
-
 	ClassDB::bind_method(D_METHOD("get_current_animation_position"), &AnimationPlayer::get_current_animation_position);
 	ClassDB::bind_method(D_METHOD("get_current_animation_length"), &AnimationPlayer::get_current_animation_length);
 
@@ -1113,7 +1111,6 @@ void AnimationPlayer::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::STRING_NAME, "current_animation", PROPERTY_HINT_ENUM, "", PROPERTY_USAGE_EDITOR), "set_current_animation", "get_current_animation");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING_NAME, "assigned_animation", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "set_assigned_animation", "get_assigned_animation");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING_NAME, "autoplay", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR), "set_autoplay", "get_autoplay");
-	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "adaptive"), "set_adaptive", "is_adaptive");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "current_animation_length", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "", "get_current_animation_length");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "current_animation_position", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "", "get_current_animation_position");
 

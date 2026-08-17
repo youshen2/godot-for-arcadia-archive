@@ -1027,7 +1027,9 @@ void AnimationMixer::_process_animation(double p_delta, bool p_update_only) {
 	}
 }
 
-Variant AnimationMixer::_post_process_key_value(const Ref<Animation> &p_anim, int p_track, Variant &p_value, ObjectID p_object_id, int p_object_sub_idx) {
+Variant AnimationMixer::_post_process_key_value(const Ref<Animation> &p_anim, int p_track, Variant &p_value, ObjectID p_object_id, int p_object_sub_idx, double p_time, bool p_backward) {
+	(void)p_time;
+	(void)p_backward;
 #ifndef _3D_DISABLED
 	switch (p_anim->track_get_type(p_track)) {
 		case Animation::TYPE_POSITION_3D: {
@@ -1046,7 +1048,7 @@ Variant AnimationMixer::_post_process_key_value(const Ref<Animation> &p_anim, in
 	return p_value;
 }
 
-Variant AnimationMixer::post_process_key_value(const Ref<Animation> &p_anim, int p_track, Variant p_value, ObjectID p_object_id, int p_object_sub_idx) {
+Variant AnimationMixer::post_process_key_value(const Ref<Animation> &p_anim, int p_track, Variant p_value, ObjectID p_object_id, int p_object_sub_idx, double p_time, bool p_backward) {
 	if (is_GDVIRTUAL_CALL_post_process_key_value) {
 		Variant res;
 		if (GDVIRTUAL_CALL(_post_process_key_value, p_anim, p_track, p_value, p_object_id, p_object_sub_idx, res)) {
@@ -1054,7 +1056,7 @@ Variant AnimationMixer::post_process_key_value(const Ref<Animation> &p_anim, int
 		}
 		is_GDVIRTUAL_CALL_post_process_key_value = false;
 	}
-	return _post_process_key_value(p_anim, p_track, p_value, p_object_id, p_object_sub_idx);
+	return _post_process_key_value(p_anim, p_track, p_value, p_object_id, p_object_sub_idx, p_time, p_backward);
 }
 
 void AnimationMixer::_blend_init() {
@@ -1628,7 +1630,7 @@ void AnimationMixer::_blend_process(double p_delta, bool p_update_only) {
 						Variant value;
 						if (t->is_variant_interpolatable) {
 							value = is_value ? a->value_track_interpolate(i, time, is_discrete && force_continuous ? backward : false) : Variant(a->bezier_track_interpolate(i, time));
-							value = post_process_key_value(a, i, value, t->object_id);
+							value = post_process_key_value(a, i, value, t->object_id, -1, time, backward);
 							if (value == Variant()) {
 								continue;
 							}
@@ -1640,7 +1642,7 @@ void AnimationMixer::_blend_process(double p_delta, bool p_update_only) {
 								continue;
 							}
 							value = a->track_get_key_value(i, idx);
-							value = post_process_key_value(a, i, value, t->object_id);
+							value = post_process_key_value(a, i, value, t->object_id, -1, a->track_get_key_time(i, idx), backward);
 							if (value == Variant()) {
 								continue;
 							}
@@ -1672,7 +1674,7 @@ void AnimationMixer::_blend_process(double p_delta, bool p_update_only) {
 							}
 							t->use_discrete = true;
 							Variant value = a->track_get_key_value(i, idx);
-							value = post_process_key_value(a, i, value, t->object_id);
+							value = post_process_key_value(a, i, value, t->object_id, -1, a->track_get_key_time(i, idx), seeked_backward);
 							Object *t_obj = ObjectDB::get_instance(t->object_id);
 							if (t_obj) {
 								t_obj->set_indexed(t->subpath, value);
@@ -1683,7 +1685,7 @@ void AnimationMixer::_blend_process(double p_delta, bool p_update_only) {
 							for (int &F : indices) {
 								t->use_discrete = true;
 								Variant value = a->track_get_key_value(i, F);
-								value = post_process_key_value(a, i, value, t->object_id);
+								value = post_process_key_value(a, i, value, t->object_id, -1, a->track_get_key_time(i, F), backward);
 								Object *t_obj = ObjectDB::get_instance(t->object_id);
 								if (t_obj) {
 									t_obj->set_indexed(t->subpath, value);

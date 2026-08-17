@@ -446,6 +446,16 @@ bool Animation::_set(const StringName &p_name, const Variant &p_value) {
 			} else {
 				return false;
 			}
+		} else if (what == "adaptive_keys") {
+			ERR_FAIL_COND_V(track_is_compressed(track), false);
+			Vector<uint8_t> adaptive_keys = p_value;
+			int kk = track_get_key_count(track);
+			ERR_FAIL_COND_V(adaptive_keys.size() != kk, false);
+			const uint8_t *r = adaptive_keys.ptr();
+			for (int i = 0; i < kk; i++) {
+				_set_key_adaptive(track, i, r[i] != 0);
+			}
+			return true;
 		} else {
 			return false;
 		}
@@ -856,6 +866,17 @@ bool Animation::_get(const StringName &p_name, Variant &r_ret) const {
 
 				return true;
 			}
+		} else if (what == "adaptive_keys") {
+			ERR_FAIL_COND_V(track_is_compressed(track), false);
+			int kk = track_get_key_count(track);
+			Vector<uint8_t> adaptive_keys;
+			adaptive_keys.resize(kk);
+			uint8_t *w = adaptive_keys.ptrw();
+			for (int i = 0; i < kk; i++) {
+				w[i] = _get_key_adaptive(track, i) ? 1 : 0;
+			}
+			r_ret = adaptive_keys;
+			return true;
 		} else {
 			return false;
 		}
@@ -882,6 +903,7 @@ void Animation::_get_property_list(List<PropertyInfo> *p_list) const {
 			p_list->push_back(PropertyInfo(Variant::INT, "tracks/" + itos(i) + "/interp", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
 			p_list->push_back(PropertyInfo(Variant::BOOL, "tracks/" + itos(i) + "/loop_wrap", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
 			p_list->push_back(PropertyInfo(Variant::ARRAY, "tracks/" + itos(i) + "/keys", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
+			p_list->push_back(PropertyInfo(Variant::PACKED_BYTE_ARRAY, "tracks/" + itos(i) + "/adaptive_keys", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
 		}
 		if (track_get_type(i) == TYPE_AUDIO) {
 			p_list->push_back(PropertyInfo(Variant::BOOL, "tracks/" + itos(i) + "/use_blend", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL));
@@ -1097,8 +1119,10 @@ int Animation::_insert(double p_time, T &p_keys, const V &p_value) {
 		// Condition for replacement.
 		if (idx > 0 && Math::is_equal_approx((double)p_keys[idx - 1].time, p_time)) {
 			float transition = p_keys[idx - 1].transition;
+			bool adaptive = p_keys[idx - 1].adaptive;
 			p_keys[idx - 1] = p_value;
 			p_keys[idx - 1].transition = transition;
+			p_keys[idx - 1].adaptive = adaptive;
 			return idx - 1;
 
 			// Condition for insert.
@@ -2240,6 +2264,139 @@ bool Animation::track_is_compressed(int p_track) const {
 			return false; // Animation does not really use transitions.
 		} break;
 	}
+}
+
+void Animation::_set_key_adaptive(int p_track, int p_key_idx, bool p_adaptive) {
+	ERR_FAIL_UNSIGNED_INDEX((uint32_t)p_track, tracks.size());
+	Track *t = tracks[p_track];
+
+	switch (t->type) {
+		case TYPE_POSITION_3D: {
+			PositionTrack *tt = static_cast<PositionTrack *>(t);
+			ERR_FAIL_COND(tt->compressed_track >= 0);
+			ERR_FAIL_UNSIGNED_INDEX((uint32_t)p_key_idx, tt->positions.size());
+			tt->positions[p_key_idx].adaptive = p_adaptive;
+		} break;
+		case TYPE_ROTATION_3D: {
+			RotationTrack *rt = static_cast<RotationTrack *>(t);
+			ERR_FAIL_COND(rt->compressed_track >= 0);
+			ERR_FAIL_UNSIGNED_INDEX((uint32_t)p_key_idx, rt->rotations.size());
+			rt->rotations[p_key_idx].adaptive = p_adaptive;
+		} break;
+		case TYPE_SCALE_3D: {
+			ScaleTrack *st = static_cast<ScaleTrack *>(t);
+			ERR_FAIL_COND(st->compressed_track >= 0);
+			ERR_FAIL_UNSIGNED_INDEX((uint32_t)p_key_idx, st->scales.size());
+			st->scales[p_key_idx].adaptive = p_adaptive;
+		} break;
+		case TYPE_BLEND_SHAPE: {
+			BlendShapeTrack *bst = static_cast<BlendShapeTrack *>(t);
+			ERR_FAIL_COND(bst->compressed_track >= 0);
+			ERR_FAIL_UNSIGNED_INDEX((uint32_t)p_key_idx, bst->blend_shapes.size());
+			bst->blend_shapes[p_key_idx].adaptive = p_adaptive;
+		} break;
+		case TYPE_VALUE: {
+			ValueTrack *vt = static_cast<ValueTrack *>(t);
+			ERR_FAIL_UNSIGNED_INDEX((uint32_t)p_key_idx, vt->values.size());
+			vt->values[p_key_idx].adaptive = p_adaptive;
+		} break;
+		case TYPE_METHOD: {
+			MethodTrack *mt = static_cast<MethodTrack *>(t);
+			ERR_FAIL_UNSIGNED_INDEX((uint32_t)p_key_idx, mt->methods.size());
+			mt->methods[p_key_idx].adaptive = p_adaptive;
+		} break;
+		case TYPE_BEZIER: {
+			BezierTrack *bt = static_cast<BezierTrack *>(t);
+			ERR_FAIL_UNSIGNED_INDEX((uint32_t)p_key_idx, bt->values.size());
+			bt->values[p_key_idx].adaptive = p_adaptive;
+		} break;
+		case TYPE_AUDIO: {
+			AudioTrack *at = static_cast<AudioTrack *>(t);
+			ERR_FAIL_UNSIGNED_INDEX((uint32_t)p_key_idx, at->values.size());
+			at->values[p_key_idx].adaptive = p_adaptive;
+		} break;
+		case TYPE_ANIMATION: {
+			AnimationTrack *an = static_cast<AnimationTrack *>(t);
+			ERR_FAIL_UNSIGNED_INDEX((uint32_t)p_key_idx, an->values.size());
+			an->values[p_key_idx].adaptive = p_adaptive;
+		} break;
+	}
+}
+
+bool Animation::_get_key_adaptive(int p_track, int p_key_idx) const {
+	ERR_FAIL_UNSIGNED_INDEX_V((uint32_t)p_track, tracks.size(), false);
+	const Track *t = tracks[p_track];
+
+	switch (t->type) {
+		case TYPE_POSITION_3D: {
+			const PositionTrack *tt = static_cast<const PositionTrack *>(t);
+			if (tt->compressed_track >= 0) {
+				return false;
+			}
+			ERR_FAIL_UNSIGNED_INDEX_V((uint32_t)p_key_idx, tt->positions.size(), false);
+			return tt->positions[p_key_idx].adaptive;
+		} break;
+		case TYPE_ROTATION_3D: {
+			const RotationTrack *rt = static_cast<const RotationTrack *>(t);
+			if (rt->compressed_track >= 0) {
+				return false;
+			}
+			ERR_FAIL_UNSIGNED_INDEX_V((uint32_t)p_key_idx, rt->rotations.size(), false);
+			return rt->rotations[p_key_idx].adaptive;
+		} break;
+		case TYPE_SCALE_3D: {
+			const ScaleTrack *st = static_cast<const ScaleTrack *>(t);
+			if (st->compressed_track >= 0) {
+				return false;
+			}
+			ERR_FAIL_UNSIGNED_INDEX_V((uint32_t)p_key_idx, st->scales.size(), false);
+			return st->scales[p_key_idx].adaptive;
+		} break;
+		case TYPE_BLEND_SHAPE: {
+			const BlendShapeTrack *bst = static_cast<const BlendShapeTrack *>(t);
+			if (bst->compressed_track >= 0) {
+				return false;
+			}
+			ERR_FAIL_UNSIGNED_INDEX_V((uint32_t)p_key_idx, bst->blend_shapes.size(), false);
+			return bst->blend_shapes[p_key_idx].adaptive;
+		} break;
+		case TYPE_VALUE: {
+			const ValueTrack *vt = static_cast<const ValueTrack *>(t);
+			ERR_FAIL_UNSIGNED_INDEX_V((uint32_t)p_key_idx, vt->values.size(), false);
+			return vt->values[p_key_idx].adaptive;
+		} break;
+		case TYPE_METHOD: {
+			const MethodTrack *mt = static_cast<const MethodTrack *>(t);
+			ERR_FAIL_UNSIGNED_INDEX_V((uint32_t)p_key_idx, mt->methods.size(), false);
+			return mt->methods[p_key_idx].adaptive;
+		} break;
+		case TYPE_BEZIER: {
+			const BezierTrack *bt = static_cast<const BezierTrack *>(t);
+			ERR_FAIL_UNSIGNED_INDEX_V((uint32_t)p_key_idx, bt->values.size(), false);
+			return bt->values[p_key_idx].adaptive;
+		} break;
+		case TYPE_AUDIO: {
+			const AudioTrack *at = static_cast<const AudioTrack *>(t);
+			ERR_FAIL_UNSIGNED_INDEX_V((uint32_t)p_key_idx, at->values.size(), false);
+			return at->values[p_key_idx].adaptive;
+		} break;
+		case TYPE_ANIMATION: {
+			const AnimationTrack *an = static_cast<const AnimationTrack *>(t);
+			ERR_FAIL_UNSIGNED_INDEX_V((uint32_t)p_key_idx, an->values.size(), false);
+			return an->values[p_key_idx].adaptive;
+		} break;
+	}
+
+	ERR_FAIL_V(false);
+}
+
+void Animation::track_set_key_adaptive(int p_track, int p_key_idx, bool p_adaptive) {
+	_set_key_adaptive(p_track, p_key_idx, p_adaptive);
+	emit_changed();
+}
+
+bool Animation::track_is_key_adaptive(int p_track, int p_key_idx) const {
+	return _get_key_adaptive(p_track, p_key_idx);
 }
 
 void Animation::track_set_key_value(int p_track, int p_key_idx, const Variant &p_value) {
@@ -3953,6 +4110,7 @@ void Animation::copy_track(int p_track, Ref<Animation> p_to_animation) {
 
 	for (int i = 0; i < track_get_key_count(p_track); i++) {
 		p_to_animation->track_insert_key(dst_track, track_get_key_time(p_track, i), track_get_key_value(p_track, i), track_get_key_transition(p_track, i));
+		p_to_animation->_set_key_adaptive(dst_track, i, track_is_key_adaptive(p_track, i));
 	}
 }
 
@@ -3993,6 +4151,8 @@ void Animation::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("track_set_key_transition", "track_idx", "key_idx", "transition"), &Animation::track_set_key_transition);
 	ClassDB::bind_method(D_METHOD("track_set_key_time", "track_idx", "key_idx", "time"), &Animation::track_set_key_time);
 	ClassDB::bind_method(D_METHOD("track_get_key_transition", "track_idx", "key_idx"), &Animation::track_get_key_transition);
+	ClassDB::bind_method(D_METHOD("track_set_key_adaptive", "track_idx", "key_idx", "adaptive"), &Animation::track_set_key_adaptive);
+	ClassDB::bind_method(D_METHOD("track_is_key_adaptive", "track_idx", "key_idx"), &Animation::track_is_key_adaptive);
 
 	ClassDB::bind_method(D_METHOD("track_get_key_count", "track_idx"), &Animation::track_get_key_count);
 	ClassDB::bind_method(D_METHOD("track_get_key_value", "track_idx", "key_idx"), &Animation::track_get_key_value);
