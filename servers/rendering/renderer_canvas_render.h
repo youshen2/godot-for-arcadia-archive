@@ -319,6 +319,10 @@ public:
 		Transform2D xform_prev;
 
 		bool clip : 1;
+		bool clip_left : 1;
+		bool clip_top : 1;
+		bool clip_right : 1;
+		bool clip_bottom : 1;
 		bool visible : 1;
 		bool behind : 1;
 		bool update_when_visible : 1;
@@ -361,6 +365,7 @@ public:
 		Rect2 final_clip_rect;
 		Vector2 clip_skew;
 		Vector4 clip_inset;
+		Vector4 clip_padding;
 		Point2 clip_vertices[4];
 		bool clip_skew_active = false;
 		Item *final_clip_owner = nullptr;
@@ -459,6 +464,13 @@ public:
 			commands = nullptr;
 			current_block = 0;
 			clip = false;
+			clip_left = true;
+			clip_top = true;
+			clip_right = true;
+			clip_bottom = true;
+			clip_skew = Vector2();
+			clip_inset = Vector4();
+			clip_padding = Vector4();
 			rect_dirty = true;
 			final_clip_owner = nullptr;
 			material_owner = nullptr;
@@ -478,6 +490,10 @@ public:
 			final_clip_owner = nullptr;
 			canvas_group_owner = nullptr;
 			clip = false;
+			clip_left = true;
+			clip_top = true;
+			clip_right = true;
+			clip_bottom = true;
 			final_modulate = Color(1, 1, 1, 1);
 			visible = true;
 			rect_dirty = true;

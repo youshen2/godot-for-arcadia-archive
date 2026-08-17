@@ -1071,16 +1071,33 @@
 		<member name="auto_translate" type="bool" setter="set_auto_translate" getter="is_auto_translating" deprecated="Use [member Node.auto_translate_mode] and [method Node.can_auto_translate] instead.">
 			Toggles if any text should automatically change to its translated version depending on the current locale.
 		</member>
+		<member name="clip_bottom" type="bool" setter="set_clip_bottom" getter="is_clipping_bottom" default="true">
+			仅当 [member clip_contents] 为 [code]true[/code] 时生效。为 [code]false[/code] 时，底边不进行裁切，子控件可以在控件底部边界之外继续显示；实际绘制范围仍受父级裁切和视口边界限制。其余三个方向可分别用 [member clip_left]、[member clip_top]、[member clip_right] 控制。
+		</member>
 		<member name="clip_contents" type="bool" setter="set_clip_contents" getter="is_clipping_contents" default="false">
 			Enables whether rendering of [CanvasItem] based children should be clipped to this control's rectangle. If [code]true[/code], parts of a child which would be visibly outside of this control's rectangle will not be rendered and won't receive input.
+			总开关关闭时，[member clip_left]、[member clip_top]、[member clip_right]、[member clip_bottom]、[member clip_skew]、[member clip_inset] 和 [member clip_padding] 均不生效。
+		</member>
+		<member name="clip_inset" type="Vector4" setter="set_clip_inset" getter="get_clip_inset" default="Vector4(0, 0, 0, 0)">
+			仅对 [member clip_contents] 的裁切区域应用的向内收缩量，单位为像素。四个分量依次为 left、top、right、bottom，正值表示对应边缘向控件中心收缩，使子控件在边缘内侧更早被裁掉；负值会被按 [code]0[/code] 处理，不会向外扩大裁切区域。
+			该属性会先收缩矩形，再应用 [member clip_skew] 的斜切，因此可以在倾斜裁切边框内侧留出安全边距。该属性不改变布局、最小尺寸或命中测试区域。
+		</member>
+		<member name="clip_left" type="bool" setter="set_clip_left" getter="is_clipping_left" default="true">
+			仅当 [member clip_contents] 为 [code]true[/code] 时生效。为 [code]false[/code] 时，左边不进行裁切，子控件可以在控件左边界之外继续显示；实际绘制范围仍受父级裁切和视口边界限制。其余三个方向可分别用 [member clip_top]、[member clip_right]、[member clip_bottom] 控制。
+		</member>
+		<member name="clip_padding" type="Vector4" setter="set_clip_padding" getter="get_clip_padding" default="Vector4(0, 0, 0, 0)">
+			仅对 [member clip_contents] 的裁切区域应用的外扩量，单位为像素。四个分量依次为 left、top、right、bottom，正值把对应裁剪边缘向外扩展，为内容的外边缘预留显示空间，使描边、阴影或略微超出控件边界的内容仍能完整显示；负值等价于额外的向内收缩。
+			该属性会先于 [member clip_inset] 收缩和 [member clip_skew] 斜切应用，不改变布局、最小尺寸或命中测试区域。关闭某一方向的裁切时（例如 [member clip_left] 为 [code]false[/code]），该方向的 padding 不再有意义。
+		</member>
+		<member name="clip_right" type="bool" setter="set_clip_right" getter="is_clipping_right" default="true">
+			仅当 [member clip_contents] 为 [code]true[/code] 时生效。为 [code]false[/code] 时，右边不进行裁切，子控件可以在控件右边界之外继续显示；实际绘制范围仍受父级裁切和视口边界限制。其余三个方向可分别用 [member clip_left]、[member clip_top]、[member clip_bottom] 控制。
 		</member>
 		<member name="clip_skew" type="Vector2" setter="set_clip_skew" getter="get_clip_skew" default="Vector2(0, 0)">
 			仅对 [member clip_contents] 的矩形裁切区域应用的斜切量。开启 [member clip_contents] 后，[code]x[/code] 分量使裁切区域按与控件中心的垂直距离发生水平偏移，正值让上半部分向右、下半部分向左；[code]y[/code] 分量使裁切区域按与控件中心的水平距离发生垂直偏移，正值让左半部分向下、右半部分向上。子控件本身不会变形，只有超出斜切后的四边形区域的部分会被裁掉。
 			该属性不改变布局、最小尺寸或命中测试区域。Vulkan、Metal、Direct3D 12 等 RenderingDevice 渲染器和 GL Compatibility 渲染器都会按斜四边形做片段级精确裁切。
 		</member>
-		<member name="clip_inset" type="Vector4" setter="set_clip_inset" getter="get_clip_inset" default="Vector4(0, 0, 0, 0)">
-			仅对 [member clip_contents] 的裁切区域应用的向内收缩量，单位为像素。四个分量依次为 left、top、right、bottom，正值表示对应边缘向控件中心收缩，使子控件在边缘内侧更早被裁掉；负值会被按 [code]0[/code] 处理，不会向外扩大裁切区域。
-			该属性会先收缩矩形，再应用 [member clip_skew] 的斜切，因此可以在倾斜裁切边框内侧留出安全边距。该属性不改变布局、最小尺寸或命中测试区域。
+		<member name="clip_top" type="bool" setter="set_clip_top" getter="is_clipping_top" default="true">
+			仅当 [member clip_contents] 为 [code]true[/code] 时生效。为 [code]false[/code] 时，顶边不进行裁切，子控件可以在控件顶部边界之外继续显示；实际绘制范围仍受父级裁切和视口边界限制。其余三个方向可分别用 [member clip_left]、[member clip_right]、[member clip_bottom] 控制。
 		</member>
 		<member name="custom_maximum_size" type="Vector2" setter="set_custom_maximum_size" getter="get_custom_maximum_size" default="Vector2(-1, -1)">
 			The maximum size of this Control's bounding rectangle. If set to a value greater than or equal to [code](0, 0)[/code], the node's bounding rectangle will never exceed this size. A value below [code](0, 0)[/code] means there is no maximum size.

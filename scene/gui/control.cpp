@@ -3637,6 +3637,66 @@ bool Control::is_clipping_contents() {
 	return data.clip_contents;
 }
 
+void Control::set_clip_left(bool p_enabled) {
+	ERR_MAIN_THREAD_GUARD;
+	if (data.clip_left == p_enabled) {
+		return;
+	}
+	data.clip_left = p_enabled;
+	RenderingServer::get_singleton()->canvas_item_set_clip_left(get_canvas_item(), data.clip_left);
+	queue_redraw();
+}
+
+bool Control::is_clipping_left() const {
+	ERR_READ_THREAD_GUARD_V(true);
+	return data.clip_left;
+}
+
+void Control::set_clip_top(bool p_enabled) {
+	ERR_MAIN_THREAD_GUARD;
+	if (data.clip_top == p_enabled) {
+		return;
+	}
+	data.clip_top = p_enabled;
+	RenderingServer::get_singleton()->canvas_item_set_clip_top(get_canvas_item(), data.clip_top);
+	queue_redraw();
+}
+
+bool Control::is_clipping_top() const {
+	ERR_READ_THREAD_GUARD_V(true);
+	return data.clip_top;
+}
+
+void Control::set_clip_right(bool p_enabled) {
+	ERR_MAIN_THREAD_GUARD;
+	if (data.clip_right == p_enabled) {
+		return;
+	}
+	data.clip_right = p_enabled;
+	RenderingServer::get_singleton()->canvas_item_set_clip_right(get_canvas_item(), data.clip_right);
+	queue_redraw();
+}
+
+bool Control::is_clipping_right() const {
+	ERR_READ_THREAD_GUARD_V(true);
+	return data.clip_right;
+}
+
+void Control::set_clip_bottom(bool p_enabled) {
+	ERR_MAIN_THREAD_GUARD;
+	if (data.clip_bottom == p_enabled) {
+		return;
+	}
+	data.clip_bottom = p_enabled;
+	RenderingServer::get_singleton()->canvas_item_set_clip_bottom(get_canvas_item(), data.clip_bottom);
+	queue_redraw();
+}
+
+bool Control::is_clipping_bottom() const {
+	ERR_READ_THREAD_GUARD_V(true);
+	return data.clip_bottom;
+}
+
 void Control::set_clip_skew(const Vector2 &p_skew) {
 	ERR_MAIN_THREAD_GUARD;
 	ERR_FAIL_COND(!p_skew.is_finite());
@@ -3667,6 +3727,22 @@ void Control::set_clip_inset(const Vector4 &p_inset) {
 Vector4 Control::get_clip_inset() const {
 	ERR_READ_THREAD_GUARD_V(Vector4());
 	return data.clip_inset;
+}
+
+void Control::set_clip_padding(const Vector4 &p_padding) {
+	ERR_MAIN_THREAD_GUARD;
+	ERR_FAIL_COND(!p_padding.is_finite());
+	if (data.clip_padding == p_padding) {
+		return;
+	}
+	data.clip_padding = p_padding;
+	RenderingServer::get_singleton()->canvas_item_set_clip_padding(get_canvas_item(), data.clip_padding);
+	queue_redraw();
+}
+
+Vector4 Control::get_clip_padding() const {
+	ERR_READ_THREAD_GUARD_V(Vector4());
+	return data.clip_padding;
 }
 
 // Theming.
@@ -4715,8 +4791,13 @@ void Control::_notification(int p_notification) {
 			_update_canvas_item_transform();
 			RenderingServer::get_singleton()->canvas_item_set_custom_rect(get_canvas_item(), !data.disable_visibility_clip, Rect2(Point2(), get_size()));
 			RenderingServer::get_singleton()->canvas_item_set_clip(get_canvas_item(), data.clip_contents);
+			RenderingServer::get_singleton()->canvas_item_set_clip_left(get_canvas_item(), data.clip_left);
+			RenderingServer::get_singleton()->canvas_item_set_clip_top(get_canvas_item(), data.clip_top);
+			RenderingServer::get_singleton()->canvas_item_set_clip_right(get_canvas_item(), data.clip_right);
+			RenderingServer::get_singleton()->canvas_item_set_clip_bottom(get_canvas_item(), data.clip_bottom);
 			RenderingServer::get_singleton()->canvas_item_set_clip_skew(get_canvas_item(), data.clip_skew);
 			RenderingServer::get_singleton()->canvas_item_set_clip_inset(get_canvas_item(), data.clip_inset);
+			RenderingServer::get_singleton()->canvas_item_set_clip_padding(get_canvas_item(), data.clip_padding);
 		} break;
 
 		case NOTIFICATION_FOCUS_ENTER: {
@@ -4977,10 +5058,20 @@ void Control::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_clip_contents", "enable"), &Control::set_clip_contents);
 	ClassDB::bind_method(D_METHOD("is_clipping_contents"), &Control::is_clipping_contents);
+	ClassDB::bind_method(D_METHOD("set_clip_left", "enabled"), &Control::set_clip_left);
+	ClassDB::bind_method(D_METHOD("is_clipping_left"), &Control::is_clipping_left);
+	ClassDB::bind_method(D_METHOD("set_clip_top", "enabled"), &Control::set_clip_top);
+	ClassDB::bind_method(D_METHOD("is_clipping_top"), &Control::is_clipping_top);
+	ClassDB::bind_method(D_METHOD("set_clip_right", "enabled"), &Control::set_clip_right);
+	ClassDB::bind_method(D_METHOD("is_clipping_right"), &Control::is_clipping_right);
+	ClassDB::bind_method(D_METHOD("set_clip_bottom", "enabled"), &Control::set_clip_bottom);
+	ClassDB::bind_method(D_METHOD("is_clipping_bottom"), &Control::is_clipping_bottom);
 	ClassDB::bind_method(D_METHOD("set_clip_skew", "skew"), &Control::set_clip_skew);
 	ClassDB::bind_method(D_METHOD("get_clip_skew"), &Control::get_clip_skew);
 	ClassDB::bind_method(D_METHOD("set_clip_inset", "inset"), &Control::set_clip_inset);
 	ClassDB::bind_method(D_METHOD("get_clip_inset"), &Control::get_clip_inset);
+	ClassDB::bind_method(D_METHOD("set_clip_padding", "padding"), &Control::set_clip_padding);
+	ClassDB::bind_method(D_METHOD("get_clip_padding"), &Control::get_clip_padding);
 
 	ClassDB::bind_method(D_METHOD("grab_click_focus"), &Control::grab_click_focus);
 
@@ -5014,8 +5105,13 @@ void Control::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fit_child_content"), "set_fit_child_content", "is_fit_child_content");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "propagate_maximum_size"), "set_propagate_maximum_size", "is_propagating_maximum_size");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clip_contents"), "set_clip_contents", "is_clipping_contents");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clip_left"), "set_clip_left", "is_clipping_left");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clip_top"), "set_clip_top", "is_clipping_top");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clip_right"), "set_clip_right", "is_clipping_right");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clip_bottom"), "set_clip_bottom", "is_clipping_bottom");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "clip_skew"), "set_clip_skew", "get_clip_skew");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR4, "clip_inset", PROPERTY_HINT_NONE, "suffix:px"), "set_clip_inset", "get_clip_inset");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR4, "clip_padding", PROPERTY_HINT_NONE, "suffix:px"), "set_clip_padding", "get_clip_padding");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "layout_mode", PROPERTY_HINT_ENUM, "Position,Anchors,Container,Uncontrolled", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_INTERNAL), "_set_layout_mode", "_get_layout_mode");
 	ADD_PROPERTY_DEFAULT("layout_mode", LayoutMode::LAYOUT_MODE_POSITION);
 

@@ -419,10 +419,33 @@ void RendererCanvasCull::_cull_canvas_item(Item *p_canvas_item, const Transform2
 		const float inset_right = MAX(0.0f, ci->clip_inset.z);
 		const float inset_bottom = MAX(0.0f, ci->clip_inset.w);
 		Rect2 clip_rect = ci->get_rect();
+		// Padding expands the clip region outward, giving content near the edges extra room
+		// so its outer edge can be drawn completely.
+		clip_rect.position.x -= ci->clip_padding.x;
+		clip_rect.position.y -= ci->clip_padding.y;
+		clip_rect.size.width += ci->clip_padding.x + ci->clip_padding.z;
+		clip_rect.size.height += ci->clip_padding.y + ci->clip_padding.w;
 		clip_rect.position.x += inset_left;
 		clip_rect.position.y += inset_top;
 		clip_rect.size.width = MAX(0.0f, clip_rect.size.width - inset_left - inset_right);
 		clip_rect.size.height = MAX(0.0f, clip_rect.size.height - inset_top - inset_bottom);
+
+		// Disabled sides extend far enough to be practically unbounded; the viewport/parent clip still limits drawing.
+		constexpr real_t clip_side_unbounded = 16384.0;
+		if (!ci->clip_left) {
+			clip_rect.position.x -= clip_side_unbounded;
+			clip_rect.size.width += clip_side_unbounded;
+		}
+		if (!ci->clip_top) {
+			clip_rect.position.y -= clip_side_unbounded;
+			clip_rect.size.height += clip_side_unbounded;
+		}
+		if (!ci->clip_right) {
+			clip_rect.size.width += clip_side_unbounded;
+		}
+		if (!ci->clip_bottom) {
+			clip_rect.size.height += clip_side_unbounded;
+		}
 
 		if (!ci->clip_skew.is_zero_approx()) {
 			// Apply the same slanted-edge distortion StyleBoxFlat uses, but only to the clip shape.
@@ -721,6 +744,34 @@ void RendererCanvasCull::canvas_item_set_clip(RID p_item, bool p_clip) {
 	canvas_item->clip = p_clip;
 }
 
+void RendererCanvasCull::canvas_item_set_clip_left(RID p_item, bool p_enabled) {
+	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
+	ERR_FAIL_NULL(canvas_item);
+
+	canvas_item->clip_left = p_enabled;
+}
+
+void RendererCanvasCull::canvas_item_set_clip_top(RID p_item, bool p_enabled) {
+	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
+	ERR_FAIL_NULL(canvas_item);
+
+	canvas_item->clip_top = p_enabled;
+}
+
+void RendererCanvasCull::canvas_item_set_clip_right(RID p_item, bool p_enabled) {
+	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
+	ERR_FAIL_NULL(canvas_item);
+
+	canvas_item->clip_right = p_enabled;
+}
+
+void RendererCanvasCull::canvas_item_set_clip_bottom(RID p_item, bool p_enabled) {
+	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
+	ERR_FAIL_NULL(canvas_item);
+
+	canvas_item->clip_bottom = p_enabled;
+}
+
 void RendererCanvasCull::canvas_item_set_clip_skew(RID p_item, const Vector2 &p_skew) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
@@ -733,6 +784,13 @@ void RendererCanvasCull::canvas_item_set_clip_inset(RID p_item, const Vector4 &p
 	ERR_FAIL_NULL(canvas_item);
 
 	canvas_item->clip_inset = p_inset;
+}
+
+void RendererCanvasCull::canvas_item_set_clip_padding(RID p_item, const Vector4 &p_padding) {
+	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
+	ERR_FAIL_NULL(canvas_item);
+
+	canvas_item->clip_padding = p_padding;
 }
 
 void RendererCanvasCull::canvas_item_set_distance_field_mode(RID p_item, bool p_enable) {

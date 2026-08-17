@@ -511,13 +511,12 @@
 				[b]Note:[/b] The equivalent node functionality is found in [member Label.clip_text], [RichTextLabel] (always enabled) and more.
 			</description>
 		</method>
-		<method name="canvas_item_set_clip_skew">
+		<method name="canvas_item_set_clip_bottom">
 			<return type="void" />
 			<param index="0" name="item" type="RID" />
-			<param index="1" name="skew" type="Vector2" />
+			<param index="1" name="enabled" type="bool" />
 			<description>
-				设置由 [param item] 指定的画布项在启用 [method canvas_item_set_clip] 时使用的斜切裁切量。[param skew] 的 [code]x[/code] 分量使裁切区域按垂直距离发生水平偏移，[code]y[/code] 分量使裁切区域按水平距离发生垂直偏移，从而把矩形裁切区域变为斜四边形；画布项自身及子项不会被斜切。
-				Vulkan、Metal、Direct3D 12 等 RenderingDevice 渲染器以及 GL Compatibility 渲染器都会按斜四边形进行片段级精确裁切。对应节点接口为 [member Control.clip_skew]。
+				设置由 [param item] 指定的画布项在启用 [method canvas_item_set_clip] 时是否裁切底边。默认四个方向都裁切；关闭某个方向后，该方向的绘制不会受本画布项矩形限制，但仍受父级裁切和视口边界限制。对应节点接口为 [member Control.clip_bottom]。
 			</description>
 		</method>
 		<method name="canvas_item_set_clip_inset">
@@ -527,6 +526,47 @@
 			<description>
 				设置由 [param item] 指定的画布项在启用 [method canvas_item_set_clip] 时使用的向内收缩量，单位为像素。[param inset] 的四个分量依次为 left、top、right、bottom；正值把对应裁剪边缘向中心收缩，负值按 [code]0[/code] 处理。
 				收缩会先于 [method canvas_item_set_clip_skew] 应用，可用于在斜切边框内侧预留安全距离。对应节点接口为 [member Control.clip_inset]。
+			</description>
+		</method>
+		<method name="canvas_item_set_clip_left">
+			<return type="void" />
+			<param index="0" name="item" type="RID" />
+			<param index="1" name="enabled" type="bool" />
+			<description>
+				设置由 [param item] 指定的画布项在启用 [method canvas_item_set_clip] 时是否裁切左边。默认四个方向都裁切；关闭某个方向后，该方向的绘制不会受本画布项矩形限制，但仍受父级裁切和视口边界限制。对应节点接口为 [member Control.clip_left]。
+			</description>
+		</method>
+		<method name="canvas_item_set_clip_padding">
+			<return type="void" />
+			<param index="0" name="item" type="RID" />
+			<param index="1" name="padding" type="Vector4" />
+			<description>
+				设置由 [param item] 指定的画布项在启用 [method canvas_item_set_clip] 时使用的向外扩展量，单位为像素。[param padding] 的四个分量依次为 left、top、right、bottom；正值把对应裁剪边缘向外扩展，为内容外边缘预留显示空间，使描边、阴影或略微超出控件边界的内容仍能完整显示。该扩展会先于 [method canvas_item_set_clip_inset] 收缩和 [method canvas_item_set_clip_skew] 斜切应用。对应节点接口为 [member Control.clip_padding]。
+			</description>
+		</method>
+		<method name="canvas_item_set_clip_right">
+			<return type="void" />
+			<param index="0" name="item" type="RID" />
+			<param index="1" name="enabled" type="bool" />
+			<description>
+				设置由 [param item] 指定的画布项在启用 [method canvas_item_set_clip] 时是否裁切右边。默认四个方向都裁切；关闭某个方向后，该方向的绘制不会受本画布项矩形限制，但仍受父级裁切和视口边界限制。对应节点接口为 [member Control.clip_right]。
+			</description>
+		</method>
+		<method name="canvas_item_set_clip_skew">
+			<return type="void" />
+			<param index="0" name="item" type="RID" />
+			<param index="1" name="skew" type="Vector2" />
+			<description>
+				设置由 [param item] 指定的画布项在启用 [method canvas_item_set_clip] 时使用的斜切裁切量。[param skew] 的 [code]x[/code] 分量使裁切区域按垂直距离发生水平偏移，[code]y[/code] 分量使裁切区域按水平距离发生垂直偏移，从而把矩形裁切区域变为斜四边形；画布项自身及子项不会被斜切。
+				Vulkan、Metal、Direct3D 12 等 RenderingDevice 渲染器以及 GL Compatibility 渲染器都会按斜四边形进行片段级精确裁切。对应节点接口为 [member Control.clip_skew]。
+			</description>
+		</method>
+		<method name="canvas_item_set_clip_top">
+			<return type="void" />
+			<param index="0" name="item" type="RID" />
+			<param index="1" name="enabled" type="bool" />
+			<description>
+				设置由 [param item] 指定的画布项在启用 [method canvas_item_set_clip] 时是否裁切顶边。默认四个方向都裁切；关闭某个方向后，该方向的绘制不会受本画布项矩形限制，但仍受父级裁切和视口边界限制。对应节点接口为 [member Control.clip_top]。
 			</description>
 		</method>
 		<method name="canvas_item_set_copy_to_backbuffer">

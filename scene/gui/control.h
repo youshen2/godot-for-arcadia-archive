@@ -289,8 +289,13 @@ private:
 		bool force_pass_scroll_events = true;
 
 		bool clip_contents = false;
+		bool clip_left = true;
+		bool clip_top = true;
+		bool clip_right = true;
+		bool clip_bottom = true;
 		Vector2 clip_skew;
 		Vector4 clip_inset;
+		Vector4 clip_padding;
 		bool disable_visibility_clip = false;
 
 		CursorShape default_cursor = CURSOR_ARROW;
@@ -790,11 +795,23 @@ public:
 	void set_clip_contents(bool p_clip);
 	bool is_clipping_contents();
 
+	void set_clip_left(bool p_enabled);
+	bool is_clipping_left() const;
+	void set_clip_top(bool p_enabled);
+	bool is_clipping_top() const;
+	void set_clip_right(bool p_enabled);
+	bool is_clipping_right() const;
+	void set_clip_bottom(bool p_enabled);
+	bool is_clipping_bottom() const;
+
 	void set_clip_skew(const Vector2 &p_skew);
 	Vector2 get_clip_skew() const;
 
 	void set_clip_inset(const Vector4 &p_inset);
 	Vector4 get_clip_inset() const;
+
+	void set_clip_padding(const Vector4 &p_padding);
+	Vector4 get_clip_padding() const;
 
 	void set_disable_visibility_clip(bool p_ignore);
 	bool is_visibility_clip_disabled() const;
