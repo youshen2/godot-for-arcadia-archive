@@ -51,6 +51,7 @@ private:
 	bool uppercase = false;
 	bool marquee_enabled = false;
 	float marquee_speed = 30.0f;
+	float marquee_separation = 0.0f;
 	double marquee_scroll = 0.0;
 
 	struct Paragraph {
@@ -168,6 +169,9 @@ public:
 
 	void set_marquee_speed(float p_speed);
 	float get_marquee_speed() const;
+
+	void set_marquee_separation(float p_separation);
+	float get_marquee_separation() const;
 
 	void set_visible_characters_behavior(TextServer::VisibleCharactersBehavior p_behavior);
 	TextServer::VisibleCharactersBehavior get_visible_characters_behavior() const;

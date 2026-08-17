@@ -156,6 +156,22 @@ float Label::get_marquee_speed() const {
 	return marquee_speed;
 }
 
+void Label::set_marquee_separation(float p_separation) {
+	ERR_FAIL_COND(!Math::is_finite(p_separation));
+	ERR_FAIL_COND(p_separation < 0.0f);
+
+	if (marquee_separation == p_separation) {
+		return;
+	}
+
+	marquee_separation = p_separation;
+	queue_redraw();
+}
+
+float Label::get_marquee_separation() const {
+	return marquee_separation;
+}
+
 int Label::get_line_height(int p_line) const {
 	Ref<Font> font = (settings.is_valid() && settings->get_font().is_valid()) ? settings->get_font() : theme_cache.font;
 	int font_size = settings.is_valid() ? settings->get_font_size() : theme_cache.font_size;
@@ -581,7 +597,7 @@ Rect2 Label::_get_line_rect(int p_para, int p_line) const {
 	if (marquee_enabled) {
 		double content_width = size.width - style->get_minimum_size().width;
 		if (content_width > 0.0 && line_size.width > content_width) {
-			double range = content_width + line_size.width;
+			double range = line_size.width + marquee_separation;
 			double scroll = Math::fmod(marquee_scroll, range);
 			if (scroll < 0.0) {
 				scroll += range;
@@ -920,62 +936,82 @@ void Label::_notification(int p_what) {
 						// Draw text effects and main texts. Note: Do not merge this into the single loop iteration, to prevent overlaps.
 						int processed_glyphs_step = 0;
 
-						// Draw shadow outline.
-						if (font_shadow_color.a != 0 && shadow_outline_size > 0) {
-							draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, ofs, gl_size, trim_pos, glyphs, font_shadow_color, draw_glyph_shadow_outline, shadow_outline_size, shadow_ofs);
-						}
+						auto draw_line_effects = [&](const Vector2 &p_draw_ofs, int &r_processed_glyphs_step) {
+							// Draw shadow outline.
+							if (font_shadow_color.a != 0 && shadow_outline_size > 0) {
+								draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, r_processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, p_draw_ofs, gl_size, trim_pos, glyphs, font_shadow_color, draw_glyph_shadow_outline, shadow_outline_size, shadow_ofs);
+							}
 
-						// Draw shadow.
-						if (font_shadow_color.a > 0) {
-							draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, ofs, gl_size, trim_pos, glyphs, font_shadow_color, draw_glyph_shadow, shadow_ofs);
-						}
+							// Draw shadow.
+							if (font_shadow_color.a > 0) {
+								draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, r_processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, p_draw_ofs, gl_size, trim_pos, glyphs, font_shadow_color, draw_glyph_shadow, shadow_ofs);
+							}
 
-						// Draw stacked shadow.
-						if (stacked_shadow_datas.size() != 0) {
-							int draw_iterations = stacked_shadow_datas.size();
+							// Draw stacked shadow.
+							if (stacked_shadow_datas.size() != 0) {
+								int draw_iterations = stacked_shadow_datas.size();
 
-							for (int draw_iteration_index = draw_iterations - 1; draw_iteration_index >= 0; --draw_iteration_index) {
-								LabelSettings::StackedShadowData stacked_shadow_data = stacked_shadow_datas[draw_iteration_index];
-								if (stacked_shadow_data.outline_size > 0) {
-									draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, ofs, gl_size, trim_pos, glyphs, stacked_shadow_data.color, draw_glyph_shadow_outline, stacked_shadow_data.outline_size, stacked_shadow_data.offset);
+								for (int draw_iteration_index = draw_iterations - 1; draw_iteration_index >= 0; --draw_iteration_index) {
+									LabelSettings::StackedShadowData stacked_shadow_data = stacked_shadow_datas[draw_iteration_index];
+									if (stacked_shadow_data.outline_size > 0) {
+										draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, r_processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, p_draw_ofs, gl_size, trim_pos, glyphs, stacked_shadow_data.color, draw_glyph_shadow_outline, stacked_shadow_data.outline_size, stacked_shadow_data.offset);
+									}
+
+									draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, r_processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, p_draw_ofs, gl_size, trim_pos, glyphs, stacked_shadow_data.color, draw_glyph_shadow, stacked_shadow_data.offset);
+								}
+							}
+
+							// Draw stacked outline.
+							if (stacked_outline_datas.size() != 0) {
+								int stacked_outline_draw_size = outline_size;
+
+								int draw_iterations = stacked_outline_datas.size();
+
+								for (int j = 0; j < draw_iterations; j++) {
+									int stacked_outline_size = stacked_outline_datas[j].size;
+									if (stacked_outline_size <= 0) {
+										continue;
+									}
+									stacked_outline_draw_size += stacked_outline_size;
 								}
 
-								draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, ofs, gl_size, trim_pos, glyphs, stacked_shadow_data.color, draw_glyph_shadow, stacked_shadow_data.offset);
+								for (int draw_iteration_index = draw_iterations - 1; draw_iteration_index >= 0; --draw_iteration_index) {
+									LabelSettings::StackedOutlineData stacked_outline_data = stacked_outline_datas[draw_iteration_index];
+									if (stacked_outline_data.size <= 0) {
+										continue;
+									}
+									draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, r_processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, p_draw_ofs, gl_size, trim_pos, glyphs, stacked_outline_data.color, draw_glyph_outline, stacked_outline_draw_size);
+									stacked_outline_draw_size -= stacked_outline_data.size;
+								}
 							}
-						}
 
-						// Draw stacked outline.
-						if (stacked_outline_datas.size() != 0) {
-							int stacked_outline_draw_size = outline_size;
+							// Draw outline.
+							if (outline_size > 0 && font_outline_color.a != 0) {
+								draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, r_processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, p_draw_ofs, gl_size, trim_pos, glyphs, font_outline_color, draw_glyph_outline, outline_size);
+							}
 
-							int draw_iterations = stacked_outline_datas.size();
+							// Draw text.
+							{
+								draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, r_processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, p_draw_ofs, gl_size, trim_pos, glyphs, font_color, draw_glyph);
+							}
+						};
 
-							for (int j = 0; j < draw_iterations; j++) {
-								int stacked_outline_size = stacked_outline_datas[j].size;
-								if (stacked_outline_size <= 0) {
+						draw_line_effects(ofs, processed_glyphs_step);
+
+						// When the text is wider than the label, draw neighboring copies shifted by one
+						// loop period so the marquee wraps seamlessly with the configured separation.
+						double marquee_content_width = get_size().width - style->get_minimum_size().width;
+						if (marquee_enabled && marquee_content_width > 0.0 && line_size.width > marquee_content_width) {
+							double marquee_period = line_size.width + marquee_separation;
+							for (int copy = -1; copy <= 1; copy++) {
+								if (copy == 0) {
 									continue;
 								}
-								stacked_outline_draw_size += stacked_outline_size;
+								Vector2 copy_ofs = ofs;
+								copy_ofs.x += marquee_period * copy;
+								int copy_processed_glyphs = processed_glyphs;
+								draw_line_effects(copy_ofs, copy_processed_glyphs);
 							}
-
-							for (int draw_iteration_index = draw_iterations - 1; draw_iteration_index >= 0; --draw_iteration_index) {
-								LabelSettings::StackedOutlineData stacked_outline_data = stacked_outline_datas[draw_iteration_index];
-								if (stacked_outline_data.size <= 0) {
-									continue;
-								}
-								draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, ofs, gl_size, trim_pos, glyphs, stacked_outline_data.color, draw_glyph_outline, stacked_outline_draw_size);
-								stacked_outline_draw_size -= stacked_outline_data.size;
-							}
-						}
-
-						// Draw outline.
-						if (outline_size > 0 && font_outline_color.a != 0) {
-							draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, ofs, gl_size, trim_pos, glyphs, font_outline_color, draw_glyph_outline, outline_size);
-						}
-
-						// Draw text.
-						{
-							draw_text(rtl, ellipsis_pos, ellipsis_gl_size, ellipsis_glyphs, trim_chars, para.start, visible_chars, trim_glyphs_ltr, processed_glyphs_step, processed_glyphs, visible_glyphs, trim_glyphs_rtl, total_glyphs, ci, ofs, gl_size, trim_pos, glyphs, font_color, draw_glyph);
 						}
 
 						processed_glyphs = processed_glyphs_step;
@@ -1570,6 +1606,8 @@ void Label::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_marquee_enabled"), &Label::is_marquee_enabled);
 	ClassDB::bind_method(D_METHOD("set_marquee_speed", "speed"), &Label::set_marquee_speed);
 	ClassDB::bind_method(D_METHOD("get_marquee_speed"), &Label::get_marquee_speed);
+	ClassDB::bind_method(D_METHOD("set_marquee_separation", "separation"), &Label::set_marquee_separation);
+	ClassDB::bind_method(D_METHOD("get_marquee_separation"), &Label::get_marquee_separation);
 	ClassDB::bind_method(D_METHOD("get_line_height", "line"), &Label::get_line_height, DEFVAL(-1));
 	ClassDB::bind_method(D_METHOD("get_line_count"), &Label::get_line_count);
 	ClassDB::bind_method(D_METHOD("get_visible_line_count"), &Label::get_visible_line_count);
@@ -1609,6 +1647,7 @@ void Label::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clip_text"), "set_clip_text", "is_clipping_text");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "marquee_enabled"), "set_marquee_enabled", "is_marquee_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "marquee_speed", PROPERTY_HINT_RANGE, "0,1000,1,or_greater,suffix:px/s"), "set_marquee_speed", "get_marquee_speed");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "marquee_separation", PROPERTY_HINT_RANGE, "0,1000,1,or_greater,suffix:px"), "set_marquee_separation", "get_marquee_separation");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "text_overrun_behavior", PROPERTY_HINT_ENUM, "Trim Nothing,Trim Characters,Trim Words,Ellipsis (6+ Characters),Word Ellipsis (6+ Characters),Ellipsis (Always),Word Ellipsis (Always)"), "set_text_overrun_behavior", "get_text_overrun_behavior");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "ellipsis_char"), "set_ellipsis_char", "get_ellipsis_char");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "uppercase"), "set_uppercase", "is_uppercase");
