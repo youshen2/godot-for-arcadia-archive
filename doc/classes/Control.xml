@@ -1093,6 +1093,10 @@
 			The minimum size of the node's bounding rectangle. If you set it to a value greater than [code](0, 0)[/code], the node's bounding rectangle will always have at least this size. Note that [Control] nodes have their internal minimum size returned by [method get_minimum_size]. It depends on the control's contents, like text, textures, or style boxes. The actual minimum size is the maximum value of this property and the internal minimum size (see [method get_combined_minimum_size]).
 			[b]Note:[/b] [member custom_maximum_size] has priority over this property. For example, if you set [member custom_minimum_size] to [code](200, 200)[/code] and [member custom_maximum_size] to [code](100, 100)[/code], the resulting size will be [code](100, 100)[/code].
 		</member>
+		<member name="fit_child_content" type="bool" setter="set_fit_child_content" getter="is_fit_child_content" default="false">
+			开启后，该控件的最小尺寸和期望尺寸会把所有可见的直接子控件的内容尺寸纳入计算（取各子控件尺寸的最大值）。对于 [Panel] 这类不会自动管理子控件布局的控件，可以把子 [VBoxContainer] / [HBoxContainer] 的内容高度或宽度传播给父容器；对于 [BoxContainer]，开启后还会改用子控件的期望内容尺寸而不是最小尺寸来计算自身最小尺寸，同时继续遵守每个子控件自己的 Container Sizing（size flags）。
+			隐藏的子控件和置顶控件不参与计算。修改该属性或子控件内容尺寸变化时，会刷新最小尺寸、期望尺寸并触发容器重新排序；[code]separation[/code] 等间距值保持原数值，只随新布局位置重新计算。
+		</member>
 		<member name="focus_behavior_recursive" type="int" setter="set_focus_behavior_recursive" getter="get_focus_behavior_recursive" enum="Control.FocusBehaviorRecursive" default="0">
 			Determines which controls can be focused together with [member focus_mode]. See [method get_focus_mode_with_override]. Since the default behavior is [constant FOCUS_BEHAVIOR_INHERITED], this can be used to prevent all children controls from getting focused.
 		</member>

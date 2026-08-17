@@ -279,6 +279,7 @@ private:
 		Size2 custom_minimum_size;
 
 		bool propagate_maximum_size = false;
+		bool fit_child_content = false;
 
 		// Input events and rendering.
 
@@ -387,6 +388,8 @@ private:
 	void _update_desired_size();
 	void _grow_to_desired_size();
 	void _size_changed();
+	Size2 _get_fit_child_content_size(bool p_desired) const;
+	virtual void _fit_child_content_changed();
 
 	void _top_level_changed() override {} // Controls don't need to do anything, only other CanvasItems.
 	void _top_level_changed_on_parent() override;
@@ -645,6 +648,9 @@ public:
 
 	void set_custom_minimum_size(const Size2 &p_custom);
 	Size2 get_custom_minimum_size() const;
+
+	void set_fit_child_content(bool p_enabled);
+	bool is_fit_child_content() const;
 
 	virtual Size2 get_bound_minimum_size() const;
 

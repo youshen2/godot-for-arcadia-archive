@@ -22,10 +22,6 @@
 		<member name="alignment" type="int" setter="set_alignment" getter="get_alignment" enum="BoxContainer.AlignmentMode" default="0">
 			The alignment of the container's children (must be one of [constant ALIGNMENT_BEGIN], [constant ALIGNMENT_CENTER], or [constant ALIGNMENT_END]).
 		</member>
-		<member name="fit_child_content" type="bool" setter="set_fit_child_content" getter="is_fit_child_content" default="false">
-			开启后，容器计算自身最小尺寸时会使用每个可见子控件的期望内容尺寸，而不是它们的最小尺寸。这样当子控件的内容（例如 [Label] 的文本、图标或字体大小）变化时，[VBoxContainer] / [HBoxContainer] 会向父容器申请足够空间，让子控件按自身内容完整显示，同时仍然遵守每个子控件自己的 Container Sizing（size flags）：带 [constant Control.SIZE_EXPAND] 或 [constant Control.SIZE_FILL] 的子控件仍会占用多余空间，其余子控件仍按各自内容尺寸分配。
-			[theme_item separation] 保持原数值不变；开启或关闭开关、以及子控件内容尺寸变化时，容器会自动重新计算最小尺寸并重排子元素，间隔距离也会随新的布局位置重新计算。该开关适合放在 [ScrollContainer] 等父容器中，用于让纵向列表随内容自动伸缩。
-		</member>
 		<member name="item_skew" type="float" setter="set_item_skew" getter="get_item_skew" default="0.0">
 			相邻可见子控件之间在交叉轴上的偏移量，单位为像素。[VBoxContainer] 中第一项保持原位，后续项逐项水平偏移；[HBoxContainer] 中则逐项垂直偏移。正值沿交叉轴正方向排列，负值沿反方向排列，可用于让滚动列表的元素呈斜向分布，同时保持每个元素自身不变形。
 			容器会把所有偏移占用的范围计入最小尺寸，并缩小每个子控件在交叉轴上的可用尺寸，因此鼠标命中和焦点区域会与显示位置一致。隐藏的子控件不参与偏移序号计算。当该容器作为 [ScrollContainer] 的直接内容控件时，滚动容器会连续补偿滚动造成的交叉轴位移，使列表在可视区域内保持固定的倾斜程度；补偿只改变元素变换，不改变容器的布局尺寸。

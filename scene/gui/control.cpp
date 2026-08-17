@@ -1938,6 +1938,9 @@ Size2 Control::get_minimum_size() const {
 	ERR_READ_THREAD_GUARD_V(Size2());
 	Vector2 ms;
 	GDVIRTUAL_CALL(_get_minimum_size, ms);
+	if (data.fit_child_content) {
+		ms = ms.max(_get_fit_child_content_size(false));
+	}
 	return ms;
 }
 
@@ -1960,6 +1963,39 @@ void Control::set_custom_minimum_size(const Size2 &p_custom) {
 Size2 Control::get_custom_minimum_size() const {
 	ERR_READ_THREAD_GUARD_V(Size2());
 	return data.custom_minimum_size;
+}
+
+void Control::set_fit_child_content(bool p_enabled) {
+	ERR_MAIN_THREAD_GUARD;
+	if (data.fit_child_content == p_enabled) {
+		return;
+	}
+
+	data.fit_child_content = p_enabled;
+	update_minimum_size();
+	update_desired_size();
+	_fit_child_content_changed();
+}
+
+bool Control::is_fit_child_content() const {
+	return data.fit_child_content;
+}
+
+Size2 Control::_get_fit_child_content_size(bool p_desired) const {
+	Size2 content_size;
+	for (int i = 0; i < get_child_count(); i++) {
+		Control *child = Object::cast_to<Control>(get_child(i));
+		if (!child || child->is_set_as_top_level() || !child->is_visible()) {
+			continue;
+		}
+
+		Size2 child_size = p_desired ? child->get_bound_desired_size() : child->get_combined_minimum_size();
+		content_size = content_size.max(child_size);
+	}
+	return content_size;
+}
+
+void Control::_fit_child_content_changed() {
 }
 
 void Control::_update_desired_size_cache() const {
@@ -2040,7 +2076,10 @@ Size2 Control::get_bound_desired_size() const {
 }
 
 Size2 Control::get_desired_size() const {
-	return Size2();
+	if (!data.fit_child_content) {
+		return Size2();
+	}
+	return _get_fit_child_content_size(true);
 }
 
 void Control::grow_to_desired_size() {
@@ -4737,6 +4776,8 @@ void Control::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_propagate_maximum_size", "enable"), &Control::set_propagate_maximum_size);
 	ClassDB::bind_method(D_METHOD("is_propagating_maximum_size"), &Control::is_propagating_maximum_size);
 	ClassDB::bind_method(D_METHOD("get_bound_minimum_size"), &Control::get_bound_minimum_size);
+	ClassDB::bind_method(D_METHOD("set_fit_child_content", "enabled"), &Control::set_fit_child_content);
+	ClassDB::bind_method(D_METHOD("is_fit_child_content"), &Control::is_fit_child_content);
 
 	ClassDB::bind_method(D_METHOD("_set_layout_mode", "mode"), &Control::_set_layout_mode);
 	ClassDB::bind_method(D_METHOD("_get_layout_mode"), &Control::_get_layout_mode);
@@ -4970,6 +5011,7 @@ void Control::_bind_methods() {
 	ADD_GROUP("Layout", "");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "custom_minimum_size", PROPERTY_HINT_NONE, "suffix:px"), "set_custom_minimum_size", "get_custom_minimum_size");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "custom_maximum_size", PROPERTY_HINT_NONE, "suffix:px"), "set_custom_maximum_size", "get_custom_maximum_size");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fit_child_content"), "set_fit_child_content", "is_fit_child_content");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "propagate_maximum_size"), "set_propagate_maximum_size", "is_propagating_maximum_size");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clip_contents"), "set_clip_contents", "is_clipping_contents");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "clip_skew"), "set_clip_skew", "get_clip_skew");

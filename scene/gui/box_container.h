@@ -45,7 +45,6 @@ public:
 private:
 	bool vertical = false;
 	AlignmentMode alignment = ALIGNMENT_BEGIN;
-	bool fit_child_content = false;
 	float item_skew = 0.0f;
 
 	struct ThemeCache {
@@ -64,15 +63,13 @@ protected:
 	static void _bind_methods();
 	virtual void add_child_notify(Node *p_child) override;
 	virtual void remove_child_notify(Node *p_child) override;
+	virtual void _fit_child_content_changed() override;
 
 public:
 	Control *add_spacer(bool p_begin = false);
 
 	void set_alignment(AlignmentMode p_alignment);
 	AlignmentMode get_alignment() const;
-
-	void set_fit_child_content(bool p_enabled);
-	bool is_fit_child_content() const;
 
 	void set_vertical(bool p_vertical);
 	bool is_vertical() const;
