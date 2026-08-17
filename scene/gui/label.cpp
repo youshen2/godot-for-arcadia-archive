@@ -1001,8 +1001,9 @@ void Label::_notification(int p_what) {
 						// When the text is wider than the label, draw neighboring copies shifted by one
 						// loop period so the marquee wraps seamlessly with the configured separation.
 						double marquee_content_width = get_size().width - style->get_minimum_size().width;
-						if (marquee_enabled && marquee_content_width > 0.0 && line_size.width > marquee_content_width) {
-							double marquee_period = line_size.width + marquee_separation;
+						double marquee_line_width = TS->shaped_text_get_size(line_rid).x;
+						if (marquee_enabled && marquee_content_width > 0.0 && marquee_line_width > marquee_content_width) {
+							double marquee_period = marquee_line_width + marquee_separation;
 							for (int copy = -1; copy <= 1; copy++) {
 								if (copy == 0) {
 									continue;
