@@ -42,6 +42,35 @@
 #include "servers/display/accessibility_server.h"
 #include "servers/display/display_server.h"
 
+static Control *_find_item_skew_container(Control *p_control) {
+	if (!p_control || p_control->is_set_as_top_level()) {
+		return nullptr;
+	}
+
+	BoxContainer *box = Object::cast_to<BoxContainer>(p_control);
+	if (box && !Math::is_zero_approx(box->get_item_skew())) {
+		return box;
+	}
+
+	GridContainer *grid = Object::cast_to<GridContainer>(p_control);
+	if (grid && !grid->get_item_skew().is_zero_approx()) {
+		return grid;
+	}
+
+	for (int i = 0; i < p_control->get_child_count(); i++) {
+		Control *child = Object::cast_to<Control>(p_control->get_child(i));
+		if (!child || !child->is_visible()) {
+			continue;
+		}
+		Control *found = _find_item_skew_container(child);
+		if (found) {
+			return found;
+		}
+	}
+
+	return nullptr;
+}
+
 Size2 ScrollContainer::_get_minimum_size(bool p_use_desired_sizes) const {
 	// Calculated in this function, as it needs to traverse all child controls once to calculate;
 	// and needs to be calculated before being used by `_update_scrollbars()`.
@@ -163,8 +192,20 @@ void ScrollContainer::_update_content_effects() {
 	if (!content) {
 		return;
 	}
-	BoxContainer *box_content = Object::cast_to<BoxContainer>(content);
-	GridContainer *grid_content = Object::cast_to<GridContainer>(content);
+	Control *effect_content = content;
+	BoxContainer *box_content = Object::cast_to<BoxContainer>(effect_content);
+	GridContainer *grid_content = Object::cast_to<GridContainer>(effect_content);
+	if (!box_content && !grid_content) {
+		// The content may be wrapped in a Panel/MarginContainer. Look for the first
+		// descendant Box/Grid that actually carries the item skew effect.
+		Control *skew_container = _find_item_skew_container(effect_content);
+		if (skew_container) {
+			effect_content = skew_container;
+			box_content = Object::cast_to<BoxContainer>(effect_content);
+			grid_content = Object::cast_to<GridContainer>(effect_content);
+		}
+	}
+
 	const bool compensate_item_skew = box_content && !Math::is_zero_approx(box_content->get_item_skew());
 	const bool compensate_grid_item_skew = grid_content && !grid_content->get_item_skew().is_zero_approx();
 	const bool apply_fisheye = fisheye_enabled && fisheye_strength > 0.0f;
@@ -173,7 +214,6 @@ void ScrollContainer::_update_content_effects() {
 	}
 	if (box_content || grid_content) {
 		const Callable update_effects = callable_mp(this, &ScrollContainer::_update_content_effects);
-		Control *effect_content = box_content ? static_cast<Control *>(box_content) : static_cast<Control *>(grid_content);
 		if (!effect_content->is_connected(SceneStringName(sort_children), update_effects)) {
 			// `sort_children` is emitted before NOTIFICATION_SORT_CHILDREN, so wait one
 			// deferred frame to read the freshly sorted item positions.
@@ -198,8 +238,8 @@ void ScrollContainer::_update_content_effects() {
 	Vector<Control *> items;
 	Vector<Vector2> item_centers;
 	Vector<Vector2> item_sizes;
-	for (int i = 0; i < content->get_child_count(); i++) {
-		Control *item = Object::cast_to<Control>(content->get_child(i));
+	for (int i = 0; i < effect_content->get_child_count(); i++) {
+		Control *item = Object::cast_to<Control>(effect_content->get_child(i));
 		if (!item || item->is_set_as_top_level() || !item->is_visible_in_tree()) {
 			continue;
 		}
