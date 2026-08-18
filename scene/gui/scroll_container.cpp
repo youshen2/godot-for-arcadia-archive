@@ -34,6 +34,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "scene/gui/box_container.h"
+#include "scene/gui/grid_container.h"
 #include "scene/gui/panel_container.h"
 #include "scene/gui/texture_rect.h"
 #include "scene/main/window.h"
@@ -163,15 +164,18 @@ void ScrollContainer::_update_content_effects() {
 		return;
 	}
 	BoxContainer *box_content = Object::cast_to<BoxContainer>(content);
+	GridContainer *grid_content = Object::cast_to<GridContainer>(content);
 	const bool compensate_item_skew = box_content && !Math::is_zero_approx(box_content->get_item_skew());
+	const bool compensate_grid_item_skew = grid_content && !grid_content->get_item_skew().is_zero_approx();
 	const bool apply_fisheye = fisheye_enabled && fisheye_strength > 0.0f;
-	if (!compensate_item_skew && !apply_fisheye) {
+	if (!compensate_item_skew && !compensate_grid_item_skew && !apply_fisheye) {
 		return;
 	}
-	if (box_content) {
+	if (box_content || grid_content) {
 		const Callable update_effects = callable_mp(this, &ScrollContainer::_update_content_effects);
-		if (!box_content->is_connected(SceneStringName(sort_children), update_effects)) {
-			box_content->connect(SceneStringName(sort_children), update_effects);
+		Control *effect_content = box_content ? static_cast<Control *>(box_content) : static_cast<Control *>(grid_content);
+		if (!effect_content->is_connected(SceneStringName(sort_children), update_effects)) {
+			effect_content->connect(SceneStringName(sort_children), update_effects);
 		}
 	}
 
@@ -236,6 +240,48 @@ void ScrollContainer::_update_content_effects() {
 		} else {
 			scroll_compensation.y = -box_content->get_item_skew() * scroll_progress;
 		}
+	}
+
+	if (compensate_grid_item_skew) {
+		const int columns = MAX(1, grid_content->get_columns());
+		const int row_count = MAX(1, (items.size() + columns - 1) / columns);
+		const int col_count = MIN(columns, items.size());
+
+		auto compute_axis_progress = [&item_centers](int p_count, int p_stride, bool p_vertical, float p_scroll) -> float {
+			if (p_count <= 1 || p_scroll <= 0.0f) {
+				return 0.0f;
+			}
+
+			auto get_axis = [p_vertical](const Vector2 &p_center) {
+				return p_vertical ? p_center.y : p_center.x;
+			};
+
+			const float first = get_axis(item_centers[0]);
+			const float second = get_axis(item_centers[p_stride]);
+			const float direction = second >= first ? 1.0f : -1.0f;
+			const float target = first + direction * p_scroll;
+
+			float progress = 0.0f;
+			for (int i = 1; i < p_count; i++) {
+				const float previous = get_axis(item_centers[(i - 1) * p_stride]);
+				const float current = get_axis(item_centers[i * p_stride]);
+				if (direction * target <= direction * current) {
+					if (!Math::is_equal_approx(previous, current)) {
+						progress = (i - 1) + Math::inverse_lerp(direction * previous, direction * current, direction * target);
+					}
+					break;
+				}
+				progress = i;
+				if (i == p_count - 1 && !Math::is_equal_approx(previous, current)) {
+					progress += (target - current) / (current - previous);
+				}
+			}
+			return progress;
+		};
+
+		const Vector2 grid_skew = grid_content->get_item_skew();
+		scroll_compensation.x = -grid_skew.x * compute_axis_progress(row_count, columns, true, v_scroll->get_value());
+		scroll_compensation.y = -grid_skew.y * compute_axis_progress(col_count, 1, false, h_scroll->get_value());
 	}
 
 	const Vector2 effect_center = viewport_rect.get_center();
