@@ -173,9 +173,13 @@ void ScrollContainer::_update_content_effects() {
 	}
 	if (box_content || grid_content) {
 		const Callable update_effects = callable_mp(this, &ScrollContainer::_update_content_effects);
-		Control *effect_content = box_content ? static_cast<Control *>(box_content) : static_cast<Control *>(grid_content);
-		if (!effect_content->is_connected(SceneStringName(sort_children), update_effects)) {
-			effect_content->connect(SceneStringName(sort_children), update_effects);
+		if (box_content && !box_content->is_connected(SceneStringName(sort_children), update_effects)) {
+			box_content->connect(SceneStringName(sort_children), update_effects);
+		}
+		if (grid_content && !grid_content->is_connected(SceneStringName(sort_children), update_effects)) {
+			// `sort_children` is emitted before NOTIFICATION_SORT_CHILDREN, so wait one
+			// deferred frame to read the freshly sorted grid positions.
+			grid_content->connect(SceneStringName(sort_children), update_effects, CONNECT_DEFERRED);
 		}
 	}
 
