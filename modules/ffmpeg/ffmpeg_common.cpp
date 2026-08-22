@@ -10,6 +10,15 @@ void FFmpegInputContext::clear() {
 	file.unref();
 }
 
+void FFmpegOutputContext::clear() {
+	if (format) {
+		format->pb = nullptr;
+	}
+	format.reset();
+	avio.reset();
+	file.unref();
+}
+
 String FFmpegCommon::error_string(int p_error) {
 	char error_buffer[AV_ERROR_MAX_STRING_SIZE];
 	av_strerror(p_error, error_buffer, sizeof(error_buffer));
@@ -163,6 +172,44 @@ Error FFmpegCommon::open_input(FFmpegInputContext &r_input, const String &p_path
 	return OK;
 }
 
+Error FFmpegCommon::open_output(FFmpegOutputContext &r_output, const String &p_path) {
+	r_output.clear();
+
+	CharString path_utf8 = p_path.utf8();
+	AVFormatContext *raw_format_context = nullptr;
+	int response = avformat_alloc_output_context2(&raw_format_context, nullptr, nullptr, path_utf8.get_data());
+	if (response < 0 || !raw_format_context) {
+		print_error("FFmpeg failed to select an output container", response < 0 ? response : AVERROR(EINVAL));
+		return ERR_INVALID_PARAMETER;
+	}
+	r_output.format = FFmpegOutputFormatContextPtr(raw_format_context);
+
+	Error err = OK;
+	r_output.file = FileAccess::open(p_path, FileAccess::WRITE, &err);
+	if (err != OK || r_output.file.is_null()) {
+		r_output.clear();
+		return err == OK ? ERR_CANT_OPEN : err;
+	}
+
+	unsigned char *avio_buffer = static_cast<unsigned char *>(av_malloc(AVIO_CONTEXT_BUFFER_SIZE));
+	if (!avio_buffer) {
+		r_output.clear();
+		return ERR_OUT_OF_MEMORY;
+	}
+
+	AVIOContext *raw_avio = avio_alloc_context(avio_buffer, AVIO_CONTEXT_BUFFER_SIZE, 1, &r_output.file, nullptr, &FFmpegCommon::write_file_packet, &FFmpegCommon::seek_file);
+	if (!raw_avio) {
+		av_free(avio_buffer);
+		r_output.clear();
+		return ERR_OUT_OF_MEMORY;
+	}
+
+	r_output.avio = FFmpegAVIOContextPtr(raw_avio);
+	r_output.format->pb = r_output.avio.get();
+	r_output.format->flags |= AVFMT_FLAG_CUSTOM_IO;
+	return OK;
+}
+
 int FFmpegCommon::read_file_packet(void *p_opaque, uint8_t *p_buffer, int p_buffer_size) {
 	Ref<FileAccess> *file = static_cast<Ref<FileAccess> *>(p_opaque);
 	if (file == nullptr || file->is_null() || p_buffer == nullptr || p_buffer_size < 0) {
@@ -177,6 +224,19 @@ int FFmpegCommon::read_file_packet(void *p_opaque, uint8_t *p_buffer, int p_buff
 		return static_cast<int>(bytes_read);
 	}
 	return (*file)->eof_reached() ? AVERROR_EOF : AVERROR(EIO);
+}
+
+int FFmpegCommon::write_file_packet(void *p_opaque, const uint8_t *p_buffer, int p_buffer_size) {
+	Ref<FileAccess> *file = static_cast<Ref<FileAccess> *>(p_opaque);
+	if (file == nullptr || file->is_null() || p_buffer == nullptr || p_buffer_size < 0) {
+		return AVERROR(EINVAL);
+	}
+	if (p_buffer_size == 0) {
+		return 0;
+	}
+
+	(*file)->store_buffer(p_buffer, p_buffer_size);
+	return (*file)->get_error() == OK ? p_buffer_size : AVERROR(EIO);
 }
 
 int64_t FFmpegCommon::seek_file(void *p_opaque, int64_t p_offset, int p_whence) {

@@ -20,8 +20,8 @@
 			该属性移动的是整块网格，不改变各子控件在自身单元格内的对齐方式。若存在展开的列占满剩余宽度，或者 [member item_skew] 的 [code]x[/code] 分量已经占满可用空间，则该属性可能没有可见效果。在从右到左布局中，起始和结束方向会自动镜像。
 		</member>
 		<member name="item_skew" type="Vector2" setter="set_item_skew" getter="get_item_skew" default="Vector2(0, 0)">
-			网格中每一行和每一列的逐项偏移量，单位为像素。第 0 行和第 0 列保持原位；[code]x[/code] 分量使后续每一行整体水平偏移该值，正值向右、负值向左，[code]y[/code] 分量使后续每一列整体垂直偏移该值，正值向下、负值向上。两个分量可以同时使用，使整个网格沿行和列两个方向斜向排列。
-			偏移范围会计入最小尺寸和期望尺寸：宽度额外增加 [code]abs(item_skew.x) * (行数 - 1)[/code]，高度额外增加 [code]abs(item_skew.y) * (列数 - 1)[/code]。倾斜只改变子控件的最终矩形位置，不改变每个子控件自身的大小，也不会拉伸或旋转子控件。在从右到左布局中，[code]x[/code] 分量仍然按控件坐标的正方向解释。
+			网格中每一行和每一列的逐项偏移量，单位为像素。[code]x[/code] 分量使行按行号整体水平偏移（正值向右、负值向左），[code]y[/code] 分量使列按列号整体垂直偏移（正值向下、负值向上）。两个分量可以同时使用，使整个网格沿行和列两个方向斜向排列；子控件自身大小由网格单元格决定，不会被拉伸或旋转。
+			偏移以可视区域为锚：可视区域是容器自身矩形与窗口可视区、以及裁切祖先（[ScrollContainer] 等内容裁切控件）的交集。可视范围内的第一行/第一列从容器的起始边缘（正值）或末尾边缘（负值）开始，后续行/列逐项偏移对应分量；增加、移除子控件或滚动列表都不会改变可视范围内各行/列的偏移和斜排形状，滚动时会连续重新锚定。容器只按可视行/列数在交叉轴上预留倾斜空间（计入最小尺寸和期望尺寸）。若容器完全可见，则按全部行/列排列斜线。在从右到左布局中，列方向的锚定自动从右边缘镜像计算。
 		</member>
 		<member name="vertical_alignment" type="int" setter="set_vertical_alignment" getter="get_vertical_alignment" enum="GridContainer.AlignmentMode" default="0">
 			当整个网格的实际占用高度小于控件高度时，控制网格在垂直方向上的对齐方式。取值必须为 [constant ALIGNMENT_BEGIN]、[constant ALIGNMENT_CENTER] 或 [constant ALIGNMENT_END]。

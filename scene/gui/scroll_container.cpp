@@ -195,9 +195,12 @@ void ScrollContainer::_update_content_effects() {
 	Control *effect_content = content;
 	BoxContainer *box_content = Object::cast_to<BoxContainer>(effect_content);
 	GridContainer *grid_content = Object::cast_to<GridContainer>(effect_content);
-	if (!box_content && !grid_content) {
-		// The content may be wrapped in a Panel/MarginContainer. Look for the first
-		// descendant Box/Grid that actually carries the item skew effect.
+	const bool content_has_item_skew = (box_content && !Math::is_zero_approx(box_content->get_item_skew())) ||
+			(grid_content && !grid_content->get_item_skew().is_zero_approx());
+	if (!content_has_item_skew) {
+		// The content may be wrapped in a Panel/MarginContainer, or be a plain
+		// Box/Grid container (without skew itself) that only nests the list. Look
+		// for the first descendant Box/Grid that actually carries the item skew effect.
 		Control *skew_container = _find_item_skew_container(effect_content);
 		if (skew_container) {
 			effect_content = skew_container;
@@ -206,10 +209,23 @@ void ScrollContainer::_update_content_effects() {
 		}
 	}
 
-	const bool compensate_item_skew = box_content && !Math::is_zero_approx(box_content->get_item_skew());
-	const bool compensate_grid_item_skew = grid_content && !grid_content->get_item_skew().is_zero_approx();
+	const bool has_item_skew = (box_content && !Math::is_zero_approx(box_content->get_item_skew())) ||
+			(grid_content && !grid_content->get_item_skew().is_zero_approx());
 	const bool apply_fisheye = fisheye_enabled && fisheye_strength > 0.0f;
-	if (!compensate_item_skew && !compensate_grid_item_skew && !apply_fisheye) {
+
+	if (has_item_skew) {
+		// The skew diagonal is anchored to the visible area in the container's own
+		// layout; re-sort it whenever the scroll offset or the viewport size
+		// changes so the anchoring tracks the visible area.
+		const Vector2 scroll_position(h_scroll->get_value(), v_scroll->get_value());
+		if (scroll_position != last_skew_scroll_position || get_size() != last_skew_viewport_size) {
+			last_skew_scroll_position = scroll_position;
+			last_skew_viewport_size = get_size();
+			effect_content->notification(NOTIFICATION_SORT_CHILDREN);
+		}
+	}
+
+	if (!apply_fisheye) {
 		return;
 	}
 	if (box_content || grid_content) {
@@ -253,79 +269,6 @@ void ScrollContainer::_update_content_effects() {
 		return;
 	}
 
-	Vector2 scroll_compensation;
-	if (compensate_item_skew) {
-		const bool vertical = box_content->is_vertical();
-		const float scroll = vertical ? v_scroll->get_value() : h_scroll->get_value();
-		float scroll_progress = 0.0f;
-		if (item_centers.size() > 1 && scroll > 0.0f) {
-			// Express the pixel scroll as a fractional item index so the diagonal stays fixed in viewport space.
-			const float first = vertical ? item_centers[0].y : item_centers[0].x;
-			const float target = first + scroll;
-			for (int i = 1; i < item_centers.size(); i++) {
-				const float previous = vertical ? item_centers[i - 1].y : item_centers[i - 1].x;
-				const float current = vertical ? item_centers[i].y : item_centers[i].x;
-				if (target <= current) {
-					if (!Math::is_equal_approx(previous, current)) {
-						scroll_progress = (i - 1) + Math::inverse_lerp(previous, current, target);
-					}
-					break;
-				}
-				scroll_progress = i;
-				if (i == item_centers.size() - 1 && !Math::is_equal_approx(previous, current)) {
-					scroll_progress += (target - current) / (current - previous);
-				}
-			}
-		}
-		if (vertical) {
-			scroll_compensation.x = -box_content->get_item_skew() * scroll_progress;
-		} else {
-			scroll_compensation.y = -box_content->get_item_skew() * scroll_progress;
-		}
-	}
-
-	if (compensate_grid_item_skew) {
-		const int columns = MAX(1, grid_content->get_columns());
-		const int row_count = MAX(1, (items.size() + columns - 1) / columns);
-		const int col_count = MIN(columns, items.size());
-
-		auto compute_axis_progress = [&item_centers](int p_count, int p_stride, bool p_vertical, float p_scroll) -> float {
-			if (p_count <= 1 || p_scroll <= 0.0f) {
-				return 0.0f;
-			}
-
-			auto get_axis = [p_vertical](const Vector2 &p_center) {
-				return p_vertical ? p_center.y : p_center.x;
-			};
-
-			const float first = get_axis(item_centers[0]);
-			const float second = get_axis(item_centers[p_stride]);
-			const float direction = second >= first ? 1.0f : -1.0f;
-			const float target = first + direction * p_scroll;
-
-			float progress = 0.0f;
-			for (int i = 1; i < p_count; i++) {
-				const float previous = get_axis(item_centers[(i - 1) * p_stride]);
-				const float current = get_axis(item_centers[i * p_stride]);
-				if (direction * target <= direction * current) {
-					if (!Math::is_equal_approx(previous, current)) {
-						progress = (i - 1) + Math::inverse_lerp(direction * previous, direction * current, direction * target);
-					}
-					break;
-				}
-				progress = i;
-				if (i == p_count - 1 && !Math::is_equal_approx(previous, current)) {
-					progress += (target - current) / (current - previous);
-				}
-			}
-			return progress;
-		};
-
-		const Vector2 grid_skew = grid_content->get_item_skew();
-		scroll_compensation.x = -grid_skew.x * compute_axis_progress(row_count, columns, true, v_scroll->get_value());
-		scroll_compensation.y = -grid_skew.y * compute_axis_progress(col_count, 1, false, h_scroll->get_value());
-	}
-
 	const Vector2 effect_center = viewport_rect.get_center();
 	const float radius = fisheye_radius > 0.0f ? fisheye_radius : MAX(viewport_rect.size.x, viewport_rect.size.y) * 0.5f;
 	Vector<float> item_scales;
@@ -334,13 +277,13 @@ void ScrollContainer::_update_content_effects() {
 	item_translations.resize(items.size());
 	for (int i = 0; i < items.size(); i++) {
 		float scale = 1.0f;
-		if (apply_fisheye && radius > 0.0f) {
-			const float distance = (item_centers[i] + scroll_compensation).distance_to(effect_center);
+		if (radius > 0.0f) {
+			const float distance = item_centers[i].distance_to(effect_center);
 			const float weight = 1.0f - Math::smoothstep(0.0f, radius, distance);
 			scale += fisheye_strength * MAX(weight, 0.0f);
 		}
 		item_scales.write[i] = scale;
-		item_translations.write[i] = scroll_compensation;
+		item_translations.write[i] = Vector2();
 	}
 
 	if (box_content && apply_fisheye && radius > 0.0f && items.size() > 1) {

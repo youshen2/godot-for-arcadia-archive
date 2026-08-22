@@ -10,12 +10,14 @@
 #include "core/templates/vector.h"
 
 #include <string.h>
+
 #include <memory>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavformat/avio.h>
+#include <libavutil/audio_fifo.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/dict.h>
 #include <libavutil/display.h>
@@ -34,6 +36,14 @@ struct FFmpegAVFormatInputDeleter {
 	void operator()(AVFormatContext *p_context) const {
 		if (p_context) {
 			avformat_close_input(&p_context);
+		}
+	}
+};
+
+struct FFmpegAVFormatOutputDeleter {
+	void operator()(AVFormatContext *p_context) const {
+		if (p_context) {
+			avformat_free_context(p_context);
 		}
 	}
 };
@@ -91,6 +101,7 @@ struct FFmpegSwsContextDeleter {
 };
 
 using FFmpegFormatContextPtr = std::unique_ptr<AVFormatContext, FFmpegAVFormatInputDeleter>;
+using FFmpegOutputFormatContextPtr = std::unique_ptr<AVFormatContext, FFmpegAVFormatOutputDeleter>;
 using FFmpegCodecContextPtr = std::unique_ptr<AVCodecContext, FFmpegAVCodecContextDeleter>;
 using FFmpegFramePtr = std::unique_ptr<AVFrame, FFmpegAVFrameDeleter>;
 using FFmpegPacketPtr = std::unique_ptr<AVPacket, FFmpegAVPacketDeleter>;
@@ -106,6 +117,14 @@ struct FFmpegInputContext {
 	void clear();
 };
 
+struct FFmpegOutputContext {
+	FFmpegOutputFormatContextPtr format;
+	FFmpegAVIOContextPtr avio;
+	Ref<FileAccess> file;
+
+	void clear();
+};
+
 class FFmpegCommon {
 public:
 	static constexpr int AVIO_CONTEXT_BUFFER_SIZE = 4 * 1024 * 1024;
@@ -115,6 +134,8 @@ public:
 	static void enable_multithreading(AVCodecContext *p_codec_context, const AVCodec *p_codec);
 	static int get_frame(AVFormatContext *p_format_context, AVCodecContext *p_codec_context, int p_stream_id, AVFrame *p_frame, AVPacket *p_packet);
 	static Error open_input(FFmpegInputContext &r_input, const String &p_path, const String &p_headers = String(), bool p_icy = false);
+	static Error open_output(FFmpegOutputContext &r_output, const String &p_path);
 	static int read_file_packet(void *p_opaque, uint8_t *p_buffer, int p_buffer_size);
+	static int write_file_packet(void *p_opaque, const uint8_t *p_buffer, int p_buffer_size);
 	static int64_t seek_file(void *p_opaque, int64_t p_offset, int p_whence);
 };

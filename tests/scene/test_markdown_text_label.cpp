@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  container.h                                                           */
+/*  test_markdown_text_label.cpp                                          */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,60 +28,46 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#include "tests/test_macros.h"
 
-#include "scene/gui/control.h"
+TEST_FORCE_LINK(test_markdown_text_label)
 
-class Container : public Control {
-	GDCLASS(Container, Control);
+#include "modules/modules_enabled.gen.h" // IWYU pragma: keep. Needed for MODULE_TEXT_SERVER_FB_ENABLED and MODULE_TEXT_SERVER_ADV_ENABLED definitions.
 
-	bool pending_sort = false;
-	bool accessibility_region = false;
-	void _sort_children();
-	void _child_minsize_changed();
-	void _child_desired_size_changed();
+#if defined(MODULE_TEXT_SERVER_FB_ENABLED) || defined(MODULE_TEXT_SERVER_ADV_ENABLED)
 
-protected:
-	enum class SortableVisibilityMode {
-		VISIBLE,
-		VISIBLE_IN_TREE,
-		IGNORE,
-	};
+#include "scene/gui/markdown_text_label.h"
+#include "scene/main/scene_tree.h"
+#include "scene/main/window.h"
 
-	void queue_sort();
-	Control *as_sortable_control(Node *p_node, SortableVisibilityMode p_visibility_mode = SortableVisibilityMode::VISIBLE_IN_TREE) const;
+namespace TestMarkdownTextLabel {
 
-	// Returns the visible area of this container in canvas coordinates: its own
-	// rect clipped by the window's visible rect and by any clipping ancestors
-	// (ScrollContainer always clips its content). Returns false when not inside
-	// the tree or when the result has no area.
-	bool get_visible_canvas_rect(Rect2 &r_rect) const;
+TEST_CASE("[SceneTree][MarkdownTextLabel] Fit content updates after width changes") {
+	MarkdownTextLabel *test_label = memnew(MarkdownTextLabel);
+	Window *root = SceneTree::get_singleton()->get_root();
+	root->add_child(test_label);
 
-	virtual void add_child_notify(Node *p_child) override;
-	virtual void move_child_notify(Node *p_child) override;
-	virtual void remove_child_notify(Node *p_child) override;
+	test_label->set_fit_content(true);
+	test_label->set_autowrap_mode(TextServer::AUTOWRAP_ARBITRARY);
+	test_label->set_text(String("This is a long Markdown text. ").repeat(20));
+	test_label->set_size(Size2(20, 1));
+	SceneTree::get_singleton()->process(0);
 
-	GDVIRTUAL0RC(Vector<int>, _get_allowed_size_flags_horizontal)
-	GDVIRTUAL0RC(Vector<int>, _get_allowed_size_flags_vertical)
+	const Size2 narrow_minimum = test_label->get_combined_minimum_size();
+	test_label->set_size(Size2(400, narrow_minimum.y));
+	SceneTree::get_singleton()->process(0);
 
-	void _notification(int p_what);
-	static void _bind_methods();
+	const Size2 wide_minimum = test_label->get_combined_minimum_size();
+	CHECK_MESSAGE(
+			wide_minimum.y < narrow_minimum.y,
+			"Fit content minimum height should decrease when the label becomes wider.");
+	CHECK_MESSAGE(
+			Math::is_equal_approx(wide_minimum.y, (real_t)test_label->get_content_height()),
+			"Fit content minimum height should match the layout for the current width.");
 
-public:
-	enum {
-		NOTIFICATION_PRE_SORT_CHILDREN = 50,
-		NOTIFICATION_SORT_CHILDREN = 51,
-	};
+	memdelete(test_label);
+}
 
-	void fit_child_in_rect(RequiredParam<Control> rp_child, const Rect2 &p_rect);
+} // namespace TestMarkdownTextLabel
 
-	virtual Vector<int> get_allowed_size_flags_horizontal() const;
-	virtual Vector<int> get_allowed_size_flags_vertical() const;
-
-	PackedStringArray get_configuration_warnings() const override;
-
-	void set_accessibility_region(bool p_region);
-	bool is_accessibility_region() const;
-
-	Container();
-};
+#endif // MODULE_TEXT_SERVER_FB_ENABLED || MODULE_TEXT_SERVER_ADV_ENABLED

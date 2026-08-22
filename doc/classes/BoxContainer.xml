@@ -23,8 +23,9 @@
 			The alignment of the container's children (must be one of [constant ALIGNMENT_BEGIN], [constant ALIGNMENT_CENTER], or [constant ALIGNMENT_END]).
 		</member>
 		<member name="item_skew" type="float" setter="set_item_skew" getter="get_item_skew" default="0.0">
-			相邻可见子控件之间在交叉轴上的偏移量，单位为像素。[VBoxContainer] 中第一项保持原位，后续项逐项水平偏移；[HBoxContainer] 中则逐项垂直偏移。正值沿交叉轴正方向排列，负值沿反方向排列，可用于让滚动列表的元素呈斜向分布，同时保持每个元素自身不变形。
-			容器会把所有偏移占用的范围计入最小尺寸，并缩小每个子控件在交叉轴上的可用尺寸，因此鼠标命中和焦点区域会与显示位置一致。隐藏的子控件不参与偏移序号计算。当该容器作为 [ScrollContainer] 的直接内容控件时，滚动容器会连续补偿滚动造成的交叉轴位移，使列表在可视区域内保持固定的倾斜程度；补偿只改变元素变换，不改变容器的布局尺寸。
+			相邻可见子控件之间在交叉轴上的偏移量，单位为像素。[VBoxContainer] 中各项逐项水平偏移；[HBoxContainer] 中各项逐项垂直偏移。正值沿交叉轴正方向倾斜，负值沿反方向倾斜，可用于让滚动列表的元素呈斜向分布，同时保持每个元素自身不变形。
+			偏移以可视区域为锚：可视区域是容器自身矩形与窗口可视区、以及裁切祖先（[ScrollContainer] 等内容裁切控件）的交集。可视范围内的第一项从容器的起始边缘（正值）或末尾边缘（负值）开始，后续项逐项偏移该值；增加、移除子控件或滚动列表都不会改变可视范围内各项的偏移和斜排形状，滚动时会连续重新锚定，使斜排在可视区域内保持固定。
+			容器只按可视项数在交叉轴上预留倾斜空间（计入最小尺寸），可见范围之外的元素沿同一对角线自然延伸，可能被裁切。若容器完全可见（不在滚动或裁切区域内且未超出窗口），则按全部元素排列斜线，与固定列表的直观效果一致。
 		</member>
 		<member name="vertical" type="bool" setter="set_vertical" getter="is_vertical" default="false">
 			If [code]true[/code], the [BoxContainer] will arrange its children vertically, rather than horizontally.

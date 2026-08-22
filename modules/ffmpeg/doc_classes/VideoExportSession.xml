@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="VideoExportSession" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		把视口或图像序列与立体声音频离线编码为视频文件。
+	</brief_description>
+	<description>
+		提供应用内音视频导出会话。调用 [method start] 配置输出路径、分辨率、帧率和编码参数后，可以使用 [method add_frame] 写入应用生成的 [Image]，也可以先设置 [member viewport]，再调用 [method capture_frame] 或 [method render_frame] 抓取主视口或离屏 [SubViewport]。启用音频时，这些写帧方法还会同时接收一个立体声 PCM 数据块并写入同一容器。
+		每次成功写入都代表输出时间线上的一帧，时间戳严格按 [member fps] 递增，与写入这帧实际花费的时间无关。因此应用可以先把动画、特效或自定义时间线定位到指定时间，再连续调用 [method render_frame]，以非实时速度生成长视频；实际速度仍受场景复杂度、GPU 回读、编码器和磁盘性能限制，不保证一定快于视频时长。
+		输出扩展名决定容器，当前支持 [code].mp4[/code]、[code].mov[/code] 和 [code].mkv[/code]。可用编码器取决于编译 FFmpeg 模块时启用的功能。未指定编码器时优先采用容器的默认编码器；若默认编码器不可用，会尝试 FFmpeg 内置的 MPEG-4 视频编码器。若必须使用 H.264 等特定编码器，应在构建 FFmpeg 时启用对应编码器，并把其 FFmpeg 名称传给 [method start]。
+		启用音频后，每个 [PackedVector2Array] 元素表示一个立体声音频帧，其中 [member Vector2.x] 和 [member Vector2.y] 分别是左右声道的归一化样本，建议范围为 [code]-1.0[/code] 到 [code]1.0[/code]，超出范围的值会被裁切。每个视频帧必须提交 [member required_audio_frame_count] 指定的音频帧数；该数量使用累计时间边界计算，即使采样率不能被视频帧率整除也不会产生累计取整误差。应用可从 [AudioEffectCapture]、[AudioStreamPlayback.mix_audio] 或自己的离线混音器取得这种数据。
+		该类不会自动推进场景树或替应用混合音频。需要让整棵场景树按固定 [code]delta[/code] 自动推进、通过引擎音频总线混音并同步导出音频时，请使用 [MovieWriter] 的 Movie Maker 模式并把输出文件扩展名设为本类支持的容器格式。
+		[b]注意：[/b]编码器会把输入图像转换为不含透明通道的 8 位 BT.709 YUV；抓取启用了二维 HDR 的视口时会先把线性颜色转换为 sRGB。输入宽高比与输出不同时会居中裁切后缩放，输出宽高必须为偶数。GPU 纹理回读是同步操作，不应与正常实时游戏录屏混为一谈；实时玩家录屏仍适合使用平台录屏 API 或专用录屏软件。
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_frame">
+			<return type="int" enum="Error" />
+			<param index="0" name="image" type="Image" />
+			<param index="1" name="audio_frames" type="PackedVector2Array" default="PackedVector2Array()" />
+			<description>
+				把 [param image] 作为下一帧写入。图像会复制后转换，原对象不会被修改。尺寸或宽高比不同的图像会按输出画面居中裁切并缩放。
+				启用音频时，[param audio_frames] 必须包含 [member required_audio_frame_count] 个归一化立体声 PCM 帧；未启用音频时必须省略或传入空数组。返回 [constant OK] 表示图像和对应音频均已交给编码器；失败原因可从 [member last_error] 或 [signal failed] 获取。
+			</description>
+		</method>
+		<method name="capture_frame">
+			<return type="int" enum="Error" />
+			<param index="0" name="audio_frames" type="PackedVector2Array" default="PackedVector2Array()" />
+			<description>
+				读取 [member viewport] 当前纹理并写入下一帧。启用音频时，[param audio_frames] 的要求与 [method add_frame] 相同。该方法不会主动刷新渲染；若应用刚修改了场景或时间线，应等待该视口完成更新，或改用 [method render_frame]。未设置视口、视口已释放或纹理不可读时返回错误。
+			</description>
+		</method>
+		<method name="finish">
+			<return type="int" enum="Error" />
+			<description>
+				刷新编码器、写入容器索引和尾部并关闭文件。必须在所有帧写入后调用，否则生成的 MP4 等容器可能无法播放。成功时发出 [signal finished]；失败时发出 [signal failed] 并返回对应 [enum Error]。
+			</description>
+		</method>
+		<method name="get_audio_codec_name" qualifiers="const">
+			<return type="String" />
+			<description>
+				返回本次或最近一次成功初始化的 FFmpeg 音频编码器名称。未启用音频或尚未初始化时返回空字符串；也可通过 [member audio_codec_name] 读取。
+			</description>
+		</method>
+		<method name="get_audio_mix_rate" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回应用提交 PCM 数据时使用的采样率，单位为 Hz。未启用音频时返回 [code]0[/code]；也可通过 [member audio_mix_rate] 读取。
+			</description>
+		</method>
+		<method name="get_required_audio_frame_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				返回下一个视频帧必须附带的立体声音频帧数。该值根据已写入帧数、[member fps] 和 [member audio_mix_rate] 计算，可能因累计余数而在相邻视频帧之间变化。会话未激活或未启用音频时返回 [code]0[/code]；也可通过 [member required_audio_frame_count] 读取。
+			</description>
+		</method>
+		<method name="is_audio_enabled" qualifiers="const">
+			<return type="bool" />
+			<description>
+				返回当前或最近一次成功开始的会话是否配置了音频流；也可通过 [member audio_enabled] 读取。
+			</description>
+		</method>
+		<method name="render_frame">
+			<return type="int" enum="Error" />
+			<param index="0" name="audio_frames" type="PackedVector2Array" default="PackedVector2Array()" />
+			<description>
+				以 [code]1.0 / fps[/code] 为渲染步长执行一次不交换窗口缓冲的强制绘制，然后抓取 [member viewport]。启用音频时，[param audio_frames] 的要求与 [method add_frame] 相同。它适合在应用先更新或定位自定义时间线后立即离屏出帧。
+				[b]注意：[/b]该方法只提交渲染服务器命令，不会替应用调用节点的 [method Node._process]、物理处理或自动推进 [AnimationPlayer]。批量导出时应由应用按帧索引显式更新需要的状态，以保持确定性。
+			</description>
+		</method>
+		<method name="start">
+			<return type="int" enum="Error" />
+			<param index="0" name="output_path" type="String" />
+			<param index="1" name="output_size" type="Vector2i" />
+			<param index="2" name="fps" type="int" default="60" />
+			<param index="3" name="video_bitrate" type="int" default="12000000" />
+			<param index="4" name="codec" type="String" default="&quot;&quot;" />
+			<param index="5" name="encoding_preset" type="String" default="&quot;veryfast&quot;" />
+			<param index="6" name="keyframe_interval" type="int" default="0" />
+			<param index="7" name="frame_limit" type="int" default="0" />
+			<param index="8" name="include_audio" type="bool" default="false" />
+			<param index="9" name="audio_mix_rate" type="int" default="48000" />
+			<param index="10" name="audio_bitrate" type="int" default="192000" />
+			<description>
+				开始新的导出会话。[param output_path] 建议使用可写的 [code]user://[/code] 路径，扩展名用于选择容器；[param output_size] 是最终像素尺寸，宽和高都必须为正偶数；[param fps] 是输出时间线帧率；[param video_bitrate] 是目标视频码率，单位为 bit/s。
+				[param codec] 为空时自动选择编码器，否则应填写当前 FFmpeg 构建中的编码器名称，例如启用 libx264 的构建可填写 [code]libx264[/code]。[param encoding_preset] 会传递给支持 [code]preset[/code] 的编码器，不支持时由编码器忽略；通常越快的预设压缩效率越低。[param keyframe_interval] 以帧为单位，[code]0[/code] 表示自动使用约两秒的间隔。[param frame_limit] 可限制本次会话最多写入的总帧数并启用 [member progress] 进度计算，[code]0[/code] 表示不限制。
+				[param include_audio] 为 [code]true[/code] 时创建立体声音频流。[param audio_mix_rate] 是传入 PCM 数据的采样率，单位为 Hz，有效范围为 [code]8000[/code] 到 [code]192000[/code]；编码器会在需要时重采样到实际音频编码器支持的采样率。[param audio_bitrate] 是目标音频码率，单位为 bit/s。当前优先使用 AAC；若 AAC 不可用，则尝试容器的默认音频编码器。音频编码器是否可用取决于 FFmpeg 构建配置。
+				返回 [constant OK] 表示输出文件和编码器均已准备完成。同一个对象完成或失败前不能重复开始会话。
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="active" type="bool" setter="" getter="is_active" default="false">
+			导出会话是否已开始且尚未结束。该属性只读。
+		</member>
+		<member name="audio_codec_name" type="String" setter="" getter="get_audio_codec_name" default="&quot;&quot;">
+			本次或最近一次会话实际使用的 FFmpeg 音频编码器名称。未启用音频时为空字符串。该属性只读。
+		</member>
+		<member name="audio_enabled" type="bool" setter="" getter="is_audio_enabled" default="false">
+			当前或最近一次成功开始的会话是否通过 [method start] 启用了立体声音频流。该属性只读。
+		</member>
+		<member name="audio_mix_rate" type="int" setter="" getter="get_audio_mix_rate" default="0">
+			应用提交 [PackedVector2Array] PCM 数据时使用的采样率，单位为 Hz。未启用音频时为 [code]0[/code]。该属性只读。
+		</member>
+		<member name="codec_name" type="String" setter="" getter="get_codec_name" default="&quot;&quot;">
+			本次会话实际使用的 FFmpeg 视频编码器名称。自动选择时可用它确认是否使用了预期编码器。该属性只读。
+		</member>
+		<member name="duration" type="float" setter="" getter="get_duration" default="0.0">
+			已经成功写入的视频时长，等于 [member frame_count] 除以 [member fps]，单位为秒。该属性只读。
+		</member>
+		<member name="fps" type="int" setter="" getter="get_fps" default="60">
+			当前会话的输出帧率。它控制时间戳，不限制编码的实际运行速度。该属性只读。
+		</member>
+		<member name="frame_count" type="int" setter="" getter="get_frame_count" default="0">
+			已经成功写入的画面帧数。该属性只读。
+		</member>
+		<member name="frame_limit" type="int" setter="" getter="get_frame_limit" default="0">
+			由 [method start] 配置的最大总帧数。[code]0[/code] 表示不限制，正值会在达到后拒绝继续写帧。该属性只读。
+		</member>
+		<member name="last_error" type="String" setter="" getter="get_last_error" default="&quot;&quot;">
+			最近一次 FFmpeg 初始化、转换、编码或写文件错误的详细信息。没有错误时为空字符串。该属性只读。
+		</member>
+		<member name="output_path" type="String" setter="" getter="get_output_path" default="&quot;&quot;">
+			本次或最近一次会话的输出路径。该属性只读。
+		</member>
+		<member name="output_size" type="Vector2i" setter="" getter="get_output_size" default="Vector2i(0, 0)">
+			当前会话最终写入的视频像素尺寸。该属性只读。
+		</member>
+		<member name="progress" type="float" setter="" getter="get_progress" default="0.0">
+			当 [member frame_limit] 大于 [code]0[/code] 时，返回已写入帧数除以帧数上限的进度，范围为 [code]0.0[/code] 到 [code]1.0[/code]；未设置上限时返回 [code]0.0[/code]。该属性只读。
+		</member>
+		<member name="required_audio_frame_count" type="int" setter="" getter="get_required_audio_frame_count" default="0">
+			下一个视频帧必须附带的立体声音频帧数。为避免音画漂移，该值按累计时间边界计算，采样率不能被帧率整除时可能逐帧变化。会话未激活或未启用音频时为 [code]0[/code]。该属性只读。
+		</member>
+		<member name="viewport" type="Viewport" setter="set_viewport" getter="get_viewport">
+			要由 [method capture_frame] 和 [method render_frame] 抓取的主 [Viewport] 或离屏 [SubViewport]。对象释放后会自动视为未设置；也可以传入 [code]null[/code] 清除。
+		</member>
+	</members>
+	<signals>
+		<signal name="failed">
+			<param index="0" name="error" type="int" />
+			<param index="1" name="message" type="String" />
+			<description>
+				初始化、抓帧、编码或结束会话失败时发出。[param error] 是引擎错误码，[param message] 在 FFmpeg 提供详细错误时包含对应说明。
+			</description>
+		</signal>
+		<signal name="finished">
+			<param index="0" name="output_path" type="String" />
+			<param index="1" name="frame_count" type="int" />
+			<param index="2" name="duration" type="float" />
+			<description>
+				视频容器成功完成并关闭后发出，参数分别给出输出路径、总帧数和输出时长。
+			</description>
+		</signal>
+		<signal name="frame_encoded">
+			<param index="0" name="frame_count" type="int" />
+			<param index="1" name="duration" type="float" />
+			<param index="2" name="progress" type="float" />
+			<description>
+				每次成功写入一帧后发出，可用于更新应用内导出进度。参数表示包含当前帧在内的累计帧数、累计输出时长和 [member progress]；未设置帧数上限时 [param progress] 为 [code]0.0[/code]。
+			</description>
+		</signal>
+		<signal name="started">
+			<param index="0" name="output_path" type="String" />
+			<description>
+				输出容器和编码器成功初始化后发出。
+			</description>
+		</signal>
+	</signals>
+</class>

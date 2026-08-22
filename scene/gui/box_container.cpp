@@ -43,6 +43,38 @@ struct _MinSizeCache {
 	int final_size = 0;
 };
 
+// Returns the fractional item index whose main-axis slot contains `p_pos`.
+// `p_begins` must be sorted in ascending order.
+static float _skew_fractional_index(const Vector<float> &p_begins, float p_pos) {
+	for (int i = 0; i < p_begins.size(); i++) {
+		const float next = (i + 1 < p_begins.size()) ? p_begins[i + 1] : (p_begins[i] + (i > 0 ? p_begins[i] - p_begins[i - 1] : 0.0f));
+		if (p_pos < next) {
+			const float pitch = next - p_begins[i];
+			return i + (pitch > 0.0f ? CLAMP((p_pos - p_begins[i]) / pitch, 0.0f, 1.0f) : 0.0f);
+		}
+	}
+	return p_begins.size();
+}
+
+// Anchors the skew diagonal to the visible area: `r_progress` becomes the
+// fractional index of the first visible item and `r_span` the cross-axis range
+// covered by the visible diagonal (never larger than the full skew extent).
+static void _skew_apply_visible_window(const Vector<float> &p_begins, float p_vis_begin, float p_vis_end, float p_skew, float p_extent, float &r_progress, float &r_span) {
+	r_progress = 0.0f;
+	r_span = p_extent;
+	if (p_begins.is_empty() || Math::is_zero_approx(p_skew) || p_vis_end <= p_vis_begin) {
+		return;
+	}
+	const float first_visible = _skew_fractional_index(p_begins, p_vis_begin);
+	const float last_visible = _skew_fractional_index(p_begins, p_vis_end);
+	if (last_visible <= first_visible) {
+		return;
+	}
+	r_progress = first_visible;
+	const int visible_capacity = MAX(1, (int)Math::ceil(last_visible - first_visible));
+	r_span = MIN(p_extent, Math::abs(p_skew) * MAX(visible_capacity - 1, 0));
+}
+
 void BoxContainer::_resort() {
 	/** First pass, determine minimum size AND amount of stretchable elements */
 
@@ -240,7 +272,45 @@ void BoxContainer::_resort() {
 
 	int accumulated_size = 0;
 	const float skew_extent = Math::abs(item_skew) * MAX(children_count - 1, 0);
-	const float skew_origin = item_skew < 0.0f ? skew_extent : 0.0f;
+
+	// The skew diagonal is anchored to the container's visible area (its own
+	// rect clipped by the window and any clipping ancestors such as a
+	// ScrollContainer), so adding, removing or scrolling items never changes
+	// the offsets of the visible items. `skew_progress` is the fractional index
+	// of the first visible item and `skew_span` the cross-axis range covered by
+	// the visible diagonal; when the container is fully visible this degrades
+	// to anchoring at the first item with the whole skew extent.
+	float skew_progress = 0.0f;
+	float skew_span = skew_extent;
+	if (!Math::is_zero_approx(item_skew) && children_count > 0) {
+		Rect2 visible_rect;
+		if (get_visible_canvas_rect(visible_rect)) {
+			Vector<float> item_begins;
+			item_begins.resize(children_count);
+			float acc_ofs = ofs;
+			bool acc_first = true;
+			int acc_idx = 0;
+			for (int i = start; i != end; i += delta) {
+				Control *c = as_sortable_control(get_child(i));
+				if (!c) {
+					continue;
+				}
+				if (acc_first) {
+					acc_first = false;
+				} else {
+					acc_ofs += theme_cache.separation;
+				}
+				item_begins.write[acc_idx] = acc_ofs;
+				acc_ofs += min_size_cache[c].final_size;
+				acc_idx++;
+			}
+			const Rect2 own_rect = get_global_rect();
+			const float vis_begin = vertical ? visible_rect.position.y - own_rect.position.y : visible_rect.position.x - own_rect.position.x;
+			const float vis_end = vertical ? visible_rect.get_end().y - own_rect.position.y : visible_rect.get_end().x - own_rect.position.x;
+			_skew_apply_visible_window(item_begins, vis_begin, vis_end, item_skew, skew_extent, skew_progress, skew_span);
+		}
+	}
+	const float skew_base = item_skew < 0.0f ? skew_span : 0.0f;
 	for (int i = start; i != end; i += delta) {
 		Control *c = as_sortable_control(get_child(i));
 		if (!c) {
@@ -269,10 +339,13 @@ void BoxContainer::_resort() {
 
 		Rect2 rect;
 
+		// The skew offset is relative to the first visible item, so the diagonal
+		// keeps a fixed shape inside the visible area regardless of item count
+		// or scroll position.
 		if (vertical) {
-			rect = Rect2(skew_origin + item_skew * idx, from, MAX(0.0f, new_size.width - skew_extent), size);
+			rect = Rect2(skew_base + item_skew * (idx - skew_progress), from, MAX(0.0f, new_size.width - skew_span), size);
 		} else {
-			rect = Rect2(from, skew_origin + item_skew * idx, size, MAX(0.0f, new_size.height - skew_extent));
+			rect = Rect2(from, skew_base + item_skew * (idx - skew_progress), size, MAX(0.0f, new_size.height - skew_span));
 		}
 
 		if (propagating_max_size) {
@@ -298,6 +371,7 @@ Size2 BoxContainer::_get_minimum_size(bool p_use_desired_sizes) const {
 
 	bool first = true;
 	int children_count = 0;
+	Vector<float> item_begins;
 
 	for (int i = 0; i < get_child_count(); i++) {
 		Control *c = as_sortable_control(get_child(i), SortableVisibilityMode::VISIBLE);
@@ -306,6 +380,10 @@ Size2 BoxContainer::_get_minimum_size(bool p_use_desired_sizes) const {
 		}
 
 		Size2i size = p_use_desired_sizes ? c->get_bound_desired_size().ceil() : c->get_bound_minimum_size().ceil();
+
+		if (!Math::is_zero_approx(item_skew)) {
+			item_begins.push_back(vertical ? minimum.height : minimum.width);
+		}
 
 		if (vertical) { /* VERTICAL */
 
@@ -327,10 +405,24 @@ Size2 BoxContainer::_get_minimum_size(bool p_use_desired_sizes) const {
 		first = false;
 		children_count++;
 	}
+
+	// The skew diagonal is anchored to the visible area, so the cross-axis
+	// reservation only needs to cover the visible diagonal, not all items.
+	float skew_span = Math::abs(item_skew) * MAX(children_count - 1, 0);
+	if (!Math::is_zero_approx(item_skew) && children_count > 0) {
+		Rect2 visible_rect;
+		if (get_visible_canvas_rect(visible_rect)) {
+			const Rect2 own_rect = get_global_rect();
+			const float vis_begin = vertical ? visible_rect.position.y - own_rect.position.y : visible_rect.position.x - own_rect.position.x;
+			const float vis_end = vertical ? visible_rect.get_end().y - own_rect.position.y : visible_rect.get_end().x - own_rect.position.x;
+			float skew_progress = 0.0f;
+			_skew_apply_visible_window(item_begins, vis_begin, vis_end, item_skew, skew_span, skew_progress, skew_span);
+		}
+	}
 	if (vertical) {
-		minimum.width += Math::ceil(Math::abs(item_skew) * MAX(children_count - 1, 0));
+		minimum.width += Math::ceil(skew_span);
 	} else {
-		minimum.height += Math::ceil(Math::abs(item_skew) * MAX(children_count - 1, 0));
+		minimum.height += Math::ceil(skew_span);
 	}
 
 	return minimum;
@@ -348,6 +440,14 @@ void BoxContainer::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_SORT_CHILDREN: {
 			_resort();
+		} break;
+
+		case NOTIFICATION_TRANSFORM_CHANGED: {
+			if (!Math::is_zero_approx(item_skew)) {
+				// The skew diagonal is anchored to the visible area; follow any
+				// movement of the container or its ancestors (e.g. scrolling).
+				queue_sort();
+			}
 		} break;
 
 		case NOTIFICATION_THEME_CHANGED: {
@@ -428,6 +528,7 @@ void BoxContainer::set_item_skew(float p_offset) {
 		return;
 	}
 	item_skew = p_offset;
+	set_notify_transform(!Math::is_zero_approx(item_skew));
 	update_minimum_size();
 	queue_sort();
 }

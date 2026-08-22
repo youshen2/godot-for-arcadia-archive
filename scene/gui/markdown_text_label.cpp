@@ -1009,6 +1009,9 @@ void MarkdownTextLabel::_notification(int p_what) {
 		case NOTIFICATION_RESIZED:
 			layout_dirty = true;
 			queue_redraw();
+			if (fit_content) {
+				update_minimum_size();
+			}
 			break;
 		case NOTIFICATION_DRAW: {
 			_ensure_layout();

@@ -128,7 +128,7 @@
 			<return type="void" />
 			<param index="0" name="enabled" type="bool" />
 			<description>
-				设置是否使用 Markdown 内容的排版尺寸作为控件最小尺寸。内容较长时建议配合 [ScrollContainer] 使用。
+				设置是否使用 Markdown 内容的排版尺寸作为控件最小尺寸。启用后，控件宽度发生变化时会按新的自动换行结果更新最小高度，避免保留旧宽度对应的多余空间。内容较长时建议配合 [ScrollContainer] 使用。
 			</description>
 		</method>
 		<method name="set_horizontal_alignment">
@@ -189,7 +189,7 @@
 			自动换行时用于裁剪行首或行尾空白的标志。该值只影响排版，不会修改 [member text] 原文。
 		</member>
 		<member name="fit_content" type="bool" setter="set_fit_content" getter="is_fit_content_enabled" default="false">
-			如果为 [code]true[/code]，控件的最小尺寸会使用 Markdown 内容的排版尺寸。内容较长时建议将该控件放入 [ScrollContainer]。
+			如果为 [code]true[/code]，控件的最小尺寸会使用 Markdown 内容的排版尺寸。控件宽度变化后，最小高度会按新的自动换行结果重新计算，不会继续占用旧宽度对应的高度。内容较长时建议将该控件放入 [ScrollContainer]。
 		</member>
 		<member name="horizontal_alignment" type="int" setter="set_horizontal_alignment" getter="get_horizontal_alignment" enum="HorizontalAlignment" default="0">
 			控制普通段落和标题的水平对齐方式。Markdown 表格单元格会优先使用表格分隔行中声明的对齐方式。

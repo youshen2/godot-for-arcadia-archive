@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  container.h                                                           */
+/*  video_export_session.h                                                */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -30,58 +30,52 @@
 
 #pragma once
 
-#include "scene/gui/control.h"
+#include "ffmpeg_video_encoder.h"
 
-class Container : public Control {
-	GDCLASS(Container, Control);
+#include "core/object/ref_counted.h"
 
-	bool pending_sort = false;
-	bool accessibility_region = false;
-	void _sort_children();
-	void _child_minsize_changed();
-	void _child_desired_size_changed();
+class Viewport;
+
+class VideoExportSession : public RefCounted {
+	GDCLASS(VideoExportSession, RefCounted)
+
+	FFmpegVideoEncoder encoder;
+	ObjectID viewport_id;
+	Size2i output_size;
+	uint32_t fps = 60;
+	uint32_t audio_mix_rate = 0;
+	uint64_t frame_limit = 0;
+	bool audio_enabled = false;
+	String session_error;
+
+	Error _report_error(Error p_error, const String &p_message = String());
+	Error _add_frame(const Ref<Image> &p_image, const PackedVector2Array &p_audio_frames);
 
 protected:
-	enum class SortableVisibilityMode {
-		VISIBLE,
-		VISIBLE_IN_TREE,
-		IGNORE,
-	};
-
-	void queue_sort();
-	Control *as_sortable_control(Node *p_node, SortableVisibilityMode p_visibility_mode = SortableVisibilityMode::VISIBLE_IN_TREE) const;
-
-	// Returns the visible area of this container in canvas coordinates: its own
-	// rect clipped by the window's visible rect and by any clipping ancestors
-	// (ScrollContainer always clips its content). Returns false when not inside
-	// the tree or when the result has no area.
-	bool get_visible_canvas_rect(Rect2 &r_rect) const;
-
-	virtual void add_child_notify(Node *p_child) override;
-	virtual void move_child_notify(Node *p_child) override;
-	virtual void remove_child_notify(Node *p_child) override;
-
-	GDVIRTUAL0RC(Vector<int>, _get_allowed_size_flags_horizontal)
-	GDVIRTUAL0RC(Vector<int>, _get_allowed_size_flags_vertical)
-
-	void _notification(int p_what);
 	static void _bind_methods();
 
 public:
-	enum {
-		NOTIFICATION_PRE_SORT_CHILDREN = 50,
-		NOTIFICATION_SORT_CHILDREN = 51,
-	};
+	void set_viewport(Viewport *p_viewport);
+	Viewport *get_viewport() const;
 
-	void fit_child_in_rect(RequiredParam<Control> rp_child, const Rect2 &p_rect);
+	Error start(const String &p_output_path, const Size2i &p_output_size, int p_fps = 60, int64_t p_video_bitrate = 12000000, const String &p_codec = String(), const String &p_encoding_preset = "veryfast", int p_keyframe_interval = 0, int64_t p_frame_limit = 0, bool p_include_audio = false, int p_audio_mix_rate = 48000, int64_t p_audio_bitrate = 192000);
+	Error add_frame(const Ref<Image> &p_image, const PackedVector2Array &p_audio_frames = PackedVector2Array());
+	Error capture_frame(const PackedVector2Array &p_audio_frames = PackedVector2Array());
+	Error render_frame(const PackedVector2Array &p_audio_frames = PackedVector2Array());
+	Error finish();
 
-	virtual Vector<int> get_allowed_size_flags_horizontal() const;
-	virtual Vector<int> get_allowed_size_flags_vertical() const;
-
-	PackedStringArray get_configuration_warnings() const override;
-
-	void set_accessibility_region(bool p_region);
-	bool is_accessibility_region() const;
-
-	Container();
+	bool is_active() const;
+	bool is_audio_enabled() const;
+	int64_t get_frame_count() const;
+	int64_t get_frame_limit() const;
+	int get_required_audio_frame_count() const;
+	double get_duration() const;
+	double get_progress() const;
+	Size2i get_output_size() const;
+	int get_fps() const;
+	int get_audio_mix_rate() const;
+	String get_output_path() const;
+	String get_codec_name() const;
+	String get_audio_codec_name() const;
+	String get_last_error() const;
 };

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  container.h                                                           */
+/*  movie_writer_ffmpeg.h                                                 */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -30,58 +30,32 @@
 
 #pragma once
 
-#include "scene/gui/control.h"
+#include "ffmpeg_video_encoder.h"
 
-class Container : public Control {
-	GDCLASS(Container, Control);
+#include "servers/movie_writer/movie_writer.h"
 
-	bool pending_sort = false;
-	bool accessibility_region = false;
-	void _sort_children();
-	void _child_minsize_changed();
-	void _child_desired_size_changed();
+class MovieWriterFFmpeg : public MovieWriter {
+	GDCLASS(MovieWriterFFmpeg, MovieWriter)
+
+	FFmpegVideoEncoder encoder;
+	uint32_t mix_rate = 48000;
+	uint32_t fps = 60;
+	int64_t video_bitrate = 12000000;
+	int64_t audio_bitrate = 192000;
+	uint32_t keyframe_interval = 0;
+	String codec;
+	String preset = "veryfast";
+	bool write_failed = false;
 
 protected:
-	enum class SortableVisibilityMode {
-		VISIBLE,
-		VISIBLE_IN_TREE,
-		IGNORE,
-	};
-
-	void queue_sort();
-	Control *as_sortable_control(Node *p_node, SortableVisibilityMode p_visibility_mode = SortableVisibilityMode::VISIBLE_IN_TREE) const;
-
-	// Returns the visible area of this container in canvas coordinates: its own
-	// rect clipped by the window's visible rect and by any clipping ancestors
-	// (ScrollContainer always clips its content). Returns false when not inside
-	// the tree or when the result has no area.
-	bool get_visible_canvas_rect(Rect2 &r_rect) const;
-
-	virtual void add_child_notify(Node *p_child) override;
-	virtual void move_child_notify(Node *p_child) override;
-	virtual void remove_child_notify(Node *p_child) override;
-
-	GDVIRTUAL0RC(Vector<int>, _get_allowed_size_flags_horizontal)
-	GDVIRTUAL0RC(Vector<int>, _get_allowed_size_flags_vertical)
-
-	void _notification(int p_what);
-	static void _bind_methods();
+	virtual uint32_t get_audio_mix_rate() const override;
+	virtual AudioServer::SpeakerMode get_audio_speaker_mode() const override;
+	virtual bool handles_file(const String &p_path) const override;
+	virtual void get_supported_extensions(List<String> *r_extensions) const override;
+	virtual Error write_begin(const Size2i &p_movie_size, uint32_t p_fps, const String &p_base_path) override;
+	virtual Error write_frame(const Ref<Image> &p_image, const int32_t *p_audio_data) override;
+	virtual void write_end() override;
 
 public:
-	enum {
-		NOTIFICATION_PRE_SORT_CHILDREN = 50,
-		NOTIFICATION_SORT_CHILDREN = 51,
-	};
-
-	void fit_child_in_rect(RequiredParam<Control> rp_child, const Rect2 &p_rect);
-
-	virtual Vector<int> get_allowed_size_flags_horizontal() const;
-	virtual Vector<int> get_allowed_size_flags_vertical() const;
-
-	PackedStringArray get_configuration_warnings() const override;
-
-	void set_accessibility_region(bool p_region);
-	bool is_accessibility_region() const;
-
-	Container();
+	MovieWriterFFmpeg();
 };

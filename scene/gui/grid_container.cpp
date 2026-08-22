@@ -35,6 +35,38 @@
 #include "core/templates/rb_set.h"
 #include "scene/theme/theme_db.h"
 
+// Returns the fractional row/column index whose main-axis slot contains
+// `p_pos`. `p_begins` must be sorted in ascending order.
+static float _skew_fractional_index(const Vector<float> &p_begins, float p_pos) {
+	for (int i = 0; i < p_begins.size(); i++) {
+		const float next = (i + 1 < p_begins.size()) ? p_begins[i + 1] : (p_begins[i] + (i > 0 ? p_begins[i] - p_begins[i - 1] : 0.0f));
+		if (p_pos < next) {
+			const float pitch = next - p_begins[i];
+			return i + (pitch > 0.0f ? CLAMP((p_pos - p_begins[i]) / pitch, 0.0f, 1.0f) : 0.0f);
+		}
+	}
+	return p_begins.size();
+}
+
+// Anchors the skew diagonal to the visible area: `r_progress` becomes the
+// fractional index of the first visible row/column and `r_span` the cross-axis
+// range covered by the visible diagonal (never larger than the full extent).
+static void _skew_apply_visible_window(const Vector<float> &p_begins, float p_vis_begin, float p_vis_end, float p_skew, float p_extent, float &r_progress, float &r_span) {
+	r_progress = 0.0f;
+	r_span = p_extent;
+	if (p_begins.is_empty() || Math::is_zero_approx(p_skew) || p_vis_end <= p_vis_begin) {
+		return;
+	}
+	const float first_visible = _skew_fractional_index(p_begins, p_vis_begin);
+	const float last_visible = _skew_fractional_index(p_begins, p_vis_end);
+	if (last_visible <= first_visible) {
+		return;
+	}
+	r_progress = first_visible;
+	const int visible_capacity = MAX(1, (int)Math::ceil(last_visible - first_visible));
+	r_span = MIN(p_extent, Math::abs(p_skew) * MAX(visible_capacity - 1, 0));
+}
+
 void GridContainer::_resort() {
 	RBMap<int, int> col_minw; // Max of min_width of all controls in each col (indexed by col).
 	RBMap<int, int> row_minh; // Max of min_height of all controls in each row (indexed by row).
@@ -116,15 +148,52 @@ void GridContainer::_resort() {
 	const float skew_x_extent = Math::abs(item_skew.x) * MAX(max_row - 1, 0);
 	const float skew_y_extent = Math::abs(item_skew.y) * MAX(max_col - 1, 0);
 
+	// The skew diagonal is anchored to the container's visible area (its own
+	// rect clipped by the window and any clipping ancestors such as a
+	// ScrollContainer), so adding, removing or scrolling items never changes
+	// the offsets of the visible rows and columns. Compute the cross-axis range
+	// covered by the visible diagonal from the minimum size pitches; when the
+	// container is fully visible this is the whole skew extent.
+	float skew_x_span = skew_x_extent;
+	float skew_y_span = skew_y_extent;
+	if (!item_skew.is_zero_approx() && valid_controls_index > 0) {
+		Rect2 visible_rect;
+		if (get_visible_canvas_rect(visible_rect)) {
+			const Rect2 own_rect = get_global_rect();
+			Vector<float> row_min_begins;
+			Vector<float> col_min_begins;
+			row_min_begins.resize(max_row);
+			col_min_begins.resize(max_col);
+			float acc = 0.0f;
+			for (int r = 0; r < max_row; r++) {
+				row_min_begins.write[r] = acc;
+				acc += (row_minh.has(r) ? row_minh[r] : 0) + theme_cache.v_separation;
+			}
+			acc = 0.0f;
+			for (int c = 0; c < max_col; c++) {
+				col_min_begins.write[c] = acc;
+				acc += (col_minw.has(c) ? col_minw[c] : 0) + theme_cache.h_separation;
+			}
+			float progress = 0.0f;
+			if (!Math::is_zero_approx(item_skew.x)) {
+				_skew_apply_visible_window(row_min_begins, visible_rect.position.y - own_rect.position.y, visible_rect.get_end().y - own_rect.position.y, item_skew.x, skew_x_extent, progress, skew_x_span);
+			}
+			if (!Math::is_zero_approx(item_skew.y)) {
+				_skew_apply_visible_window(col_min_begins, visible_rect.position.x - own_rect.position.x, visible_rect.get_end().x - own_rect.position.x, item_skew.y, skew_y_extent, progress, skew_y_span);
+			}
+		}
+	}
+
 	// Consider all empty columns expanded.
 	for (int i = valid_controls_index; i < columns; i++) {
 		col_expanded.insert(i);
 	}
 
-	// Evaluate the remaining space for expanded columns/rows.
+	// Evaluate the remaining space for expanded columns/rows. The skew span is
+	// reserved on the cross axis so the visible diagonal stays inside the grid.
 	Size2 remaining_space = get_size();
-	remaining_space.width = MAX(0.0f, remaining_space.width - skew_x_extent);
-	remaining_space.height = MAX(0.0f, remaining_space.height - skew_y_extent);
+	remaining_space.width = MAX(0.0f, remaining_space.width - skew_x_span);
+	remaining_space.height = MAX(0.0f, remaining_space.height - skew_y_span);
 	for (const KeyValue<int, int> &E : col_minw) {
 		if (!col_expanded.has(E.key)) {
 			remaining_space.width -= E.value;
@@ -238,9 +307,6 @@ void GridContainer::_resort() {
 
 	bool rtl = is_layout_rtl();
 
-	const float skew_x_origin = item_skew.x < 0.0f ? skew_x_extent : (rtl ? -skew_x_extent : 0.0f);
-	const float skew_y_origin = item_skew.y < 0.0f ? skew_y_extent : 0.0f;
-
 	float col_ofs = 0.0f;
 	float row_ofs = 0.0f;
 
@@ -266,21 +332,30 @@ void GridContainer::_resort() {
 		}
 	}
 
-	float grid_width = skew_x_extent + theme_cache.h_separation * MAX(max_col - 1, 0);
+	// Compute the final size of each column and row once, so the placement loop,
+	// the grid extents and the visible-area skew anchoring all agree.
+	Vector<int> col_sizes;
+	Vector<int> row_sizes;
+	col_sizes.resize(max_col);
+	row_sizes.resize(max_row);
+
+	float grid_width = skew_x_span + theme_cache.h_separation * MAX(max_col - 1, 0);
 	for (int i = 0; i < max_col; i++) {
 		int col_size = col_expanded.has(i) ? col_expand : (col_fixed_size.has(i) ? col_fixed_size[i] : (col_minw.has(i) ? col_minw[i] : 0));
 		if (col_expanded.has(i) && i < col_remaining_pixel_index) {
 			col_size++;
 		}
+		col_sizes.write[i] = col_size;
 		grid_width += col_size;
 	}
 
-	float grid_height = skew_y_extent + theme_cache.v_separation * MAX(max_row - 1, 0);
+	float grid_height = skew_y_span + theme_cache.v_separation * MAX(max_row - 1, 0);
 	for (int i = 0; i < max_row; i++) {
 		int row_size = row_expanded.has(i) ? row_expand : (row_fixed_size.has(i) ? row_fixed_size[i] : (row_minh.has(i) ? row_minh[i] : 0));
 		if (row_expanded.has(i) && i < row_remaining_pixel_index) {
 			row_size++;
 		}
+		row_sizes.write[i] = row_size;
 		grid_height += row_size;
 	}
 
@@ -313,6 +388,45 @@ void GridContainer::_resort() {
 			break;
 	}
 
+	// Compute the fractional index of the first visible row/column so the skew
+	// offsets can be made relative to it. Column positions are measured from
+	// the right edge in RTL layouts to keep the indices ascending.
+	float skew_row_progress = 0.0f;
+	float skew_col_progress = 0.0f;
+	if (!item_skew.is_zero_approx() && valid_controls_index > 0) {
+		Rect2 visible_rect;
+		if (get_visible_canvas_rect(visible_rect)) {
+			const Rect2 own_rect = get_global_rect();
+			if (!Math::is_zero_approx(item_skew.x)) {
+				Vector<float> row_begins;
+				row_begins.resize(max_row);
+				float acc = vertical_alignment_offset;
+				for (int r = 0; r < max_row; r++) {
+					row_begins.write[r] = acc;
+					acc += (row_expanded.has(r) ? row_expand : row_minh[r]) + theme_cache.v_separation;
+					if (row_expanded.has(r) && r < row_remaining_pixel_index) {
+						acc += 1.0f;
+					}
+				}
+				skew_row_progress = _skew_fractional_index(row_begins, visible_rect.position.y - own_rect.position.y);
+			}
+			if (!Math::is_zero_approx(item_skew.y)) {
+				Vector<float> col_begins;
+				col_begins.resize(max_col);
+				float acc = rtl ? get_size().width + horizontal_alignment_offset : horizontal_alignment_offset;
+				for (int c = 0; c < max_col; c++) {
+					col_begins.write[c] = rtl ? get_size().width - acc : acc;
+					acc += rtl ? -(col_sizes[c] + theme_cache.h_separation) : (col_sizes[c] + theme_cache.h_separation);
+				}
+				const float vis_x_begin = visible_rect.position.x - own_rect.position.x;
+				const float vis_x_end = visible_rect.get_end().x - own_rect.position.x;
+				skew_col_progress = _skew_fractional_index(col_begins, rtl ? get_size().width - vis_x_end : vis_x_begin);
+			}
+		}
+	}
+	const float skew_x_base = item_skew.x < 0.0f ? skew_x_span : 0.0f;
+	const float skew_y_base = item_skew.y < 0.0f ? skew_y_span : 0.0f;
+
 	int accumulated_width = 0;
 	int accumulated_height = 0;
 	valid_controls_index = 0;
@@ -343,34 +457,27 @@ void GridContainer::_resort() {
 			}
 		}
 
-		Size2 s(
-				col_expanded.has(col) ? col_expand : (col_fixed_size.has(col) ? col_fixed_size[col] : col_minw[col]),
-				row_expanded.has(row) ? row_expand : (row_fixed_size.has(row) ? row_fixed_size[row] : row_minh[row]));
-
-		// Add the remaining pixel to the expanding columns and rows, starting from left and top.
-		if (col_expanded.has(col) && col < col_remaining_pixel_index) {
-			s.x++;
-		}
-		if (row_expanded.has(row) && row < row_remaining_pixel_index) {
-			s.y++;
-		}
+		Size2 s(col_sizes[col], row_sizes[row]);
 
 		if (is_propagating_maximum_size()) {
 			Size2 ms = combined_max_size;
 			if (ms.width >= 0) {
-				ms.width -= skew_x_extent;
+				ms.width -= skew_x_span;
 				ms.width -= accumulated_width;
 				ms.width = MAX(ms.width, 0);
 			}
 			if (ms.height >= 0) {
-				ms.height -= skew_y_extent;
+				ms.height -= skew_y_span;
 				ms.height -= accumulated_height;
 				ms.height = MAX(ms.height, 0);
 			}
 			c->set_parent_maximum_size_cache(ms);
 		}
 
-		const Vector2 skew_offset(skew_x_origin + item_skew.x * row, skew_y_origin + item_skew.y * col);
+		// The skew offset is relative to the first visible row/column, so the
+		// diagonal keeps a fixed shape inside the visible area regardless of
+		// item count or scroll position.
+		const Vector2 skew_offset(skew_x_base + item_skew.x * (row - skew_row_progress), skew_y_base + item_skew.y * (col - skew_col_progress));
 		if (rtl) {
 			Point2 p(col_ofs - s.width + skew_offset.x, row_ofs + skew_offset.y);
 			fit_child_in_rect(c, Rect2(p, s));
@@ -395,6 +502,14 @@ void GridContainer::_notification(int p_what) {
 		case NOTIFICATION_SORT_CHILDREN: {
 			_resort();
 			update_minimum_size();
+		} break;
+
+		case NOTIFICATION_TRANSFORM_CHANGED: {
+			if (!item_skew.is_zero_approx()) {
+				// The skew diagonal is anchored to the visible area; follow any
+				// movement of the container or its ancestors (e.g. scrolling).
+				queue_sort();
+			}
 		} break;
 
 		case NOTIFICATION_THEME_CHANGED: {
@@ -430,6 +545,7 @@ void GridContainer::set_item_skew(const Vector2 &p_offset) {
 		return;
 	}
 	item_skew = p_offset;
+	set_notify_transform(!item_skew.is_zero_approx());
 	update_minimum_size();
 	queue_sort();
 }
@@ -535,8 +651,39 @@ Size2 GridContainer::_get_minimum_size(bool p_use_desired_sizes) const {
 	ms.height += theme_cache.v_separation * max_row;
 	ms.width += theme_cache.h_separation * max_col;
 
-	ms.width += Math::ceil(Math::abs(item_skew.x) * max_row);
-	ms.height += Math::ceil(Math::abs(item_skew.y) * max_col);
+	// The skew diagonal is anchored to the visible area, so the reservation
+	// only needs to cover the visible diagonal, not all rows and columns.
+	Vector2 skew_span(Math::abs(item_skew.x) * max_row, Math::abs(item_skew.y) * max_col);
+	if (!item_skew.is_zero_approx() && valid_controls_index > 0) {
+		Rect2 visible_rect;
+		if (get_visible_canvas_rect(visible_rect)) {
+			const Rect2 own_rect = get_global_rect();
+			Vector<float> row_begins;
+			Vector<float> col_begins;
+			row_begins.reserve(row_minh.size());
+			col_begins.reserve(col_minw.size());
+			float acc = 0.0f;
+			for (const KeyValue<int, int> &E : row_minh) {
+				row_begins.push_back(acc);
+				acc += E.value + theme_cache.v_separation;
+			}
+			acc = 0.0f;
+			for (const KeyValue<int, int> &E : col_minw) {
+				col_begins.push_back(acc);
+				acc += E.value + theme_cache.h_separation;
+			}
+			float progress = 0.0f;
+			if (!Math::is_zero_approx(item_skew.x) && !row_begins.is_empty()) {
+				_skew_apply_visible_window(row_begins, visible_rect.position.y - own_rect.position.y, visible_rect.get_end().y - own_rect.position.y, item_skew.x, skew_span.x, progress, skew_span.x);
+			}
+			if (!Math::is_zero_approx(item_skew.y) && !col_begins.is_empty()) {
+				_skew_apply_visible_window(col_begins, visible_rect.position.x - own_rect.position.x, visible_rect.get_end().x - own_rect.position.x, item_skew.y, skew_span.y, progress, skew_span.y);
+			}
+		}
+	}
+
+	ms.width += Math::ceil(skew_span.x);
+	ms.height += Math::ceil(skew_span.y);
 
 	return ms;
 }

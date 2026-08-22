@@ -32,7 +32,28 @@
 
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "scene/main/viewport.h"
 #include "servers/display/accessibility_server.h"
+
+bool Container::get_visible_canvas_rect(Rect2 &r_rect) const {
+	if (!is_inside_tree()) {
+		return false;
+	}
+	Viewport *viewport = get_viewport();
+	if (!viewport) {
+		return false;
+	}
+	r_rect = get_global_rect();
+	// Limit to the visible area of the window (or the editor's 2D view).
+	r_rect = r_rect.intersection(get_canvas_transform().affine_inverse().xform(viewport->get_visible_rect()));
+	// Limit to clipping ancestors (ScrollContainer enables clip_contents).
+	for (Control *parent = get_parent_control(); parent; parent = parent->get_parent_control()) {
+		if (parent->is_clipping_contents()) {
+			r_rect = r_rect.intersection(parent->get_global_rect());
+		}
+	}
+	return r_rect.has_area();
+}
 
 void Container::_child_minsize_changed() {
 	update_minimum_size();

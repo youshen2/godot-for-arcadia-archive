@@ -94,6 +94,12 @@ private:
 	float fisheye_radius = 0.0f;
 	HashSet<ObjectID> effect_items;
 
+	// Last scroll offset and viewport size for which the item-skew content was
+	// re-sorted; used to anchor the skew diagonal to the visible area without
+	// re-sorting the content on every layout pass.
+	Vector2 last_skew_scroll_position = Vector2(-1, -1);
+	Size2 last_skew_viewport_size = Size2(-1, -1);
+
 	ScrollHintMode scroll_hint_mode = SCROLL_HINT_MODE_DISABLED;
 	bool tile_scroll_hint = false;
 
