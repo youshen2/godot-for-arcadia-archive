@@ -588,7 +588,8 @@ bool ProjectSettings::load_resource_pack(const String &p_pack, bool p_replace_fi
 	return ProjectSettings::_load_resource_pack(p_pack, p_replace_files, p_offset, false);
 }
 
-bool ProjectSettings::_load_resource_pack(const String &p_pack, bool p_replace_files, int p_offset, bool p_main_pack) {
+bool ProjectSettings::_load_resource_pack(const String &p_pack, bool p_replace_files, int p_offset,
+		bool p_main_pack, bool p_track_for_unload) {
 	if (PackedData::get_singleton()->is_disabled()) {
 		return false;
 	}
@@ -607,7 +608,7 @@ bool ProjectSettings::_load_resource_pack(const String &p_pack, bool p_replace_f
 		using_datapack = true;
 	}
 
-	bool ok = PackedData::get_singleton()->add_pack(p_pack, p_replace_files, p_offset) == OK;
+	bool ok = PackedData::get_singleton()->add_pack(p_pack, p_replace_files, p_offset, Vector<uint8_t>(), p_track_for_unload) == OK;
 	if (!ok) {
 		return false;
 	}
@@ -632,6 +633,31 @@ bool ProjectSettings::_load_resource_pack(const String &p_pack, bool p_replace_f
 	if (!using_datapack) {
 		DirAccess::make_default<DirAccessPack>(DirAccess::ACCESS_RESOURCES);
 		using_datapack = true;
+	}
+
+	return true;
+}
+
+bool ProjectSettings::_unload_resource_pack(const String &p_pack, PackedStringArray *r_changed_files) {
+	if (PackedData::get_singleton()->is_disabled()) {
+		return false;
+	}
+
+	PackedStringArray changed_files;
+	if (PackedData::get_singleton()->unload_pack(p_pack, &changed_files) != OK) {
+		return false;
+	}
+	if (r_changed_files != nullptr) {
+		*r_changed_files = changed_files;
+	}
+
+	if (project_loaded) {
+		refresh_global_class_list();
+		ResourceUID::get_singleton()->load_from_cache(false);
+
+		if (resource_pack_loaded_callback != nullptr) {
+			resource_pack_loaded_callback(p_pack, true, changed_files);
+		}
 	}
 
 	return true;

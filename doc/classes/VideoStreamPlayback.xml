@@ -15,6 +15,12 @@
 				Returns the number of audio channels.
 			</description>
 		</method>
+		<method name="_get_decoder_backend" qualifiers="virtual const">
+			<return type="String" />
+			<description>
+				返回当前实际解码后端的稳定名称。软件实现应返回 [code]"software"[/code]；硬件实现应返回可供日志和界面显示的后端名称。该方法用于实现 [method VideoStreamPlayer.get_decoder_backend]。
+			</description>
+		</method>
 		<method name="_get_length" qualifiers="virtual const">
 			<return type="float" />
 			<description>
@@ -49,6 +55,12 @@
 			<return type="bool" />
 			<description>
 				Returns the playback state, as determined by calls to [method _play] and [method _stop].
+			</description>
+		</method>
+		<method name="_is_using_hardware_decoder" qualifiers="virtual const">
+			<return type="bool" />
+			<description>
+				返回当前播放实例是否实际使用硬件视频解码器。自动模式回退到软件解码后应返回 [code]false[/code]；没有视频解码器时也应返回 [code]false[/code]。
 			</description>
 		</method>
 		<method name="_play" qualifiers="virtual">
@@ -118,6 +130,13 @@
 			<param index="0" name="enabled" type="bool" />
 			<description>
 				设置是否启用播放实现的调试输出。调试信息用于定位解码、同步或媒体元数据问题，不应影响播放结果。
+			</description>
+		</method>
+		<method name="_set_decoder_mode" qualifiers="virtual">
+			<return type="bool" />
+			<param index="0" name="mode" type="int" />
+			<description>
+				请求切换解码模式，取值对应 [enum VideoStreamPlayer.DecoderMode]。返回 [code]true[/code] 表示已接受设置；返回 [code]false[/code] 表示模式不受支持或强制硬件解码不可用。播放实现应在切换时尽量保留播放位置与播放/暂停状态，并在失败时继续使用先前解码器。
 			</description>
 		</method>
 		<method name="_set_frame_dropping_enabled" qualifiers="virtual">

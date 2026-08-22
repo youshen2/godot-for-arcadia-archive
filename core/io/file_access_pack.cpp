@@ -37,20 +37,43 @@
 #include "core/os/os.h"
 #include "core/version.h"
 
-Error PackedData::add_pack(const String &p_path, bool p_replace_files, uint64_t p_offset, const Vector<uint8_t> &p_decryption_key) {
+String PackedData::_normalize_pack_path(const String &p_path) {
+	return p_path.replace("\\", "/").simplify_path();
+}
+
+Error PackedData::add_pack(const String &p_path, bool p_replace_files, uint64_t p_offset,
+		const Vector<uint8_t> &p_decryption_key, bool p_track_for_unload) {
+	ERR_FAIL_COND_V_MSG(tracking_pack, ERR_BUSY, "Cannot mount a resource pack while another tracked pack is being mounted.");
+
 	last_added_files.clear();
 	collecting_pack_files = true;
+	tracking_pack = p_track_for_unload;
+	if (tracking_pack) {
+		current_tracked_pack = TrackedPack();
+		current_tracked_pack.id = next_tracked_pack_id++;
+		current_tracked_pack.path = _normalize_pack_path(p_path);
+	}
 
 	for (int i = 0; i < sources.size(); i++) {
 		last_added_files.clear();
 		if (sources[i]->try_open_pack(p_path, p_replace_files, p_offset, p_decryption_key)) {
 			collecting_pack_files = false;
+			if (tracking_pack) {
+				tracked_packs.push_back(current_tracked_pack);
+				current_tracked_pack = TrackedPack();
+				tracking_pack = false;
+			}
 			return OK;
+		}
+		if (tracking_pack) {
+			_rollback_current_tracked_pack();
 		}
 	}
 
 	collecting_pack_files = false;
 	last_added_files.clear();
+	current_tracked_pack = TrackedPack();
+	tracking_pack = false;
 	return ERR_FILE_UNRECOGNIZED;
 }
 
@@ -73,8 +96,22 @@ void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64
 		pf.md5[i] = p_md5[i];
 	}
 	pf.src = p_src;
+	pf.tracked_pack_id = tracking_pack ? current_tracked_pack.id : 0;
 
 	const bool added_to_current_files = !p_delta && (!exists || p_replace_files);
+	if (tracking_pack && added_to_current_files) {
+		TrackedPackChange change;
+		change.path_md5 = pmd5;
+		change.resource_path = "res://" + simplified_path;
+		change.had_previous = exists;
+		if (exists) {
+			change.previous = files[pmd5];
+		}
+		if (delta_patches.has(pmd5)) {
+			change.previous_delta_patches = delta_patches[pmd5];
+		}
+		current_tracked_pack.changes.push_back(change);
+	}
 
 	if (p_delta) {
 		delta_patches[pmd5].push_back(pf);
@@ -112,6 +149,115 @@ void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64
 			cd->files.insert(filename);
 		}
 	}
+}
+
+void PackedData::_remove_current_path(const PathMD5 &p_path_md5, const String &p_resource_path) {
+	const String simplified_path = p_resource_path.simplify_path().trim_prefix("res://");
+	PackedDir *cd = root;
+
+	if (simplified_path.contains_char('/')) {
+		Vector<String> directories = simplified_path.get_base_dir().split("/");
+		for (const String &directory : directories) {
+			if (!cd->subdirs.has(directory)) {
+				files.erase(p_path_md5);
+				return;
+			}
+			cd = cd->subdirs[directory];
+		}
+	}
+
+	cd->files.erase(simplified_path.get_file());
+	files.erase(p_path_md5);
+}
+
+void PackedData::_restore_tracked_pack_change(const TrackedPackChange &p_change) {
+	if (p_change.had_previous) {
+		files[p_change.path_md5] = p_change.previous;
+	} else {
+		_remove_current_path(p_change.path_md5, p_change.resource_path);
+	}
+
+	if (p_change.previous_delta_patches.is_empty()) {
+		delta_patches.erase(p_change.path_md5);
+	} else {
+		delta_patches[p_change.path_md5] = p_change.previous_delta_patches;
+	}
+}
+
+void PackedData::_rollback_current_tracked_pack() {
+	for (int i = current_tracked_pack.changes.size() - 1; i >= 0; i--) {
+		const TrackedPackChange &change = current_tracked_pack.changes[i];
+		HashMap<PathMD5, PackedFile, PathMD5>::Iterator current = files.find(change.path_md5);
+		if (!current || current->value.tracked_pack_id != current_tracked_pack.id) {
+			continue;
+		}
+
+		_restore_tracked_pack_change(change);
+	}
+	current_tracked_pack.changes.clear();
+}
+
+Error PackedData::unload_pack(const String &p_path, PackedStringArray *r_changed_files) {
+	ERR_FAIL_COND_V_MSG(tracking_pack, ERR_BUSY, "Cannot unload a resource pack while another tracked pack is being mounted.");
+	if (r_changed_files != nullptr) {
+		r_changed_files->clear();
+	}
+
+	const String normalized_path = _normalize_pack_path(p_path);
+	int tracked_pack_index = -1;
+	for (int i = tracked_packs.size() - 1; i >= 0; i--) {
+		if (tracked_packs[i].path == normalized_path) {
+			tracked_pack_index = i;
+			break;
+		}
+	}
+	if (tracked_pack_index < 0) {
+		return ERR_DOES_NOT_EXIST;
+	}
+
+	const TrackedPack removed_pack = tracked_packs[tracked_pack_index];
+	for (int i = tracked_pack_index + 1; i < tracked_packs.size(); i++) {
+		TrackedPack &later_pack = tracked_packs.write[i];
+		for (TrackedPackChange &later_change : later_pack.changes) {
+			if (!later_change.had_previous || later_change.previous.tracked_pack_id != removed_pack.id) {
+				continue;
+			}
+
+			for (const TrackedPackChange &removed_change : removed_pack.changes) {
+				if (!(removed_change.path_md5 == later_change.path_md5)) {
+					continue;
+				}
+				later_change.had_previous = removed_change.had_previous;
+				if (removed_change.had_previous) {
+					later_change.previous = removed_change.previous;
+				}
+				later_change.previous_delta_patches = removed_change.previous_delta_patches;
+				break;
+			}
+		}
+	}
+
+	HashSet<String> changed_files;
+	for (int i = removed_pack.changes.size() - 1; i >= 0; i--) {
+		const TrackedPackChange &change = removed_pack.changes[i];
+		HashMap<PathMD5, PackedFile, PathMD5>::Iterator current = files.find(change.path_md5);
+		if (!current || current->value.tracked_pack_id != removed_pack.id) {
+			continue;
+		}
+
+		_restore_tracked_pack_change(change);
+		changed_files.insert(change.resource_path);
+	}
+
+	tracked_packs.remove_at(tracked_pack_index);
+	last_added_files.clear();
+	if (r_changed_files != nullptr) {
+		for (const String &file : changed_files) {
+			r_changed_files->push_back(file);
+		}
+		r_changed_files->sort();
+	}
+	return OK;
 }
 
 void PackedData::remove_path(const String &p_path) {
@@ -201,6 +347,10 @@ void PackedData::clear() {
 	delta_patches.clear();
 	last_added_files.clear();
 	collecting_pack_files = false;
+	tracked_packs.clear();
+	current_tracked_pack = TrackedPack();
+	tracking_pack = false;
+	next_tracked_pack_id = 1;
 	_free_packed_dirs(root);
 	root = memnew(PackedDir);
 }

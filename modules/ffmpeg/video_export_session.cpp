@@ -52,6 +52,16 @@ Viewport *VideoExportSession::get_viewport() const {
 	return Object::cast_to<Viewport>(ObjectDB::get_instance(viewport_id));
 }
 
+void VideoExportSession::set_encoder_mode(EncoderMode p_mode) {
+	ERR_FAIL_INDEX(p_mode, ENCODER_MODE_HARDWARE + 1);
+	ERR_FAIL_COND_MSG(encoder.is_active(), "The encoder mode cannot be changed while a video export session is active.");
+	encoder_mode = p_mode;
+}
+
+VideoExportSession::EncoderMode VideoExportSession::get_encoder_mode() const {
+	return encoder_mode;
+}
+
 Error VideoExportSession::start(const String &p_output_path, const Size2i &p_output_size, int p_fps, int64_t p_video_bitrate, const String &p_codec, const String &p_encoding_preset, int p_keyframe_interval, int64_t p_frame_limit, bool p_include_audio, int p_audio_mix_rate, int64_t p_audio_bitrate) {
 	if (p_fps <= 0) {
 		return _report_error(ERR_INVALID_PARAMETER, "Video export FPS must be greater than zero.");
@@ -72,7 +82,7 @@ Error VideoExportSession::start(const String &p_output_path, const Size2i &p_out
 	if (extension != "mp4" && extension != "mov" && extension != "mkv") {
 		return _report_error(ERR_INVALID_PARAMETER, "Video export requires an MP4, MOV, or MKV output path.");
 	}
-	Error err = encoder.begin(p_output_path, p_output_size, p_fps, p_video_bitrate, p_codec, p_encoding_preset, p_keyframe_interval, p_include_audio, uint32_t(p_audio_mix_rate), p_audio_bitrate);
+	Error err = encoder.begin(p_output_path, p_output_size, p_fps, p_video_bitrate, p_codec, p_encoding_preset, p_keyframe_interval, p_include_audio, uint32_t(p_audio_mix_rate), p_audio_bitrate, static_cast<FFmpegVideoEncoder::EncoderMode>(encoder_mode));
 	if (err != OK) {
 		return _report_error(err);
 	}
@@ -234,6 +244,14 @@ String VideoExportSession::get_audio_codec_name() const {
 	return encoder.get_audio_codec_name();
 }
 
+bool VideoExportSession::is_using_hardware_encoder() const {
+	return encoder.is_using_hardware_encoder();
+}
+
+String VideoExportSession::get_encoder_backend() const {
+	return encoder.get_encoder_backend();
+}
+
 String VideoExportSession::get_last_error() const {
 	return session_error.is_empty() ? encoder.get_last_error_message() : session_error;
 }
@@ -241,6 +259,8 @@ String VideoExportSession::get_last_error() const {
 void VideoExportSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_viewport", "viewport"), &VideoExportSession::set_viewport);
 	ClassDB::bind_method(D_METHOD("get_viewport"), &VideoExportSession::get_viewport);
+	ClassDB::bind_method(D_METHOD("set_encoder_mode", "mode"), &VideoExportSession::set_encoder_mode);
+	ClassDB::bind_method(D_METHOD("get_encoder_mode"), &VideoExportSession::get_encoder_mode);
 	ClassDB::bind_method(D_METHOD("start", "output_path", "output_size", "fps", "video_bitrate", "codec", "encoding_preset", "keyframe_interval", "frame_limit", "include_audio", "audio_mix_rate", "audio_bitrate"), &VideoExportSession::start, DEFVAL(60), DEFVAL(12000000), DEFVAL(String()), DEFVAL("veryfast"), DEFVAL(0), DEFVAL(0), DEFVAL(false), DEFVAL(48000), DEFVAL(192000));
 	ClassDB::bind_method(D_METHOD("add_frame", "image", "audio_frames"), &VideoExportSession::add_frame, DEFVAL(PackedVector2Array()));
 	ClassDB::bind_method(D_METHOD("capture_frame", "audio_frames"), &VideoExportSession::capture_frame, DEFVAL(PackedVector2Array()));
@@ -259,9 +279,12 @@ void VideoExportSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_output_path"), &VideoExportSession::get_output_path);
 	ClassDB::bind_method(D_METHOD("get_codec_name"), &VideoExportSession::get_codec_name);
 	ClassDB::bind_method(D_METHOD("get_audio_codec_name"), &VideoExportSession::get_audio_codec_name);
+	ClassDB::bind_method(D_METHOD("is_using_hardware_encoder"), &VideoExportSession::is_using_hardware_encoder);
+	ClassDB::bind_method(D_METHOD("get_encoder_backend"), &VideoExportSession::get_encoder_backend);
 	ClassDB::bind_method(D_METHOD("get_last_error"), &VideoExportSession::get_last_error);
 
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "viewport", PROPERTY_HINT_NODE_TYPE, "Viewport"), "set_viewport", "get_viewport");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "encoder_mode", PROPERTY_HINT_ENUM, "Auto,Software,Hardware"), "set_encoder_mode", "get_encoder_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "active", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_READ_ONLY), "", "is_active");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "audio_enabled", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_READ_ONLY), "", "is_audio_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "frame_count", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_READ_ONLY), "", "get_frame_count");
@@ -275,7 +298,13 @@ void VideoExportSession::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "output_path", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_READ_ONLY), "", "get_output_path");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "codec_name", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_READ_ONLY), "", "get_codec_name");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "audio_codec_name", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_READ_ONLY), "", "get_audio_codec_name");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "using_hardware_encoder", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_READ_ONLY), "", "is_using_hardware_encoder");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "encoder_backend", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_READ_ONLY), "", "get_encoder_backend");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "last_error", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_READ_ONLY), "", "get_last_error");
+
+	BIND_ENUM_CONSTANT(ENCODER_MODE_AUTO);
+	BIND_ENUM_CONSTANT(ENCODER_MODE_SOFTWARE);
+	BIND_ENUM_CONSTANT(ENCODER_MODE_HARDWARE);
 
 	ADD_SIGNAL(MethodInfo("started", PropertyInfo(Variant::STRING, "output_path")));
 	ADD_SIGNAL(MethodInfo("frame_encoded", PropertyInfo(Variant::INT, "frame_count"), PropertyInfo(Variant::FLOAT, "duration"), PropertyInfo(Variant::FLOAT, "progress")));

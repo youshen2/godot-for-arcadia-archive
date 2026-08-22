@@ -6,6 +6,7 @@
 	<description>
 		使用 FFmpeg 打开本地文件、[code]res://[/code]、[code]user://[/code] 或 FFmpeg 支持的网络地址，并为 [VideoStreamPlayer] 创建播放实例。
 		该资源只负责文件加载、流列表、元数据和章节信息。是否播放音频、选择音频轨、循环、速度、调试输出等播放行为由 [VideoStreamPlayer] 控制。
+		FFmpeg 播放实例支持通过 [member VideoStreamPlayer.decoder_mode] 在运行时选择自动、软件或硬件视频解码。内置构建在 Apple 平台使用 VideoToolbox，在 Windows 使用 D3D11VA 并兼容回退到 DXVA2，在 Android 使用 MediaCodec，在安装了 libva 开发库的 Linux/BSD 构建中使用 VAAPI；Web 平台使用软件解码。硬件支持仍取决于视频编码、配置档次、系统版本、驱动和具体设备。硬件帧会转换到现有 RGBA 纹理上传路径，因此目前不保证零拷贝显示。
 	</description>
 	<tutorials>
 	</tutorials>

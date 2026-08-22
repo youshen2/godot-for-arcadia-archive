@@ -39,6 +39,14 @@ class Viewport;
 class VideoExportSession : public RefCounted {
 	GDCLASS(VideoExportSession, RefCounted)
 
+public:
+	enum EncoderMode {
+		ENCODER_MODE_AUTO,
+		ENCODER_MODE_SOFTWARE,
+		ENCODER_MODE_HARDWARE,
+	};
+
+private:
 	FFmpegVideoEncoder encoder;
 	ObjectID viewport_id;
 	Size2i output_size;
@@ -46,6 +54,7 @@ class VideoExportSession : public RefCounted {
 	uint32_t audio_mix_rate = 0;
 	uint64_t frame_limit = 0;
 	bool audio_enabled = false;
+	EncoderMode encoder_mode = ENCODER_MODE_AUTO;
 	String session_error;
 
 	Error _report_error(Error p_error, const String &p_message = String());
@@ -57,6 +66,8 @@ protected:
 public:
 	void set_viewport(Viewport *p_viewport);
 	Viewport *get_viewport() const;
+	void set_encoder_mode(EncoderMode p_mode);
+	EncoderMode get_encoder_mode() const;
 
 	Error start(const String &p_output_path, const Size2i &p_output_size, int p_fps = 60, int64_t p_video_bitrate = 12000000, const String &p_codec = String(), const String &p_encoding_preset = "veryfast", int p_keyframe_interval = 0, int64_t p_frame_limit = 0, bool p_include_audio = false, int p_audio_mix_rate = 48000, int64_t p_audio_bitrate = 192000);
 	Error add_frame(const Ref<Image> &p_image, const PackedVector2Array &p_audio_frames = PackedVector2Array());
@@ -77,5 +88,9 @@ public:
 	String get_output_path() const;
 	String get_codec_name() const;
 	String get_audio_codec_name() const;
+	bool is_using_hardware_encoder() const;
+	String get_encoder_backend() const;
 	String get_last_error() const;
 };
+
+VARIANT_ENUM_CAST(VideoExportSession::EncoderMode);

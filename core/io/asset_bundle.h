@@ -78,9 +78,23 @@ private:
 		Vector<ResourceEntry> hot_replace_resources;
 	};
 
+	struct VerifyResourceTask {
+		const BundleInfo *bundle = nullptr;
+		const ResourceEntry *entry = nullptr;
+		Dictionary result;
+	};
+
+	struct VerifyAllContext {
+		const AssetBundle *asset_bundle = nullptr;
+		VerifyResourceTask *tasks = nullptr;
+		bool verify_hash = false;
+		bool verify_md5 = false;
+	};
+
 	String manifest_path;
 	String manifest_base_dir;
 	String manifest_version;
+	bool manifest_loaded = false;
 	HashMap<String, BundleInfo> bundles;
 	Vector<String> bundle_order;
 	HashSet<String> loaded_bundles;
@@ -113,6 +127,7 @@ private:
 	static String _normalize_portable_path(const String &p_path);
 
 	Error _set_error(Error p_error, const String &p_message);
+	Error _load_manifest_dictionary(const Dictionary &p_manifest, const String &p_manifest_path, const String &p_base_dir);
 	Error _parse_manifest_dictionary(const Dictionary &p_manifest);
 	Error _parse_bundle_dictionary(const Dictionary &p_bundle, const String &p_fallback_name, BundleInfo &r_bundle);
 	Error _parse_bundle_resources(const Variant &p_resources, BundleInfo &r_bundle);
@@ -125,6 +140,10 @@ private:
 	Dictionary _resource_entry_to_dictionary(const BundleInfo &p_bundle, const ResourceEntry &p_entry, bool p_include_file_path) const;
 	Dictionary _bundle_to_dictionary(const BundleInfo &p_bundle) const;
 	Dictionary _verify_resource_entry(const BundleInfo &p_bundle, const ResourceEntry &p_entry, bool p_verify_hash, bool p_verify_md5) const;
+	Dictionary _verify_bundle_manifest(const BundleInfo &p_bundle, bool p_verify_hash) const;
+	void _complete_bundle_verification(const BundleInfo &p_bundle, bool p_verify_hash, bool p_verify_md5,
+			const VerifyResourceTask *p_precomputed_tasks, Dictionary &r_result) const;
+	static void _verify_resource_entry_task(void *p_userdata, uint32_t p_index);
 
 	Error _append_bundle_with_dependencies(const String &p_bundle_name, HashSet<String> &r_visiting, HashSet<String> &r_visited, Vector<String> &r_order);
 	Error _setup_load_request(const PackedStringArray &p_bundle_names, bool p_hot_replace_cached, bool p_replace_files);
@@ -133,12 +152,15 @@ private:
 	Error _fail_load_request(Error p_error, const String &p_bundle_name, const String &p_message);
 	Error _poll_mount_bundle();
 	Error _poll_replace_resource();
+	Error _replace_pending_resources_threaded();
+	Error _complete_load_request_synchronously();
 
 protected:
 	static void _bind_methods();
 
 public:
 	Error load_manifest(const String &p_manifest_path);
+	Error load_manifest_from_string(const String &p_manifest_string, const String &p_base_dir = String());
 	void clear();
 
 	bool has_manifest() const;
@@ -167,6 +189,12 @@ public:
 	Dictionary get_manifest_diff(const String &p_other_manifest_path) const;
 	Dictionary verify_bundle(const String &p_bundle_name, bool p_verify_hash = true, bool p_verify_md5 = false) const;
 	Dictionary verify_all_bundles(bool p_verify_hash = true, bool p_verify_md5 = false) const;
+	Error delete_bundle(const String &p_bundle_name);
+	Error delete_bundles(const PackedStringArray &p_bundle_names);
+	Error delete_all_bundles();
+	Error unload_bundle(const String &p_bundle_name, bool p_hot_replace_cached = true);
+	Error unload_bundles(const PackedStringArray &p_bundle_names, bool p_hot_replace_cached = true);
+	Error unload_all_bundles(bool p_hot_replace_cached = true);
 
 	Error start_load_bundle(const String &p_bundle_name, bool p_hot_replace_cached = true, bool p_replace_files = true);
 	Error start_load_bundles(const PackedStringArray &p_bundle_names, bool p_hot_replace_cached = true, bool p_replace_files = true);

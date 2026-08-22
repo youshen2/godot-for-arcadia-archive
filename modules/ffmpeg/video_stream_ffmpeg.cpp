@@ -7,6 +7,24 @@
 #include "core/math/math_funcs.h"
 #include "core/object/class_db.h"
 
+#include <utility>
+
+static const AVHWDeviceType ffmpeg_hardware_device_types[] = {
+#if defined(MACOS_ENABLED) || defined(IOS_ENABLED) || defined(VISIONOS_ENABLED)
+	AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
+#elif defined(WINDOWS_ENABLED)
+	AV_HWDEVICE_TYPE_D3D11VA,
+	AV_HWDEVICE_TYPE_DXVA2,
+#elif defined(ANDROID_ENABLED)
+	AV_HWDEVICE_TYPE_MEDIACODEC,
+#elif defined(LINUXBSD_ENABLED)
+	AV_HWDEVICE_TYPE_VAAPI,
+	AV_HWDEVICE_TYPE_VDPAU,
+	AV_HWDEVICE_TYPE_VULKAN,
+#endif
+	AV_HWDEVICE_TYPE_NONE,
+};
+
 static bool _ffmpeg_path_has_video_extension(const String &p_path) {
 	static const char *extensions[] = {
 		"mp4", "m4v", "mov", "mkv", "webm", "ogv", "avi", "wmv", "flv", "mpeg", "mpg", "m2ts", "ts", "webp"
@@ -24,6 +42,7 @@ VideoStreamPlaybackFFmpeg::VideoStreamPlaybackFFmpeg() {
 	texture.instantiate();
 	video_packet = FFmpegPacketPtr(av_packet_alloc());
 	video_frame = FFmpegFramePtr(av_frame_alloc());
+	software_video_frame = FFmpegFramePtr(av_frame_alloc());
 	rgba_frame = FFmpegFramePtr(av_frame_alloc());
 	audio_packet = FFmpegPacketPtr(av_packet_alloc());
 	audio_frame = FFmpegFramePtr(av_frame_alloc());
@@ -35,7 +54,101 @@ VideoStreamPlaybackFFmpeg::~VideoStreamPlaybackFFmpeg() {
 	close_video();
 }
 
-Error VideoStreamPlaybackFFmpeg::open_codec_context(AVStream *p_stream, FFmpegCodecContextPtr &r_codec_context) {
+AVPixelFormat VideoStreamPlaybackFFmpeg::select_hardware_pixel_format(AVCodecContext *p_context, const AVPixelFormat *p_formats) {
+	VideoStreamPlaybackFFmpeg *playback = static_cast<VideoStreamPlaybackFFmpeg *>(p_context->opaque);
+	if (playback) {
+		for (const AVPixelFormat *format = p_formats; *format != AV_PIX_FMT_NONE; format++) {
+			if (*format == playback->hardware_pixel_format) {
+				return *format;
+			}
+		}
+	}
+	return AV_PIX_FMT_NONE;
+}
+
+Error VideoStreamPlaybackFFmpeg::open_hardware_codec_context(AVStream *p_stream, FFmpegCodecContextPtr &r_codec_context) {
+	ERR_FAIL_NULL_V(p_stream, ERR_INVALID_PARAMETER);
+
+	for (const AVHWDeviceType *device_type = ffmpeg_hardware_device_types; *device_type != AV_HWDEVICE_TYPE_NONE; device_type++) {
+		const AVCodec *codec = nullptr;
+		const AVCodecHWConfig *hardware_config = nullptr;
+		void *codec_iterator = nullptr;
+		while (const AVCodec *candidate = av_codec_iterate(&codec_iterator)) {
+			if (!av_codec_is_decoder(candidate) || candidate->type != AVMEDIA_TYPE_VIDEO || candidate->id != p_stream->codecpar->codec_id) {
+				continue;
+			}
+
+			for (int config_index = 0;; config_index++) {
+				const AVCodecHWConfig *candidate_config = avcodec_get_hw_config(candidate, config_index);
+				if (!candidate_config) {
+					break;
+				}
+				if ((candidate_config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX) && candidate_config->device_type == *device_type) {
+					codec = candidate;
+					hardware_config = candidate_config;
+					break;
+				}
+			}
+			if (codec) {
+				break;
+			}
+		}
+
+		if (!codec || !hardware_config) {
+			continue;
+		}
+
+		AVBufferRef *raw_device_context = nullptr;
+		int response = av_hwdevice_ctx_create(&raw_device_context, *device_type, nullptr, nullptr, 0);
+		if (response < 0 || !raw_device_context) {
+			continue;
+		}
+		FFmpegAVBufferRefPtr device_context(raw_device_context);
+
+		FFmpegCodecContextPtr codec_context(avcodec_alloc_context3(codec));
+		if (!codec_context) {
+			return ERR_OUT_OF_MEMORY;
+		}
+
+		response = avcodec_parameters_to_context(codec_context.get(), p_stream->codecpar);
+		if (response < 0) {
+			FFmpegCommon::print_error("FFmpeg failed to copy hardware codec parameters", response);
+			return ERR_CANT_CREATE;
+		}
+
+		hardware_pixel_format = hardware_config->pix_fmt;
+		codec_context->opaque = this;
+		codec_context->get_format = select_hardware_pixel_format;
+		codec_context->hw_device_ctx = av_buffer_ref(device_context.get());
+		if (!codec_context->hw_device_ctx) {
+			hardware_pixel_format = AV_PIX_FMT_NONE;
+			return ERR_OUT_OF_MEMORY;
+		}
+
+		FFmpegCommon::enable_multithreading(codec_context.get(), codec);
+		if (key_frame_only) {
+			codec_context->skip_frame = AVDISCARD_NONKEY;
+		}
+
+		response = avcodec_open2(codec_context.get(), codec, nullptr);
+		if (response < 0) {
+			hardware_pixel_format = AV_PIX_FMT_NONE;
+			continue;
+		}
+
+		hardware_device_context = std::move(device_context);
+		r_codec_context = std::move(codec_context);
+		hardware_decoding = true;
+		const char *device_name = av_hwdevice_get_type_name(*device_type);
+		decoder_backend = device_name ? String::utf8(device_name) : "hardware";
+		return OK;
+	}
+
+	hardware_pixel_format = AV_PIX_FMT_NONE;
+	return ERR_UNAVAILABLE;
+}
+
+Error VideoStreamPlaybackFFmpeg::open_software_codec_context(AVStream *p_stream, FFmpegCodecContextPtr &r_codec_context) {
 	ERR_FAIL_NULL_V(p_stream, ERR_INVALID_PARAMETER);
 
 	const AVCodec *codec = avcodec_find_decoder(p_stream->codecpar->codec_id);
@@ -65,6 +178,26 @@ Error VideoStreamPlaybackFFmpeg::open_codec_context(AVStream *p_stream, FFmpegCo
 	}
 
 	return OK;
+}
+
+Error VideoStreamPlaybackFFmpeg::open_codec_context(AVStream *p_stream, FFmpegCodecContextPtr &r_codec_context, bool p_try_hardware) {
+	ERR_FAIL_NULL_V(p_stream, ERR_INVALID_PARAMETER);
+
+	if (p_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+		hardware_device_context.reset();
+		hardware_pixel_format = AV_PIX_FMT_NONE;
+		hardware_decoding = false;
+		decoder_backend = "software";
+
+		if (p_try_hardware && open_hardware_codec_context(p_stream, r_codec_context) == OK) {
+			return OK;
+		}
+		if (decoder_mode == DECODER_MODE_HARDWARE && p_try_hardware) {
+			return ERR_UNAVAILABLE;
+		}
+	}
+
+	return open_software_codec_context(p_stream, r_codec_context);
 }
 
 double VideoStreamPlaybackFFmpeg::get_stream_duration(AVFormatContext *p_format_context, AVStream *p_stream) const {
@@ -98,7 +231,7 @@ int VideoStreamPlaybackFFmpeg::find_video_stream_index() const {
 	return -1;
 }
 
-Error VideoStreamPlaybackFFmpeg::open_video() {
+Error VideoStreamPlaybackFFmpeg::open_video(bool p_force_software) {
 	close_video();
 
 	Error err = FFmpegCommon::open_input(video_input, file, headers);
@@ -114,7 +247,7 @@ Error VideoStreamPlaybackFFmpeg::open_video() {
 	}
 	video_stream = format_context->streams[stream_index];
 
-	err = open_codec_context(video_stream, video_codec_context);
+	err = open_codec_context(video_stream, video_codec_context, !p_force_software && decoder_mode != DECODER_MODE_SOFTWARE);
 	if (err != OK) {
 		close_video();
 		return err;
@@ -139,10 +272,15 @@ Error VideoStreamPlaybackFFmpeg::open_video() {
 	texture->set_image(image);
 
 	video_eof = false;
+	video_decode_error = false;
 	has_pending_frame = false;
 	time = 0.0;
 	last_frame_upload_time = -1.0;
 	read_next_video_frame();
+	if (video_decode_error) {
+		close_video();
+		return ERR_CANT_OPEN;
+	}
 	if (has_pending_frame) {
 		upload_pending_frame();
 	}
@@ -153,6 +291,7 @@ Error VideoStreamPlaybackFFmpeg::open_video() {
 void VideoStreamPlaybackFFmpeg::close_video() {
 	sws_context.reset();
 	video_codec_context.reset();
+	hardware_device_context.reset();
 	video_input.clear();
 	video_stream = nullptr;
 	source_width = 0;
@@ -160,11 +299,21 @@ void VideoStreamPlaybackFFmpeg::close_video() {
 	source_pixel_format = AV_PIX_FMT_NONE;
 	frame_size = Size2i();
 	video_eof = false;
+	video_decode_error = false;
 	has_pending_frame = false;
 	last_frame_upload_time = -1.0;
 	display_rotation = 0;
+	hardware_pixel_format = AV_PIX_FMT_NONE;
+	hardware_decoding = false;
+	decoder_backend = "software";
 	frame_data.clear();
 	pending_frame_data.clear();
+	if (video_frame) {
+		av_frame_unref(video_frame.get());
+	}
+	if (software_video_frame) {
+		av_frame_unref(software_video_frame.get());
+	}
 }
 
 Size2i VideoStreamPlaybackFFmpeg::get_rotated_frame_size() const {
@@ -400,6 +549,21 @@ void VideoStreamPlaybackFFmpeg::apply_sws_color_profile(const AVFrame *p_frame) 
 	sws_setColorspaceDetails(sws_context.get(), coefficients, source_range, coefficients, 1, 0, 1 << 16, 1 << 16);
 }
 
+bool VideoStreamPlaybackFFmpeg::fallback_to_software_decoder() {
+	if (!hardware_decoding || decoder_mode != DECODER_MODE_AUTO || file.is_empty()) {
+		return false;
+	}
+
+	const double position = time;
+	if (open_video(true) != OK) {
+		return false;
+	}
+	if (position > 0.0) {
+		seek(position);
+	}
+	return true;
+}
+
 bool VideoStreamPlaybackFFmpeg::read_next_video_frame() {
 	if (!video_input.format || !video_codec_context || !video_stream || video_eof) {
 		return false;
@@ -411,19 +575,50 @@ bool VideoStreamPlaybackFFmpeg::read_next_video_frame() {
 		return false;
 	}
 	if (response < 0) {
+		if (hardware_decoding && decoder_mode == DECODER_MODE_AUTO) {
+			WARN_PRINT(vformat("FFmpeg %s hardware decoding failed; falling back to software decoding.", decoder_backend));
+			if (fallback_to_software_decoder()) {
+				return true;
+			}
+		}
 		FFmpegCommon::print_error("FFmpeg failed to decode video frame", response);
+		video_decode_error = true;
 		video_eof = true;
 		return false;
 	}
 
-	recreate_sws_context(video_frame.get());
+	AVFrame *decoded_frame = video_frame.get();
+	if (hardware_decoding && video_frame->format == hardware_pixel_format) {
+		av_frame_unref(software_video_frame.get());
+		response = av_hwframe_transfer_data(software_video_frame.get(), video_frame.get(), 0);
+		if (response >= 0) {
+			response = av_frame_copy_props(software_video_frame.get(), video_frame.get());
+		}
+		if (response < 0) {
+			if (decoder_mode == DECODER_MODE_AUTO) {
+				WARN_PRINT(vformat("FFmpeg could not transfer a %s hardware frame; falling back to software decoding.", decoder_backend));
+				if (fallback_to_software_decoder()) {
+					return true;
+				}
+			}
+			FFmpegCommon::print_error("FFmpeg failed to transfer a hardware video frame", response);
+			video_decode_error = true;
+			video_eof = true;
+			return false;
+		}
+		decoded_frame = software_video_frame.get();
+	}
+
+	recreate_sws_context(decoded_frame);
 	if (!sws_context) {
+		video_decode_error = true;
 		video_eof = true;
 		return false;
 	}
 
 	const int required_size = av_image_get_buffer_size(AV_PIX_FMT_RGBA, source_width, source_height, 1);
 	if (required_size <= 0) {
+		video_decode_error = true;
 		video_eof = true;
 		return false;
 	}
@@ -431,12 +626,13 @@ bool VideoStreamPlaybackFFmpeg::read_next_video_frame() {
 	Vector<uint8_t> converted_frame_data;
 	converted_frame_data.resize(required_size);
 	av_image_fill_arrays(rgba_frame->data, rgba_frame->linesize, converted_frame_data.ptrw(), AV_PIX_FMT_RGBA, source_width, source_height, 1);
-	sws_scale(sws_context.get(), video_frame->data, video_frame->linesize, 0, source_height, rgba_frame->data, rgba_frame->linesize);
+	sws_scale(sws_context.get(), decoded_frame->data, decoded_frame->linesize, 0, source_height, rgba_frame->data, rgba_frame->linesize);
 	rotate_frame_data(converted_frame_data, pending_frame_data);
 
-	pending_frame_time = get_frame_time(video_frame.get());
+	pending_frame_time = get_frame_time(decoded_frame);
 	has_pending_frame = true;
 	av_frame_unref(video_frame.get());
+	av_frame_unref(software_video_frame.get());
 	av_packet_unref(video_packet.get());
 	return true;
 }
@@ -613,6 +809,7 @@ double VideoStreamPlaybackFFmpeg::get_playback_position() const {
 void VideoStreamPlaybackFFmpeg::seek(double p_time) {
 	time = MAX(0.0, p_time);
 	video_eof = false;
+	video_decode_error = false;
 	audio_eof = false;
 	has_pending_frame = false;
 	last_frame_upload_time = -1.0;
@@ -753,6 +950,51 @@ void VideoStreamPlaybackFFmpeg::set_apply_rotation_metadata_enabled(bool p_enabl
 	if (video_input.format && video_codec_context && video_stream) {
 		seek(time);
 	}
+}
+
+bool VideoStreamPlaybackFFmpeg::set_decoder_mode(int p_mode) {
+	if (p_mode < DECODER_MODE_AUTO || p_mode > DECODER_MODE_HARDWARE) {
+		return false;
+	}
+	if (decoder_mode == p_mode) {
+		if (p_mode == DECODER_MODE_SOFTWARE) {
+			return !hardware_decoding;
+		}
+		if (p_mode == DECODER_MODE_HARDWARE) {
+			return hardware_decoding || file.is_empty();
+		}
+		return true;
+	}
+
+	if (file.is_empty()) {
+		decoder_mode = p_mode;
+		return true;
+	}
+
+	const int previous_mode = decoder_mode;
+	const double position = time;
+	decoder_mode = p_mode;
+	Error err = open_video();
+	if (err != OK || (decoder_mode == DECODER_MODE_HARDWARE && !hardware_decoding)) {
+		decoder_mode = previous_mode;
+		if (open_video() == OK && position > 0.0) {
+			seek(position);
+		}
+		return false;
+	}
+
+	if (position > 0.0) {
+		seek(position);
+	}
+	return true;
+}
+
+bool VideoStreamPlaybackFFmpeg::is_using_hardware_decoder() const {
+	return hardware_decoding;
+}
+
+String VideoStreamPlaybackFFmpeg::get_decoder_backend() const {
+	return decoder_backend;
 }
 
 Ref<Texture2D> VideoStreamPlaybackFFmpeg::get_texture() const {

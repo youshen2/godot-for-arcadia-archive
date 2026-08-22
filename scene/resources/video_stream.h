@@ -66,6 +66,9 @@ protected:
 	GDVIRTUAL1(_set_key_frame_only_enabled, bool);
 	GDVIRTUAL1(_set_accurate_seek_enabled, bool);
 	GDVIRTUAL1(_set_apply_rotation_metadata_enabled, bool);
+	GDVIRTUAL1R(bool, _set_decoder_mode, int);
+	GDVIRTUAL0RC(bool, _is_using_hardware_decoder);
+	GDVIRTUAL0RC(String, _get_decoder_backend);
 	GDVIRTUAL0RC(Ref<Texture2D>, _get_texture);
 	GDVIRTUAL1_REQUIRED(_update, double);
 	GDVIRTUAL0RC(int, _get_channels);
@@ -104,6 +107,9 @@ public:
 	virtual void set_key_frame_only_enabled(bool p_enabled);
 	virtual void set_accurate_seek_enabled(bool p_enabled);
 	virtual void set_apply_rotation_metadata_enabled(bool p_enabled);
+	virtual bool set_decoder_mode(int p_mode);
+	virtual bool is_using_hardware_decoder() const;
+	virtual String get_decoder_backend() const;
 
 	virtual Ref<Texture2D> get_texture() const;
 	virtual void update(double p_delta);

@@ -38,6 +38,12 @@ class VideoStreamPlayer : public Control {
 	GDCLASS(VideoStreamPlayer, Control);
 
 public:
+	enum DecoderMode {
+		DECODER_MODE_AUTO,
+		DECODER_MODE_SOFTWARE,
+		DECODER_MODE_HARDWARE,
+	};
+
 	enum ColorProfile {
 		COLOR_PROFILE_AUTO,
 		COLOR_PROFILE_BT470,
@@ -88,6 +94,7 @@ private:
 	int video_track = 0;
 	int audio_track = 0;
 	int bus_index = 0;
+	DecoderMode decoder_mode = DECODER_MODE_AUTO;
 	ColorProfile color_profile = COLOR_PROFILE_AUTO;
 
 	StringName bus;
@@ -152,6 +159,11 @@ public:
 	void set_apply_rotation_metadata_enabled(bool p_enabled);
 	bool is_apply_rotation_metadata_enabled() const;
 
+	void set_decoder_mode(DecoderMode p_mode);
+	DecoderMode get_decoder_mode() const;
+	bool is_using_hardware_decoder() const;
+	String get_decoder_backend() const;
+
 	void set_loop_start(double p_time);
 	double get_loop_start() const;
 
@@ -196,4 +208,5 @@ public:
 	~VideoStreamPlayer();
 };
 
+VARIANT_ENUM_CAST(VideoStreamPlayer::DecoderMode);
 VARIANT_ENUM_CAST(VideoStreamPlayer::ColorProfile);

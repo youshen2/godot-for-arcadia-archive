@@ -34,29 +34,39 @@
 #include "core/crypto/hash_calculator.h"
 #include "core/crypto/hashing_context.h"
 #include "core/error/error_macros.h"
+#include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/file_access_pack.h"
 #include "core/io/json.h"
 #include "core/io/resource_loader.h"
 #include "core/math/math_funcs.h"
 #include "core/object/class_db.h"
+#include "core/object/worker_thread_pool.h"
+#include "core/os/thread.h"
 
-static String _asset_bundle_hash_file_access_hex(Ref<FileAccess> p_file, HashingContext::HashType p_hash_type, Error &r_error) {
-	r_error = OK;
-	ERR_FAIL_COND_V(p_file.is_null() || !p_file->is_open(), String());
+static Error _asset_bundle_hash_file_access(Ref<FileAccess> p_file, bool p_hash_sha256, bool p_hash_md5, String &r_sha256, String &r_md5) {
+	r_sha256 = String();
+	r_md5 = String();
+	ERR_FAIL_COND_V(p_file.is_null() || !p_file->is_open(), ERR_FILE_CANT_READ);
+	ERR_FAIL_COND_V(!p_hash_sha256 && !p_hash_md5, ERR_INVALID_PARAMETER);
 
-	const uint64_t file_size = p_file->get_length();
-	if (file_size == 0) {
-		PackedByteArray empty;
-		return HashCalculator::hash_bytes_hex(p_hash_type, empty);
+	Ref<HashingContext> sha256;
+	Ref<HashingContext> md5;
+	Error err = OK;
+	if (p_hash_sha256) {
+		sha256.instantiate();
+		ERR_FAIL_COND_V(sha256.is_null(), ERR_CANT_CREATE);
+		err = sha256->start(HashingContext::HASH_SHA256);
+		ERR_FAIL_COND_V(err != OK, err);
+	}
+	if (p_hash_md5) {
+		md5.instantiate();
+		ERR_FAIL_COND_V(md5.is_null(), ERR_CANT_CREATE);
+		err = md5->start(HashingContext::HASH_MD5);
+		ERR_FAIL_COND_V(err != OK, err);
 	}
 
-	Ref<HashingContext> hashing;
-	hashing.instantiate();
-	ERR_FAIL_COND_V(hashing.is_null(), String());
-	r_error = hashing->start(p_hash_type);
-	ERR_FAIL_COND_V(r_error != OK, String());
-
+	const uint64_t file_size = p_file->get_length();
 	PackedByteArray buffer;
 	uint64_t processed_size = 0;
 	while (processed_size < file_size) {
@@ -65,23 +75,39 @@ static String _asset_bundle_hash_file_access_hex(Ref<FileAccess> p_file, Hashing
 		buffer.resize(int(to_read));
 		const uint64_t bytes_read = p_file->get_buffer(buffer.ptrw(), to_read);
 		if (bytes_read != uint64_t(to_read)) {
-			r_error = p_file->get_error();
-			if (r_error == OK || r_error == ERR_FILE_EOF) {
-				r_error = ERR_FILE_CANT_READ;
+			err = p_file->get_error();
+			if (err == OK || err == ERR_FILE_EOF) {
+				err = ERR_FILE_CANT_READ;
 			}
-			return String();
+			return err;
 		}
 
-		r_error = hashing->update(buffer);
-		if (r_error != OK) {
-			return String();
+		if (sha256.is_valid()) {
+			err = sha256->update(buffer);
+			if (err != OK) {
+				return err;
+			}
+		}
+		if (md5.is_valid()) {
+			err = md5->update(buffer);
+			if (err != OK) {
+				return err;
+			}
 		}
 		processed_size += bytes_read;
 	}
 
-	PackedByteArray hash = hashing->finish();
-	ERR_FAIL_COND_V(hash.is_empty(), String());
-	return String::hex_encode_buffer(hash.ptr(), hash.size());
+	if (sha256.is_valid()) {
+		PackedByteArray hash = sha256->finish();
+		ERR_FAIL_COND_V(hash.is_empty(), ERR_FILE_CANT_READ);
+		r_sha256 = String::hex_encode_buffer(hash.ptr(), hash.size());
+	}
+	if (md5.is_valid()) {
+		PackedByteArray hash = md5->finish();
+		ERR_FAIL_COND_V(hash.is_empty(), ERR_FILE_CANT_READ);
+		r_md5 = String::hex_encode_buffer(hash.ptr(), hash.size());
+	}
+	return OK;
 }
 
 bool AssetBundle::_variant_is_string_like(const Variant &p_value) {
@@ -375,6 +401,27 @@ Error AssetBundle::_set_error(Error p_error, const String &p_message) {
 	return p_error;
 }
 
+Error AssetBundle::_load_manifest_dictionary(const Dictionary &p_manifest, const String &p_manifest_path, const String &p_base_dir) {
+	clear();
+	manifest_path = p_manifest_path;
+	manifest_base_dir = p_base_dir;
+
+	Error err = _parse_manifest_dictionary(p_manifest);
+	if (err != OK) {
+		const Error error_code = last_error_code;
+		const String error_message = last_error;
+		clear();
+		last_error_code = error_code;
+		last_error = error_message;
+		return err;
+	}
+
+	manifest_loaded = true;
+	last_error_code = OK;
+	last_error.clear();
+	return OK;
+}
+
 Error AssetBundle::_parse_manifest_dictionary(const Dictionary &p_manifest) {
 	manifest_version = _get_dictionary_string(p_manifest, "version");
 	if (manifest_version.is_empty()) {
@@ -610,14 +657,14 @@ String AssetBundle::_normalize_resource_path(const String &p_path) const {
 }
 
 String AssetBundle::_get_bundle_base_dir(const BundleInfo &p_bundle) const {
-	if (p_bundle.resolved_path.ends_with("bundle.json")) {
+	if (p_bundle.resolved_path.get_extension().to_lower() == "json" && !DirAccess::exists(p_bundle.resolved_path)) {
 		return p_bundle.resolved_path.get_base_dir();
 	}
 	return p_bundle.resolved_path;
 }
 
 String AssetBundle::_get_bundle_manifest_path(const BundleInfo &p_bundle) const {
-	if (p_bundle.resolved_path.ends_with("bundle.json")) {
+	if (p_bundle.resolved_path.get_extension().to_lower() == "json" && !DirAccess::exists(p_bundle.resolved_path)) {
 		return p_bundle.resolved_path;
 	}
 	return p_bundle.resolved_path.path_join("bundle.json");
@@ -733,13 +780,26 @@ Dictionary AssetBundle::_verify_resource_entry(const BundleInfo &p_bundle, const
 		return result;
 	}
 
-	if (p_verify_hash && !p_entry.hash.is_empty()) {
-		Error hash_error = OK;
+	const bool calculate_sha256 = p_verify_hash && !p_entry.hash.is_empty();
+	const bool calculate_md5 = p_verify_md5 && !p_entry.md5.is_empty();
+	String actual_hash;
+	String actual_md5;
+	if (calculate_sha256 || calculate_md5) {
 		file->seek(0);
-		const String actual_hash = _asset_bundle_hash_file_access_hex(file, HashingContext::HASH_SHA256, hash_error);
+		const Error hash_error = _asset_bundle_hash_file_access(file, calculate_sha256, calculate_md5, actual_hash, actual_md5);
+		if (hash_error != OK) {
+			result["error"] = hash_error;
+			result["error_message"] = calculate_sha256 ?
+					vformat("Could not calculate SHA-256 for chunk '%s'.", file_path) :
+					vformat("Could not calculate MD5 for chunk '%s'.", file_path);
+			return result;
+		}
+	}
+
+	if (calculate_sha256) {
 		result["actual_hash"] = actual_hash;
-		if (hash_error != OK || actual_hash.is_empty()) {
-			result["error"] = hash_error != OK ? hash_error : ERR_FILE_CANT_READ;
+		if (actual_hash.is_empty()) {
+			result["error"] = ERR_FILE_CANT_READ;
 			result["error_message"] = vformat("Could not calculate SHA-256 for chunk '%s'.", file_path);
 			return result;
 		}
@@ -750,13 +810,10 @@ Dictionary AssetBundle::_verify_resource_entry(const BundleInfo &p_bundle, const
 		}
 	}
 
-	if (p_verify_md5 && !p_entry.md5.is_empty()) {
-		Error hash_error = OK;
-		file->seek(0);
-		const String actual_md5 = _asset_bundle_hash_file_access_hex(file, HashingContext::HASH_MD5, hash_error);
+	if (calculate_md5) {
 		result["actual_md5"] = actual_md5;
-		if (hash_error != OK || actual_md5.is_empty()) {
-			result["error"] = hash_error != OK ? hash_error : ERR_FILE_CANT_READ;
+		if (actual_md5.is_empty()) {
+			result["error"] = ERR_FILE_CANT_READ;
 			result["error_message"] = vformat("Could not calculate MD5 for chunk '%s'.", file_path);
 			return result;
 		}
@@ -774,6 +831,10 @@ Dictionary AssetBundle::_verify_resource_entry(const BundleInfo &p_bundle, const
 Error AssetBundle::_append_bundle_with_dependencies(const String &p_bundle_name, HashSet<String> &r_visiting, HashSet<String> &r_visited, Vector<String> &r_order) {
 	if (!bundles.has(p_bundle_name)) {
 		return _set_error(ERR_DOES_NOT_EXIST, vformat("AssetBundle manifest does not contain bundle '%s'.", p_bundle_name));
+	}
+	if (loaded_bundles.has(p_bundle_name)) {
+		r_visited.insert(p_bundle_name);
+		return OK;
 	}
 	if (r_visited.has(p_bundle_name)) {
 		return OK;
@@ -820,15 +881,28 @@ Error AssetBundle::_setup_load_request(const PackedStringArray &p_bundle_names, 
 
 	pending_bundles = load_order;
 	pending_resources.clear();
-	for (const String &bundle_name : pending_bundles) {
-		const BundleInfo &bundle = bundles[bundle_name];
-		for (const ResourceEntry &entry : bundle.resources) {
-			if (!entry.file_only) {
+	if (p_hot_replace_cached) {
+		int pending_resource_count = 0;
+		for (const String &bundle_name : pending_bundles) {
+			const BundleInfo &bundle = bundles[bundle_name];
+			for (const ResourceEntry &entry : bundle.resources) {
+				if (!entry.file_only) {
+					pending_resource_count++;
+				}
+			}
+			pending_resource_count += bundle.hot_replace_resources.size();
+		}
+		pending_resources.reserve(pending_resource_count);
+		for (const String &bundle_name : pending_bundles) {
+			const BundleInfo &bundle = bundles[bundle_name];
+			for (const ResourceEntry &entry : bundle.resources) {
+				if (!entry.file_only) {
+					pending_resources.push_back(entry);
+				}
+			}
+			for (const ResourceEntry &entry : bundle.hot_replace_resources) {
 				pending_resources.push_back(entry);
 			}
-		}
-		for (const ResourceEntry &entry : bundle.hot_replace_resources) {
-			pending_resources.push_back(entry);
 		}
 	}
 
@@ -885,7 +959,7 @@ Error AssetBundle::_poll_mount_bundle() {
 	loading_bundle = bundle_name;
 	const BundleInfo &bundle = bundles[bundle_name];
 
-	if (!ProjectSettings::get_singleton()->load_resource_pack(bundle.resolved_path, load_replace_files, bundle.offset)) {
+	if (!ProjectSettings::get_singleton()->_load_resource_pack(bundle.resolved_path, load_replace_files, bundle.offset, false, true)) {
 		return _fail_load_request(ERR_CANT_OPEN, bundle_name, vformat("AssetBundle failed to load bundle '%s' for bundle '%s'.", bundle.resolved_path, bundle_name));
 	}
 
@@ -917,6 +991,107 @@ Error AssetBundle::_poll_replace_resource() {
 	return OK;
 }
 
+Error AssetBundle::_replace_pending_resources_threaded() {
+	struct ThreadedResourceResult {
+		String path;
+		Error error = OK;
+		bool cached = false;
+		bool requested = false;
+		bool resource_valid = false;
+	};
+
+	const int first_pending_index = pending_resource_index;
+	const int resource_count = pending_resources.size() - first_pending_index;
+	Vector<ThreadedResourceResult> results;
+	results.resize(resource_count);
+
+	int first_request_failure = -1;
+	for (int i = 0; i < resource_count; i++) {
+		const ResourceEntry &entry = pending_resources[first_pending_index + i];
+		ThreadedResourceResult &result = results.write[i];
+		result.path = _normalize_resource_path(entry.path);
+		result.cached = ResourceCache::has(result.path);
+		if (!result.cached) {
+			continue;
+		}
+
+		result.error = ResourceLoader::load_threaded_request(result.path, entry.type, false, ResourceLoader::CACHE_MODE_REPLACE);
+		if (result.error != OK) {
+			first_request_failure = i;
+			break;
+		}
+		result.requested = true;
+	}
+
+	int first_load_failure = first_request_failure;
+	const int requested_count = first_request_failure >= 0 ? first_request_failure : resource_count;
+	for (int i = 0; i < requested_count; i++) {
+		ThreadedResourceResult &result = results.write[i];
+		if (!result.requested) {
+			continue;
+		}
+
+		Error load_error = OK;
+		Ref<Resource> resource = ResourceLoader::load_threaded_get(result.path, &load_error);
+		result.error = load_error != OK ? load_error : (resource.is_valid() ? OK : ERR_CANT_OPEN);
+		result.resource_valid = resource.is_valid();
+		if (result.error != OK && (first_load_failure < 0 || i < first_load_failure)) {
+			first_load_failure = i;
+		}
+	}
+
+	loading_bundle.clear();
+	const int completed_count = first_load_failure >= 0 ? first_load_failure : resource_count;
+	for (int i = 0; i < completed_count; i++) {
+		const ThreadedResourceResult &result = results[i];
+		if (result.cached && result.resource_valid) {
+			emit_signal("resource_hot_replaced", result.path);
+		}
+
+		processed_steps++;
+		pending_resource_index++;
+		_update_progress(String());
+	}
+
+	if (first_load_failure >= 0) {
+		const ThreadedResourceResult &failure = results[first_load_failure];
+		return _fail_load_request(failure.error != OK ? failure.error : ERR_CANT_OPEN, String(), vformat("AssetBundle failed to hot replace cached resource '%s'.", failure.path));
+	}
+
+	return OK;
+}
+
+Error AssetBundle::_complete_load_request_synchronously() {
+	while (pending_bundle_index < pending_bundles.size()) {
+		Error err = _poll_mount_bundle();
+		if (err != OK) {
+			return err;
+		}
+	}
+
+	if (load_hot_replace_cached && pending_resource_index < pending_resources.size()) {
+		WorkerThreadPool *worker_pool = WorkerThreadPool::get_singleton();
+		const int remaining_resources = pending_resources.size() - pending_resource_index;
+		const bool can_load_threaded = remaining_resources > 1 && Thread::is_main_thread() &&
+				!ResourceLoader::is_within_load() && worker_pool != nullptr && worker_pool->get_thread_count() > 1;
+		if (can_load_threaded) {
+			Error err = _replace_pending_resources_threaded();
+			if (err != OK) {
+				return err;
+			}
+		} else {
+			while (pending_resource_index < pending_resources.size()) {
+				Error err = _poll_replace_resource();
+				if (err != OK) {
+					return err;
+				}
+			}
+		}
+	}
+
+	return _finish_load_request();
+}
+
 Error AssetBundle::load_manifest(const String &p_manifest_path) {
 	if (loading) {
 		return _set_error(ERR_BUSY, "AssetBundle cannot load a manifest while a bundle load request is running.");
@@ -933,29 +1108,28 @@ Error AssetBundle::load_manifest(const String &p_manifest_path) {
 		return _set_error(ERR_PARSE_ERROR, vformat("AssetBundle manifest '%s' is not a JSON object.", p_manifest_path));
 	}
 
-	clear();
-	manifest_path = p_manifest_path;
-	manifest_base_dir = p_manifest_path.get_base_dir();
+	return _load_manifest_dictionary(parsed, p_manifest_path, p_manifest_path.get_base_dir());
+}
 
-	Error err = _parse_manifest_dictionary(parsed);
-	if (err != OK) {
-		const Error error_code = last_error_code;
-		const String error_message = last_error;
-		clear();
-		last_error_code = error_code;
-		last_error = error_message;
-		return err;
+Error AssetBundle::load_manifest_from_string(const String &p_manifest_string, const String &p_base_dir) {
+	if (loading) {
+		return _set_error(ERR_BUSY, "AssetBundle cannot load a manifest while a bundle load request is running.");
 	}
 
-	last_error_code = OK;
-	last_error.clear();
-	return OK;
+	Variant parsed = JSON::parse_string(p_manifest_string);
+	if (parsed.get_type() != Variant::DICTIONARY) {
+		return _set_error(ERR_PARSE_ERROR, "AssetBundle manifest string is not a JSON object.");
+	}
+
+	const String base_dir = p_base_dir.is_empty() ? String() : _normalize_portable_path(p_base_dir);
+	return _load_manifest_dictionary(parsed, String(), base_dir);
 }
 
 void AssetBundle::clear() {
 	manifest_path.clear();
 	manifest_base_dir.clear();
 	manifest_version.clear();
+	manifest_loaded = false;
 	bundles.clear();
 	bundle_order.clear();
 	loaded_bundles.clear();
@@ -973,7 +1147,7 @@ void AssetBundle::clear() {
 }
 
 bool AssetBundle::has_manifest() const {
-	return !manifest_path.is_empty();
+	return manifest_loaded;
 }
 
 String AssetBundle::get_manifest_path() const {
@@ -1350,9 +1524,9 @@ Dictionary AssetBundle::get_manifest_diff(const String &p_other_manifest_path) c
 	return result;
 }
 
-Dictionary AssetBundle::verify_bundle(const String &p_bundle_name, bool p_verify_hash, bool p_verify_md5) const {
+Dictionary AssetBundle::_verify_bundle_manifest(const BundleInfo &p_bundle, bool p_verify_hash) const {
 	Dictionary result;
-	result["bundle"] = p_bundle_name;
+	result["bundle"] = p_bundle.name;
 	result["valid"] = false;
 	result["error"] = OK;
 	result["error_message"] = String();
@@ -1363,18 +1537,11 @@ Dictionary AssetBundle::verify_bundle(const String &p_bundle_name, bool p_verify
 	result["total_size"] = int64_t(0);
 	result["chunks"] = Array();
 
-	const BundleInfo *bundle = bundles.getptr(p_bundle_name);
-	if (bundle == nullptr) {
-		result["error"] = ERR_DOES_NOT_EXIST;
-		result["error_message"] = vformat("AssetBundle manifest does not contain bundle '%s'.", p_bundle_name);
-		return result;
-	}
-
-	const String bundle_manifest_path = _get_bundle_manifest_path(*bundle);
+	const String bundle_manifest_path = _get_bundle_manifest_path(p_bundle);
 	result["bundle_manifest_path"] = bundle_manifest_path;
-	result["expected_bundle_hash"] = bundle->hash;
+	result["expected_bundle_hash"] = p_bundle.hash;
 	result["actual_bundle_hash"] = String();
-	result["bundle_hash_valid"] = bundle->hash.is_empty();
+	result["bundle_hash_valid"] = p_bundle.hash.is_empty();
 	if (!FileAccess::exists(bundle_manifest_path)) {
 		result["error"] = ERR_FILE_NOT_FOUND;
 		result["error_message"] = vformat("Bundle manifest '%s' does not exist.", bundle_manifest_path);
@@ -1382,7 +1549,7 @@ Dictionary AssetBundle::verify_bundle(const String &p_bundle_name, bool p_verify
 	}
 
 	bool bundle_manifest_valid = true;
-	if (p_verify_hash && !bundle->hash.is_empty()) {
+	if (p_verify_hash && !p_bundle.hash.is_empty()) {
 		Error file_error = OK;
 		String manifest_text = FileAccess::get_file_as_string(bundle_manifest_path, &file_error);
 		if (file_error != OK) {
@@ -1403,18 +1570,24 @@ Dictionary AssetBundle::verify_bundle(const String &p_bundle_name, bool p_verify
 		bundle_manifest.erase("size");
 		const String actual_bundle_hash = HashCalculator::hash_string_hex(HashingContext::HASH_SHA256, JSON::stringify(_canonicalize_manifest_value(bundle_manifest), "\t", true));
 		result["actual_bundle_hash"] = actual_bundle_hash;
-		bundle_manifest_valid = actual_bundle_hash.to_lower() == bundle->hash.to_lower();
+		bundle_manifest_valid = actual_bundle_hash.to_lower() == p_bundle.hash.to_lower();
 		result["bundle_hash_valid"] = bundle_manifest_valid;
 	}
+	return result;
+}
 
+void AssetBundle::_complete_bundle_verification(const BundleInfo &p_bundle, bool p_verify_hash, bool p_verify_md5,
+		const VerifyResourceTask *p_precomputed_tasks, Dictionary &r_result) const {
 	Array chunks;
 	int valid_chunks = 0;
 	int invalid_chunks = 0;
 	int missing_chunks = 0;
 	int64_t total_size = 0;
 
-	for (const ResourceEntry &entry : bundle->resources) {
-		Dictionary chunk_result = _verify_resource_entry(*bundle, entry, p_verify_hash, p_verify_md5);
+	for (int i = 0; i < p_bundle.resources.size(); i++) {
+		Dictionary chunk_result = p_precomputed_tasks != nullptr ?
+				p_precomputed_tasks[i].result :
+				_verify_resource_entry(p_bundle, p_bundle.resources[i], p_verify_hash, p_verify_md5);
 		chunks.push_back(chunk_result);
 		total_size += int64_t(chunk_result["actual_size"]);
 
@@ -1430,18 +1603,51 @@ Dictionary AssetBundle::verify_bundle(const String &p_bundle_name, bool p_verify
 		}
 	}
 
+	const bool bundle_manifest_valid = !p_verify_hash || p_bundle.hash.is_empty() || bool(r_result["bundle_hash_valid"]);
 	const bool valid = bundle_manifest_valid && invalid_chunks == 0;
-	result["valid"] = valid;
-	result["checked_chunks"] = chunks.size();
-	result["valid_chunks"] = valid_chunks;
-	result["invalid_chunks"] = invalid_chunks;
-	result["missing_chunks"] = missing_chunks;
-	result["total_size"] = total_size;
-	result["chunks"] = chunks;
+	r_result["valid"] = valid;
+	r_result["checked_chunks"] = chunks.size();
+	r_result["valid_chunks"] = valid_chunks;
+	r_result["invalid_chunks"] = invalid_chunks;
+	r_result["missing_chunks"] = missing_chunks;
+	r_result["total_size"] = total_size;
+	r_result["chunks"] = chunks;
 	if (!valid) {
-		result["error"] = missing_chunks > 0 ? ERR_FILE_NOT_FOUND : ERR_FILE_CORRUPT;
-		result["error_message"] = !bundle_manifest_valid ? vformat("Bundle '%s' manifest hash mismatch.", p_bundle_name) : vformat("Bundle '%s' has %d invalid chunk(s).", p_bundle_name, invalid_chunks);
+		r_result["error"] = missing_chunks > 0 ? ERR_FILE_NOT_FOUND : ERR_FILE_CORRUPT;
+		r_result["error_message"] = !bundle_manifest_valid ?
+				vformat("Bundle '%s' manifest hash mismatch.", p_bundle.name) :
+				vformat("Bundle '%s' has %d invalid chunk(s).", p_bundle.name, invalid_chunks);
 	}
+}
+
+void AssetBundle::_verify_resource_entry_task(void *p_userdata, uint32_t p_index) {
+	VerifyAllContext *context = static_cast<VerifyAllContext *>(p_userdata);
+	VerifyResourceTask &task = context->tasks[p_index];
+	task.result = context->asset_bundle->_verify_resource_entry(*task.bundle, *task.entry, context->verify_hash, context->verify_md5);
+}
+
+Dictionary AssetBundle::verify_bundle(const String &p_bundle_name, bool p_verify_hash, bool p_verify_md5) const {
+	const BundleInfo *bundle = bundles.getptr(p_bundle_name);
+	if (bundle == nullptr) {
+		Dictionary result;
+		result["bundle"] = p_bundle_name;
+		result["valid"] = false;
+		result["error"] = ERR_DOES_NOT_EXIST;
+		result["error_message"] = vformat("AssetBundle manifest does not contain bundle '%s'.", p_bundle_name);
+		result["checked_chunks"] = 0;
+		result["valid_chunks"] = 0;
+		result["invalid_chunks"] = 0;
+		result["missing_chunks"] = 0;
+		result["total_size"] = int64_t(0);
+		result["chunks"] = Array();
+		return result;
+	}
+
+	Dictionary result = _verify_bundle_manifest(*bundle, p_verify_hash);
+	if (Error(int(result["error"])) != OK) {
+		return result;
+	}
+	_complete_bundle_verification(*bundle, p_verify_hash, p_verify_md5, nullptr, result);
 	return result;
 }
 
@@ -1457,16 +1663,74 @@ Dictionary AssetBundle::verify_all_bundles(bool p_verify_hash, bool p_verify_md5
 	result["invalid_chunks"] = 0;
 	result["total_size"] = int64_t(0);
 
-	Array bundle_results;
+	Vector<Dictionary> bundle_results;
+	bundle_results.resize(bundle_order.size());
+	Vector<int> task_offsets;
+	task_offsets.resize(bundle_order.size());
+	Vector<VerifyResourceTask> tasks;
+	for (int i = 0; i < bundle_order.size(); i++) {
+		const BundleInfo *bundle = bundles.getptr(bundle_order[i]);
+		ERR_CONTINUE(bundle == nullptr);
+
+		bundle_results.write[i] = _verify_bundle_manifest(*bundle, p_verify_hash);
+		task_offsets.write[i] = -1;
+		if (Error(int(bundle_results[i]["error"])) != OK) {
+			continue;
+		}
+
+		task_offsets.write[i] = tasks.size();
+		for (const ResourceEntry &entry : bundle->resources) {
+			VerifyResourceTask task;
+			task.bundle = bundle;
+			task.entry = &entry;
+			tasks.push_back(task);
+		}
+	}
+
+	if (!tasks.is_empty()) {
+		VerifyAllContext context;
+		context.asset_bundle = this;
+		context.tasks = tasks.ptrw();
+		context.verify_hash = p_verify_hash;
+		context.verify_md5 = p_verify_md5;
+
+		WorkerThreadPool *worker_pool = WorkerThreadPool::get_singleton();
+		bool ran_parallel = false;
+		// Waiting on a group from one of the same pool's workers can deadlock when all workers are occupied.
+		const bool can_run_parallel = tasks.size() > 1 && worker_pool != nullptr && worker_pool->get_thread_count() > 1 && worker_pool->get_thread_index() < 0;
+		if (can_run_parallel) {
+			const WorkerThreadPool::GroupID group_id = worker_pool->add_native_group_task(
+					&AssetBundle::_verify_resource_entry_task, &context, tasks.size(), -1, false, SNAME("AssetBundleVerify"));
+			if (group_id != WorkerThreadPool::INVALID_TASK_ID) {
+				worker_pool->wait_for_group_task_completion(group_id);
+				ran_parallel = true;
+			}
+		}
+
+		if (!ran_parallel) {
+			for (int i = 0; i < tasks.size(); i++) {
+				_verify_resource_entry_task(&context, i);
+			}
+		}
+	}
+
+	Array bundle_result_array;
 	int valid_bundles = 0;
 	int invalid_bundles = 0;
 	int missing_chunks = 0;
 	int invalid_chunks = 0;
 	int64_t total_size = 0;
 
-	for (const String &bundle_name : bundle_order) {
-		Dictionary bundle_result = verify_bundle(bundle_name, p_verify_hash, p_verify_md5);
-		bundle_results.push_back(bundle_result);
+	for (int i = 0; i < bundle_order.size(); i++) {
+		const BundleInfo *bundle = bundles.getptr(bundle_order[i]);
+		ERR_CONTINUE(bundle == nullptr);
+
+		Dictionary &bundle_result = bundle_results.write[i];
+		if (task_offsets[i] >= 0) {
+			const VerifyResourceTask *precomputed_tasks = bundle->resources.is_empty() ? nullptr : tasks.ptr() + task_offsets[i];
+			_complete_bundle_verification(*bundle, p_verify_hash, p_verify_md5, precomputed_tasks, bundle_result);
+		}
+		bundle_result_array.push_back(bundle_result);
 		if (bool(bundle_result["valid"])) {
 			valid_bundles++;
 		} else {
@@ -1484,12 +1748,343 @@ Dictionary AssetBundle::verify_all_bundles(bool p_verify_hash, bool p_verify_md5
 	result["missing_chunks"] = missing_chunks;
 	result["invalid_chunks"] = invalid_chunks;
 	result["total_size"] = total_size;
-	result["bundles"] = bundle_results;
+	result["bundles"] = bundle_result_array;
 	if (!valid) {
 		result["error"] = missing_chunks > 0 ? ERR_FILE_NOT_FOUND : ERR_FILE_CORRUPT;
 		result["error_message"] = vformat("AssetBundle manifest has %d invalid bundle(s).", invalid_bundles);
 	}
 	return result;
+}
+
+Error AssetBundle::delete_bundle(const String &p_bundle_name) {
+	PackedStringArray bundle_names;
+	bundle_names.push_back(p_bundle_name);
+	return delete_bundles(bundle_names);
+}
+
+Error AssetBundle::delete_bundles(const PackedStringArray &p_bundle_names) {
+	if (loading) {
+		return _set_error(ERR_BUSY, "AssetBundle cannot delete bundle files while a load request is running.");
+	}
+	if (p_bundle_names.is_empty()) {
+		return _set_error(ERR_INVALID_PARAMETER, "AssetBundle delete request must contain at least one bundle.");
+	}
+
+	HashSet<String> target_bundles;
+	for (int i = 0; i < p_bundle_names.size(); i++) {
+		if (!bundles.has(p_bundle_names[i])) {
+			return _set_error(ERR_DOES_NOT_EXIST, vformat("AssetBundle manifest does not contain bundle '%s'.", p_bundle_names[i]));
+		}
+		target_bundles.insert(p_bundle_names[i]);
+	}
+
+	HashSet<String> protected_files;
+	for (const String &other_bundle_name : bundle_order) {
+		if (target_bundles.has(other_bundle_name)) {
+			continue;
+		}
+		const BundleInfo *other_bundle = bundles.getptr(other_bundle_name);
+		if (other_bundle == nullptr) {
+			continue;
+		}
+
+		protected_files.insert(_get_bundle_manifest_path(*other_bundle));
+		for (const ResourceEntry &entry : other_bundle->resources) {
+			const String chunk_path = _get_chunk_file_path(*other_bundle, entry);
+			if (!chunk_path.is_empty()) {
+				protected_files.insert(chunk_path);
+			}
+		}
+	}
+
+	HashSet<String> chunk_files;
+	HashSet<String> bundle_manifest_files;
+	for (const String &bundle_name : bundle_order) {
+		if (!target_bundles.has(bundle_name)) {
+			continue;
+		}
+		const BundleInfo *bundle = bundles.getptr(bundle_name);
+		ERR_CONTINUE(bundle == nullptr);
+
+		const String bundle_manifest_path = _get_bundle_manifest_path(*bundle);
+		if (!protected_files.has(bundle_manifest_path)) {
+			bundle_manifest_files.insert(bundle_manifest_path);
+		}
+		for (const ResourceEntry &entry : bundle->resources) {
+			const String chunk_path = _get_chunk_file_path(*bundle, entry);
+			if (!chunk_path.is_empty() && !protected_files.has(chunk_path)) {
+				chunk_files.insert(chunk_path);
+			}
+		}
+	}
+
+	Error first_error = OK;
+	String first_error_path;
+	for (const String &chunk_path : chunk_files) {
+		if (!FileAccess::exists(chunk_path)) {
+			continue;
+		}
+
+		const Error err = DirAccess::remove_absolute(chunk_path);
+		if (err != OK) {
+			if (first_error == OK) {
+				first_error = err;
+				first_error_path = chunk_path;
+			}
+			continue;
+		}
+	}
+
+	for (const String &bundle_name : bundle_order) {
+		if (!target_bundles.has(bundle_name)) {
+			continue;
+		}
+		const BundleInfo *bundle = bundles.getptr(bundle_name);
+		ERR_CONTINUE(bundle == nullptr);
+
+		const String bundle_base_dir = _get_bundle_base_dir(*bundle);
+		const String bundle_base_prefix = bundle_base_dir.ends_with("/") ? bundle_base_dir : bundle_base_dir + "/";
+		for (const ResourceEntry &entry : bundle->resources) {
+			const String chunk_path = _get_chunk_file_path(*bundle, entry);
+			String directory = chunk_path.get_base_dir();
+			while (!chunk_path.is_empty() && directory != bundle_base_dir && directory.begins_with(bundle_base_prefix)) {
+				if (DirAccess::remove_absolute(directory) != OK) {
+					break;
+				}
+				directory = directory.get_base_dir();
+			}
+		}
+	}
+
+	for (const String &bundle_manifest_path : bundle_manifest_files) {
+		if (!FileAccess::exists(bundle_manifest_path)) {
+			continue;
+		}
+		const Error err = DirAccess::remove_absolute(bundle_manifest_path);
+		if (err != OK && first_error == OK) {
+			first_error = err;
+			first_error_path = bundle_manifest_path;
+		}
+	}
+
+	for (const String &bundle_name : bundle_order) {
+		if (!target_bundles.has(bundle_name)) {
+			continue;
+		}
+		const BundleInfo *bundle = bundles.getptr(bundle_name);
+		ERR_CONTINUE(bundle == nullptr);
+		const String bundle_base_dir = _get_bundle_base_dir(*bundle);
+		if (bundle_base_dir != manifest_base_dir) {
+			DirAccess::remove_absolute(bundle_base_dir);
+		}
+	}
+
+	if (first_error != OK) {
+		return _set_error(first_error, vformat("AssetBundle failed to delete bundle file '%s'.", first_error_path));
+	}
+
+	last_error_code = OK;
+	last_error.clear();
+	return OK;
+}
+
+Error AssetBundle::delete_all_bundles() {
+	if (loading) {
+		return _set_error(ERR_BUSY, "AssetBundle cannot delete bundle files while a load request is running.");
+	}
+	if (bundle_order.is_empty()) {
+		last_error_code = OK;
+		last_error.clear();
+		return OK;
+	}
+	return delete_bundles(get_bundles());
+}
+
+Error AssetBundle::unload_bundle(const String &p_bundle_name, bool p_hot_replace_cached) {
+	if (loading) {
+		return _set_error(ERR_BUSY, "AssetBundle cannot unload a bundle while a load request is running.");
+	}
+
+	const BundleInfo *bundle = bundles.getptr(p_bundle_name);
+	if (bundle == nullptr) {
+		return _set_error(ERR_DOES_NOT_EXIST, vformat("AssetBundle manifest does not contain bundle '%s'.", p_bundle_name));
+	}
+	if (!loaded_bundles.has(p_bundle_name)) {
+		return _set_error(ERR_DOES_NOT_EXIST, vformat("AssetBundle bundle '%s' is not loaded by this instance.", p_bundle_name));
+	}
+
+	for (const String &other_bundle_name : bundle_order) {
+		if (other_bundle_name == p_bundle_name || !loaded_bundles.has(other_bundle_name)) {
+			continue;
+		}
+		const BundleInfo *other_bundle = bundles.getptr(other_bundle_name);
+		if (other_bundle == nullptr) {
+			continue;
+		}
+		for (int i = 0; i < other_bundle->dependencies.size(); i++) {
+			if (other_bundle->dependencies[i] == p_bundle_name) {
+				return _set_error(ERR_BUSY,
+						vformat("AssetBundle cannot unload bundle '%s' while loaded bundle '%s' depends on it.", p_bundle_name, other_bundle_name));
+			}
+		}
+	}
+
+	PackedStringArray changed_files;
+	if (!ProjectSettings::get_singleton()->_unload_resource_pack(bundle->resolved_path, &changed_files)) {
+		return _set_error(ERR_CANT_OPEN, vformat("AssetBundle failed to unload bundle '%s'.", p_bundle_name));
+	}
+	loaded_bundles.erase(p_bundle_name);
+
+	Error first_hot_replace_error = OK;
+	String first_hot_replace_path;
+	if (p_hot_replace_cached) {
+		for (int i = 0; i < changed_files.size(); i++) {
+			const String resource_path = _normalize_resource_path(changed_files[i]);
+			if (!ResourceCache::has(resource_path)) {
+				continue;
+			}
+
+			if (!FileAccess::exists(resource_path)) {
+				Ref<Resource> cached_resource = ResourceCache::get_ref(resource_path);
+				if (cached_resource.is_valid()) {
+					cached_resource->set_path(String());
+				}
+				continue;
+			}
+
+			Error load_error = OK;
+			Ref<Resource> resource = ResourceLoader::load(resource_path, String(), ResourceLoader::CACHE_MODE_REPLACE, &load_error);
+			if (load_error != OK || resource.is_null()) {
+				if (first_hot_replace_error == OK) {
+					first_hot_replace_error = load_error != OK ? load_error : ERR_CANT_OPEN;
+					first_hot_replace_path = resource_path;
+				}
+				continue;
+			}
+			emit_signal("resource_hot_replaced", resource_path);
+		}
+	}
+
+	emit_signal("bundle_unloaded", p_bundle_name);
+	if (first_hot_replace_error != OK) {
+		return _set_error(first_hot_replace_error,
+				vformat("AssetBundle unloaded bundle '%s', but failed to restore cached resource '%s'.", p_bundle_name, first_hot_replace_path));
+	}
+
+	last_error_code = OK;
+	last_error.clear();
+	return OK;
+}
+
+Error AssetBundle::unload_bundles(const PackedStringArray &p_bundle_names, bool p_hot_replace_cached) {
+	if (loading) {
+		return _set_error(ERR_BUSY, "AssetBundle cannot unload bundles while a load request is running.");
+	}
+	if (p_bundle_names.is_empty()) {
+		return _set_error(ERR_INVALID_PARAMETER, "AssetBundle unload request must contain at least one bundle.");
+	}
+
+	HashSet<String> remaining_bundles;
+	for (int i = 0; i < p_bundle_names.size(); i++) {
+		const String &bundle_name = p_bundle_names[i];
+		if (!bundles.has(bundle_name)) {
+			return _set_error(ERR_DOES_NOT_EXIST, vformat("AssetBundle manifest does not contain bundle '%s'.", bundle_name));
+		}
+		if (loaded_bundles.has(bundle_name)) {
+			remaining_bundles.insert(bundle_name);
+		}
+	}
+
+	if (remaining_bundles.is_empty()) {
+		last_error_code = OK;
+		last_error.clear();
+		return OK;
+	}
+
+	for (const String &bundle_name : bundle_order) {
+		if (!loaded_bundles.has(bundle_name) || remaining_bundles.has(bundle_name)) {
+			continue;
+		}
+		const BundleInfo *bundle = bundles.getptr(bundle_name);
+		ERR_CONTINUE(bundle == nullptr);
+		for (int i = 0; i < bundle->dependencies.size(); i++) {
+			if (remaining_bundles.has(bundle->dependencies[i])) {
+				return _set_error(ERR_BUSY,
+						vformat("AssetBundle cannot unload bundle '%s' while loaded bundle '%s' depends on it.", bundle->dependencies[i], bundle_name));
+			}
+		}
+	}
+
+	Error first_error = OK;
+	String first_error_message;
+	while (!remaining_bundles.is_empty()) {
+		bool unloaded_bundle = false;
+		for (int i = bundle_order.size() - 1; i >= 0; i--) {
+			const String &bundle_name = bundle_order[i];
+			if (!remaining_bundles.has(bundle_name)) {
+				continue;
+			}
+
+			bool has_loaded_dependent = false;
+			for (const String &other_bundle_name : bundle_order) {
+				if (other_bundle_name == bundle_name || !remaining_bundles.has(other_bundle_name)) {
+					continue;
+				}
+				const BundleInfo *other_bundle = bundles.getptr(other_bundle_name);
+				ERR_CONTINUE(other_bundle == nullptr);
+				for (int dependency_index = 0; dependency_index < other_bundle->dependencies.size(); dependency_index++) {
+					if (other_bundle->dependencies[dependency_index] == bundle_name) {
+						has_loaded_dependent = true;
+						break;
+					}
+				}
+				if (has_loaded_dependent) {
+					break;
+				}
+			}
+			if (has_loaded_dependent) {
+				continue;
+			}
+
+			const Error err = unload_bundle(bundle_name, p_hot_replace_cached);
+			if (err != OK && first_error == OK) {
+				first_error = err;
+				first_error_message = last_error;
+			}
+			if (loaded_bundles.has(bundle_name)) {
+				return _set_error(err != OK ? err : ERR_BUG,
+						vformat("AssetBundle failed to update the loaded state while unloading bundle '%s'.", bundle_name));
+			}
+			remaining_bundles.erase(bundle_name);
+			unloaded_bundle = true;
+			break;
+		}
+
+		if (!unloaded_bundle) {
+			return _set_error(ERR_CYCLIC_LINK,
+					"AssetBundle cannot determine a valid unload order because the selected bundles have cyclic dependencies.");
+		}
+	}
+
+	if (first_error != OK) {
+		return _set_error(first_error, first_error_message);
+	}
+	last_error_code = OK;
+	last_error.clear();
+	return OK;
+}
+
+Error AssetBundle::unload_all_bundles(bool p_hot_replace_cached) {
+	if (loading) {
+		return _set_error(ERR_BUSY, "AssetBundle cannot unload bundles while a load request is running.");
+	}
+	const PackedStringArray loaded_bundle_names = get_loaded_bundles();
+	if (loaded_bundle_names.is_empty()) {
+		last_error_code = OK;
+		last_error.clear();
+		return OK;
+	}
+	return unload_bundles(loaded_bundle_names, p_hot_replace_cached);
 }
 
 Error AssetBundle::start_load_bundle(const String &p_bundle_name, bool p_hot_replace_cached, bool p_replace_files) {
@@ -1544,15 +2139,7 @@ Error AssetBundle::load_bundles(const PackedStringArray &p_bundle_names, bool p_
 	if (err != OK) {
 		return err;
 	}
-
-	while (is_loading()) {
-		err = poll_load();
-		if (err != OK) {
-			return err;
-		}
-	}
-
-	return OK;
+	return _complete_load_request_synchronously();
 }
 
 Error AssetBundle::load_all_bundles(bool p_hot_replace_cached, bool p_replace_files) {
@@ -1560,15 +2147,7 @@ Error AssetBundle::load_all_bundles(bool p_hot_replace_cached, bool p_replace_fi
 	if (err != OK) {
 		return err;
 	}
-
-	while (is_loading()) {
-		err = poll_load();
-		if (err != OK) {
-			return err;
-		}
-	}
-
-	return OK;
+	return _complete_load_request_synchronously();
 }
 
 bool AssetBundle::is_loading() const {
@@ -1616,6 +2195,7 @@ Ref<Resource> AssetBundle::load_resource(const String &p_path, const String &p_t
 
 void AssetBundle::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("load_manifest", "manifest_path"), &AssetBundle::load_manifest);
+	ClassDB::bind_method(D_METHOD("load_manifest_from_string", "manifest_string", "base_dir"), &AssetBundle::load_manifest_from_string, DEFVAL(String()));
 	ClassDB::bind_method(D_METHOD("clear"), &AssetBundle::clear);
 
 	ClassDB::bind_method(D_METHOD("has_manifest"), &AssetBundle::has_manifest);
@@ -1644,6 +2224,12 @@ void AssetBundle::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_manifest_diff", "other_manifest_path"), &AssetBundle::get_manifest_diff);
 	ClassDB::bind_method(D_METHOD("verify_bundle", "bundle_name", "verify_hash", "verify_md5"), &AssetBundle::verify_bundle, DEFVAL(true), DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("verify_all_bundles", "verify_hash", "verify_md5"), &AssetBundle::verify_all_bundles, DEFVAL(true), DEFVAL(false));
+	ClassDB::bind_method(D_METHOD("delete_bundle", "bundle_name"), &AssetBundle::delete_bundle);
+	ClassDB::bind_method(D_METHOD("delete_bundles", "bundle_names"), &AssetBundle::delete_bundles);
+	ClassDB::bind_method(D_METHOD("delete_all_bundles"), &AssetBundle::delete_all_bundles);
+	ClassDB::bind_method(D_METHOD("unload_bundle", "bundle_name", "hot_replace_cached"), &AssetBundle::unload_bundle, DEFVAL(true));
+	ClassDB::bind_method(D_METHOD("unload_bundles", "bundle_names", "hot_replace_cached"), &AssetBundle::unload_bundles, DEFVAL(true));
+	ClassDB::bind_method(D_METHOD("unload_all_bundles", "hot_replace_cached"), &AssetBundle::unload_all_bundles, DEFVAL(true));
 
 	ClassDB::bind_method(D_METHOD("start_load_bundle", "bundle_name", "hot_replace_cached", "replace_files"), &AssetBundle::start_load_bundle, DEFVAL(true), DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("start_load_bundles", "bundle_names", "hot_replace_cached", "replace_files"), &AssetBundle::start_load_bundles, DEFVAL(true), DEFVAL(true));
@@ -1665,6 +2251,7 @@ void AssetBundle::_bind_methods() {
 
 	ADD_SIGNAL(MethodInfo("load_progressed", PropertyInfo(Variant::STRING, "bundle_name"), PropertyInfo(Variant::FLOAT, "progress")));
 	ADD_SIGNAL(MethodInfo("bundle_loaded", PropertyInfo(Variant::STRING, "bundle_name")));
+	ADD_SIGNAL(MethodInfo("bundle_unloaded", PropertyInfo(Variant::STRING, "bundle_name")));
 	ADD_SIGNAL(MethodInfo("resource_hot_replaced", PropertyInfo(Variant::STRING, "path")));
 	ADD_SIGNAL(MethodInfo("load_finished"));
 	ADD_SIGNAL(MethodInfo("load_failed", PropertyInfo(Variant::STRING, "bundle_name"), PropertyInfo(Variant::INT, "error"), PropertyInfo(Variant::STRING, "message")));

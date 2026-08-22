@@ -32,6 +32,151 @@
 
 #include "core/math/math_funcs.h"
 
+struct FFmpegHardwareEncoderCandidate {
+	AVCodecID codec_id;
+	const char *name;
+};
+
+static const FFmpegHardwareEncoderCandidate ffmpeg_hardware_encoder_candidates[] = {
+#if defined(MACOS_ENABLED) || defined(IOS_ENABLED) || defined(VISIONOS_ENABLED)
+	{ AV_CODEC_ID_H264, "h264_videotoolbox" },
+	{ AV_CODEC_ID_HEVC, "hevc_videotoolbox" },
+#elif defined(WINDOWS_ENABLED)
+	{ AV_CODEC_ID_H264, "h264_mf" },
+	{ AV_CODEC_ID_HEVC, "hevc_mf" },
+	{ AV_CODEC_ID_AV1, "av1_mf" },
+#elif defined(ANDROID_ENABLED)
+	{ AV_CODEC_ID_H264, "h264_mediacodec" },
+	{ AV_CODEC_ID_HEVC, "hevc_mediacodec" },
+	{ AV_CODEC_ID_AV1, "av1_mediacodec" },
+	{ AV_CODEC_ID_VP9, "vp9_mediacodec" },
+#elif defined(LINUXBSD_ENABLED)
+	{ AV_CODEC_ID_H264, "h264_vaapi" },
+	{ AV_CODEC_ID_HEVC, "hevc_vaapi" },
+	{ AV_CODEC_ID_AV1, "av1_vaapi" },
+	{ AV_CODEC_ID_VP9, "vp9_vaapi" },
+#endif
+	{ AV_CODEC_ID_NONE, nullptr },
+};
+
+static String _ffmpeg_get_encoder_backend(const AVCodec *p_codec) {
+	if (!p_codec || !p_codec->name) {
+		return "software";
+	}
+
+	const String name = String::utf8(p_codec->name);
+	if (name.contains("videotoolbox")) {
+		return "videotoolbox";
+	}
+	if (name.ends_with("_mf")) {
+		return "mediafoundation";
+	}
+	if (name.contains("mediacodec")) {
+		return "mediacodec";
+	}
+	if (name.contains("vaapi")) {
+		return "vaapi";
+	}
+	if ((p_codec->capabilities & AV_CODEC_CAP_HARDWARE) || (p_codec->capabilities & AV_CODEC_CAP_HYBRID)) {
+		return name;
+	}
+	return "software";
+}
+
+static bool _ffmpeg_is_hardware_encoder(const AVCodec *p_codec) {
+	return _ffmpeg_get_encoder_backend(p_codec) != "software";
+}
+
+static const AVCodec *_ffmpeg_find_hardware_encoder(const AVOutputFormat *p_output_format) {
+	ERR_FAIL_NULL_V(p_output_format, nullptr);
+
+	for (int pass = 0; pass < 2; pass++) {
+		for (const FFmpegHardwareEncoderCandidate *candidate = ffmpeg_hardware_encoder_candidates; candidate->name; candidate++) {
+			if (pass == 0 && candidate->codec_id != p_output_format->video_codec) {
+				continue;
+			}
+			const AVCodec *codec = avcodec_find_encoder_by_name(candidate->name);
+			if (codec && avformat_query_codec(p_output_format, codec->id, FF_COMPLIANCE_NORMAL) > 0) {
+				return codec;
+			}
+		}
+	}
+	return nullptr;
+}
+
+static int _ffmpeg_choose_encoder_pixel_format(const AVCodec *p_codec, bool p_allow_hardware_format, AVPixelFormat &r_pixel_format) {
+	const void *pixel_format_config = nullptr;
+	int pixel_format_count = 0;
+	const int result = avcodec_get_supported_config(nullptr, p_codec, AV_CODEC_CONFIG_PIX_FORMAT, 0, &pixel_format_config, &pixel_format_count);
+	if (result < 0) {
+		return result;
+	}
+
+	const AVPixelFormat *pixel_formats = static_cast<const AVPixelFormat *>(pixel_format_config);
+	if (!pixel_formats || pixel_format_count <= 0) {
+		r_pixel_format = AV_PIX_FMT_YUV420P;
+		return 0;
+	}
+
+	AVPixelFormat software_format = AV_PIX_FMT_NONE;
+	AVPixelFormat hardware_format = AV_PIX_FMT_NONE;
+	for (int i = 0; i < pixel_format_count; i++) {
+		const AVPixFmtDescriptor *descriptor = av_pix_fmt_desc_get(pixel_formats[i]);
+		if (descriptor && (descriptor->flags & AV_PIX_FMT_FLAG_HWACCEL)) {
+			if (hardware_format == AV_PIX_FMT_NONE) {
+				hardware_format = pixel_formats[i];
+			}
+			continue;
+		}
+		if (!sws_isSupportedOutput(pixel_formats[i])) {
+			continue;
+		}
+		if (pixel_formats[i] == AV_PIX_FMT_YUV420P) {
+			r_pixel_format = pixel_formats[i];
+			return 0;
+		}
+		if (software_format == AV_PIX_FMT_NONE || pixel_formats[i] == AV_PIX_FMT_NV12) {
+			software_format = pixel_formats[i];
+		}
+	}
+
+	if (software_format != AV_PIX_FMT_NONE) {
+		r_pixel_format = software_format;
+		return 0;
+	}
+	if (p_allow_hardware_format && hardware_format != AV_PIX_FMT_NONE) {
+		r_pixel_format = hardware_format;
+		return 0;
+	}
+	r_pixel_format = AV_PIX_FMT_NONE;
+	return 0;
+}
+
+static AVPixelFormat _ffmpeg_choose_hardware_transfer_format(AVBufferRef *p_device_context) {
+	AVPixelFormat result = AV_PIX_FMT_NV12;
+	AVHWFramesConstraints *constraints = av_hwdevice_get_hwframe_constraints(p_device_context, nullptr);
+	if (!constraints || !constraints->valid_sw_formats) {
+		av_hwframe_constraints_free(&constraints);
+		return result;
+	}
+
+	result = AV_PIX_FMT_NONE;
+	for (const AVPixelFormat *format = constraints->valid_sw_formats; *format != AV_PIX_FMT_NONE; format++) {
+		if (!sws_isSupportedOutput(*format)) {
+			continue;
+		}
+		if (*format == AV_PIX_FMT_NV12) {
+			result = *format;
+			break;
+		}
+		if (result == AV_PIX_FMT_NONE || *format == AV_PIX_FMT_YUV420P) {
+			result = *format;
+		}
+	}
+	av_hwframe_constraints_free(&constraints);
+	return result;
+}
+
 Error FFmpegVideoEncoder::_set_error(Error p_error, const String &p_message, int p_ffmpeg_error) {
 	last_error_message = p_message;
 	if (p_ffmpeg_error < 0) {
@@ -48,9 +193,12 @@ void FFmpegVideoEncoder::_clear() {
 	}
 	swr_context.reset();
 	sws_context.reset();
+	hardware_video_frame.reset();
 	video_frame.reset();
 	audio_codec_context.reset();
 	video_codec_context.reset();
+	hardware_frames_context.reset();
+	hardware_device_context.reset();
 	video_stream = nullptr;
 	audio_stream = nullptr;
 	output.clear();
@@ -58,7 +206,7 @@ void FFmpegVideoEncoder::_clear() {
 	audio_enabled = false;
 }
 
-Error FFmpegVideoEncoder::_create_video_stream(const String &p_requested_codec, int64_t p_video_bitrate, const String &p_preset, uint32_t p_keyframe_interval) {
+Error FFmpegVideoEncoder::_create_video_stream(const String &p_requested_codec, int64_t p_video_bitrate, const String &p_preset, uint32_t p_keyframe_interval, EncoderMode p_encoder_mode) {
 	const AVCodec *codec = nullptr;
 	if (!p_requested_codec.is_empty()) {
 		CharString requested_codec_utf8 = p_requested_codec.utf8();
@@ -66,12 +214,24 @@ Error FFmpegVideoEncoder::_create_video_stream(const String &p_requested_codec, 
 		if (!codec) {
 			return _set_error(ERR_UNAVAILABLE, vformat("FFmpeg video encoder '%s' is not available in this build", p_requested_codec));
 		}
-	} else if (output.format->oformat->video_codec != AV_CODEC_ID_NONE) {
+	} else if (p_encoder_mode != ENCODER_MODE_SOFTWARE) {
+		codec = _ffmpeg_find_hardware_encoder(output.format->oformat);
+		if (!codec && p_encoder_mode == ENCODER_MODE_HARDWARE) {
+			return _set_error(ERR_UNAVAILABLE, "FFmpeg could not find a platform hardware video encoder supported by the selected container");
+		}
+	}
+	if (!codec && output.format->oformat->video_codec != AV_CODEC_ID_NONE) {
 		codec = avcodec_find_encoder(output.format->oformat->video_codec);
 	}
 
 	if (!p_requested_codec.is_empty() && avformat_query_codec(output.format->oformat, codec->id, FF_COMPLIANCE_NORMAL) <= 0) {
 		return _set_error(ERR_INVALID_PARAMETER, vformat("FFmpeg video encoder '%s' is not supported by the selected container", p_requested_codec));
+	}
+	if (codec && p_encoder_mode == ENCODER_MODE_SOFTWARE && _ffmpeg_is_hardware_encoder(codec)) {
+		if (!p_requested_codec.is_empty()) {
+			return _set_error(ERR_INVALID_PARAMETER, vformat("FFmpeg encoder '%s' is a hardware encoder, but software encoding was requested", p_requested_codec));
+		}
+		codec = nullptr;
 	}
 	if (!codec || avformat_query_codec(output.format->oformat, codec->id, FF_COMPLIANCE_NORMAL) <= 0) {
 		codec = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
@@ -80,52 +240,34 @@ Error FFmpegVideoEncoder::_create_video_stream(const String &p_requested_codec, 
 		return _set_error(ERR_UNAVAILABLE, "FFmpeg could not find a software video encoder supported by the selected container");
 	}
 
-	auto choose_pixel_format = [](const AVCodec *p_codec, AVPixelFormat &r_pixel_format) -> int {
-		const void *pixel_format_config = nullptr;
-		int pixel_format_count = 0;
-		int result = avcodec_get_supported_config(nullptr, p_codec, AV_CODEC_CONFIG_PIX_FORMAT, 0, &pixel_format_config, &pixel_format_count);
-		if (result < 0) {
-			return result;
-		}
-		const AVPixelFormat *pixel_formats = static_cast<const AVPixelFormat *>(pixel_format_config);
-		r_pixel_format = AV_PIX_FMT_YUV420P;
-		if (pixel_formats && pixel_format_count > 0) {
-			r_pixel_format = pixel_formats[0];
-			for (int i = 0; i < pixel_format_count; i++) {
-				if (pixel_formats[i] == AV_PIX_FMT_YUV420P) {
-					r_pixel_format = AV_PIX_FMT_YUV420P;
-					break;
-				}
-			}
-		}
-		return 0;
-	};
+	const bool selected_hardware_encoder = _ffmpeg_is_hardware_encoder(codec);
+	if (p_encoder_mode == ENCODER_MODE_HARDWARE && !selected_hardware_encoder) {
+		return _set_error(ERR_INVALID_PARAMETER, vformat("FFmpeg encoder '%s' does not provide hardware encoding", String(codec->name)));
+	}
 
 	AVPixelFormat pixel_format = AV_PIX_FMT_NONE;
-	int response = choose_pixel_format(codec, pixel_format);
+	int response = _ffmpeg_choose_encoder_pixel_format(codec, selected_hardware_encoder, pixel_format);
 	if (response < 0) {
 		return _set_error(ERR_CANT_CREATE, "FFmpeg failed to query the video encoder pixel formats", response);
 	}
 	const AVPixFmtDescriptor *pixel_descriptor = av_pix_fmt_desc_get(pixel_format);
-	if (p_requested_codec.is_empty() && (!pixel_descriptor || (pixel_descriptor->flags & AV_PIX_FMT_FLAG_HWACCEL))) {
+	if (!selected_hardware_encoder && (!pixel_descriptor || (pixel_descriptor->flags & AV_PIX_FMT_FLAG_HWACCEL))) {
 		codec = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
 		if (!codec || avformat_query_codec(output.format->oformat, codec->id, FF_COMPLIANCE_NORMAL) <= 0) {
 			return _set_error(ERR_UNAVAILABLE, "FFmpeg could not find a CPU video encoder supported by the selected container");
 		}
-		response = choose_pixel_format(codec, pixel_format);
+		response = _ffmpeg_choose_encoder_pixel_format(codec, false, pixel_format);
 		if (response < 0) {
 			return _set_error(ERR_CANT_CREATE, "FFmpeg failed to query the fallback video encoder pixel formats", response);
 		}
 		pixel_descriptor = av_pix_fmt_desc_get(pixel_format);
 	}
-	if (!pixel_descriptor || (pixel_descriptor->flags & AV_PIX_FMT_FLAG_HWACCEL)) {
-		return _set_error(ERR_UNAVAILABLE, vformat("FFmpeg encoder '%s' requires a hardware pixel format that is not supported by CPU image export", String(codec->name)));
+	if (!pixel_descriptor) {
+		return _set_error(ERR_UNAVAILABLE, vformat("FFmpeg encoder '%s' does not expose a usable pixel format", String(codec->name)));
 	}
+	const bool requires_hardware_frames = pixel_descriptor->flags & AV_PIX_FMT_FLAG_HWACCEL;
+	AVPixelFormat input_pixel_format = pixel_format;
 
-	AVStream *stream = avformat_new_stream(output.format.get(), nullptr);
-	if (!stream) {
-		return _set_error(ERR_OUT_OF_MEMORY, "FFmpeg failed to allocate the video stream");
-	}
 	AVCodecContext *raw_codec_context = avcodec_alloc_context3(codec);
 	if (!raw_codec_context) {
 		return _set_error(ERR_OUT_OF_MEMORY, "FFmpeg failed to allocate the video encoder context");
@@ -140,7 +282,7 @@ Error FFmpegVideoEncoder::_create_video_stream(const String &p_requested_codec, 
 	video_codec_context->pix_fmt = pixel_format;
 	video_codec_context->bit_rate = p_video_bitrate;
 	video_codec_context->gop_size = p_keyframe_interval > 0 ? p_keyframe_interval : fps * 2;
-	video_codec_context->max_b_frames = codec->id == AV_CODEC_ID_MPEG4 ? 0 : 2;
+	video_codec_context->max_b_frames = selected_hardware_encoder || codec->id == AV_CODEC_ID_MPEG4 ? 0 : 2;
 	video_codec_context->color_range = AVCOL_RANGE_MPEG;
 	video_codec_context->color_primaries = AVCOL_PRI_BT709;
 	video_codec_context->color_trc = AVCOL_TRC_BT709;
@@ -150,15 +292,103 @@ Error FFmpegVideoEncoder::_create_video_stream(const String &p_requested_codec, 
 	}
 	FFmpegCommon::enable_multithreading(video_codec_context.get(), codec);
 
+	if (requires_hardware_frames) {
+		const AVCodecHWConfig *hardware_config = nullptr;
+		for (int config_index = 0;; config_index++) {
+			const AVCodecHWConfig *candidate_config = avcodec_get_hw_config(codec, config_index);
+			if (!candidate_config) {
+				break;
+			}
+			if (candidate_config->pix_fmt == pixel_format && (candidate_config->methods & (AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX | AV_CODEC_HW_CONFIG_METHOD_HW_FRAMES_CTX))) {
+				hardware_config = candidate_config;
+				break;
+			}
+		}
+		if (!hardware_config) {
+			return _set_error(ERR_UNAVAILABLE, vformat("FFmpeg encoder '%s' does not expose a usable hardware frame configuration", String(codec->name)));
+		}
+
+		AVBufferRef *raw_device_context = nullptr;
+		response = av_hwdevice_ctx_create(&raw_device_context, hardware_config->device_type, nullptr, nullptr, 0);
+		if (response < 0 || !raw_device_context) {
+			const char *device_name = av_hwdevice_get_type_name(hardware_config->device_type);
+			return _set_error(ERR_CANT_CREATE, vformat("FFmpeg failed to create the '%s' hardware encoding device", device_name ? String::utf8(device_name) : String("unknown")), response);
+		}
+		hardware_device_context = FFmpegAVBufferRefPtr(raw_device_context);
+		input_pixel_format = _ffmpeg_choose_hardware_transfer_format(hardware_device_context.get());
+		if (input_pixel_format == AV_PIX_FMT_NONE) {
+			return _set_error(ERR_UNAVAILABLE, vformat("FFmpeg hardware encoder '%s' does not accept a CPU-transferable pixel format", String(codec->name)));
+		}
+
+		AVBufferRef *raw_frames_context = av_hwframe_ctx_alloc(hardware_device_context.get());
+		if (!raw_frames_context) {
+			return _set_error(ERR_OUT_OF_MEMORY, "FFmpeg failed to allocate the hardware encoding frame pool");
+		}
+		hardware_frames_context = FFmpegAVBufferRefPtr(raw_frames_context);
+		AVHWFramesContext *frames_context = reinterpret_cast<AVHWFramesContext *>(hardware_frames_context->data);
+		frames_context->format = pixel_format;
+		frames_context->sw_format = input_pixel_format;
+		frames_context->width = output_size.width;
+		frames_context->height = output_size.height;
+		frames_context->initial_pool_size = 32;
+		response = av_hwframe_ctx_init(hardware_frames_context.get());
+		if (response < 0) {
+			return _set_error(ERR_CANT_CREATE, "FFmpeg failed to initialize the hardware encoding frame pool", response);
+		}
+		video_codec_context->hw_device_ctx = av_buffer_ref(hardware_device_context.get());
+		video_codec_context->hw_frames_ctx = av_buffer_ref(hardware_frames_context.get());
+		if (!video_codec_context->hw_device_ctx || !video_codec_context->hw_frames_ctx) {
+			return _set_error(ERR_OUT_OF_MEMORY, "FFmpeg failed to reference the hardware encoding contexts");
+		}
+	}
+
 	AVDictionary *codec_options = nullptr;
 	if (!p_preset.is_empty()) {
 		CharString preset_utf8 = p_preset.utf8();
 		av_dict_set(&codec_options, "preset", preset_utf8.get_data(), 0);
 	}
+	const String selected_backend = _ffmpeg_get_encoder_backend(codec);
+	if (selected_backend == "mediafoundation") {
+		av_dict_set(&codec_options, "hw_encoding", "1", 0);
+	} else if (selected_backend == "videotoolbox") {
+		av_dict_set(&codec_options, "allow_sw", "0", 0);
+	}
 	response = avcodec_open2(video_codec_context.get(), codec, &codec_options);
 	av_dict_free(&codec_options);
 	if (response < 0) {
 		return _set_error(ERR_CANT_CREATE, vformat("FFmpeg failed to open video encoder '%s'", String(codec->name)), response);
+	}
+
+	AVFrame *raw_video_frame = av_frame_alloc();
+	if (!raw_video_frame) {
+		return _set_error(ERR_OUT_OF_MEMORY, "FFmpeg failed to allocate the video frame");
+	}
+	video_frame = FFmpegFramePtr(raw_video_frame);
+	video_frame->format = input_pixel_format;
+	video_frame->width = output_size.width;
+	video_frame->height = output_size.height;
+	response = av_frame_get_buffer(video_frame.get(), 32);
+	if (response < 0) {
+		return _set_error(ERR_OUT_OF_MEMORY, "FFmpeg failed to allocate the video frame buffer", response);
+	}
+
+	if (requires_hardware_frames) {
+		AVFrame *raw_hardware_frame = av_frame_alloc();
+		if (!raw_hardware_frame) {
+			return _set_error(ERR_OUT_OF_MEMORY, "FFmpeg failed to allocate the hardware video frame");
+		}
+		hardware_video_frame = FFmpegFramePtr(raw_hardware_frame);
+	}
+
+	SwsContext *raw_sws_context = sws_getContext(output_size.width, output_size.height, AV_PIX_FMT_RGBA, output_size.width, output_size.height, input_pixel_format, SWS_BICUBIC, nullptr, nullptr, nullptr);
+	if (!raw_sws_context) {
+		return _set_error(ERR_CANT_CREATE, "FFmpeg failed to create the image conversion context");
+	}
+	sws_context = FFmpegSwsContextPtr(raw_sws_context);
+
+	AVStream *stream = avformat_new_stream(output.format.get(), nullptr);
+	if (!stream) {
+		return _set_error(ERR_OUT_OF_MEMORY, "FFmpeg failed to allocate the video stream");
 	}
 
 	stream->time_base = video_codec_context->time_base;
@@ -170,25 +400,8 @@ Error FFmpegVideoEncoder::_create_video_stream(const String &p_requested_codec, 
 	stream->codecpar->codec_tag = 0;
 	video_stream = stream;
 	codec_name = String(codec->name);
-
-	AVFrame *raw_video_frame = av_frame_alloc();
-	if (!raw_video_frame) {
-		return _set_error(ERR_OUT_OF_MEMORY, "FFmpeg failed to allocate the video frame");
-	}
-	video_frame = FFmpegFramePtr(raw_video_frame);
-	video_frame->format = video_codec_context->pix_fmt;
-	video_frame->width = output_size.width;
-	video_frame->height = output_size.height;
-	response = av_frame_get_buffer(video_frame.get(), 32);
-	if (response < 0) {
-		return _set_error(ERR_OUT_OF_MEMORY, "FFmpeg failed to allocate the video frame buffer", response);
-	}
-
-	SwsContext *raw_sws_context = sws_getContext(output_size.width, output_size.height, AV_PIX_FMT_RGBA, output_size.width, output_size.height, video_codec_context->pix_fmt, SWS_BICUBIC, nullptr, nullptr, nullptr);
-	if (!raw_sws_context) {
-		return _set_error(ERR_CANT_CREATE, "FFmpeg failed to create the image conversion context");
-	}
-	sws_context = FFmpegSwsContextPtr(raw_sws_context);
+	hardware_encoding = selected_hardware_encoder;
+	encoder_backend = selected_backend;
 	return OK;
 }
 
@@ -285,7 +498,7 @@ Error FFmpegVideoEncoder::_create_audio_stream(uint32_t p_mix_rate, int64_t p_au
 	return OK;
 }
 
-Error FFmpegVideoEncoder::begin(const String &p_output_path, const Size2i &p_output_size, uint32_t p_fps, int64_t p_video_bitrate, const String &p_codec, const String &p_preset, uint32_t p_keyframe_interval, bool p_include_audio, uint32_t p_mix_rate, int64_t p_audio_bitrate) {
+Error FFmpegVideoEncoder::begin(const String &p_output_path, const Size2i &p_output_size, uint32_t p_fps, int64_t p_video_bitrate, const String &p_codec, const String &p_preset, uint32_t p_keyframe_interval, bool p_include_audio, uint32_t p_mix_rate, int64_t p_audio_bitrate, EncoderMode p_encoder_mode) {
 	if (active) {
 		return _set_error(ERR_ALREADY_IN_USE, "This FFmpeg video encoder is already active.");
 	}
@@ -307,10 +520,16 @@ Error FFmpegVideoEncoder::begin(const String &p_output_path, const Size2i &p_out
 	if (p_include_audio && (p_mix_rate == 0 || p_audio_bitrate <= 0)) {
 		return _set_error(ERR_INVALID_PARAMETER, "The audio mix rate and bitrate must be greater than zero.");
 	}
+	if (p_encoder_mode < ENCODER_MODE_AUTO || p_encoder_mode > ENCODER_MODE_HARDWARE) {
+		return _set_error(ERR_INVALID_PARAMETER, "The video encoder mode is invalid.");
+	}
 
 	_clear();
 	last_error_message = String();
+	codec_name = String();
 	audio_codec_name = String();
+	hardware_encoding = false;
+	encoder_backend = "software";
 	output_path = p_output_path;
 	output_size = p_output_size;
 	fps = p_fps;
@@ -322,7 +541,22 @@ Error FFmpegVideoEncoder::begin(const String &p_output_path, const Size2i &p_out
 		_clear();
 		return _set_error(err, vformat("Could not open video output '%s'", p_output_path));
 	}
-	err = _create_video_stream(p_codec, p_video_bitrate, p_preset, p_keyframe_interval);
+	const bool automatic_hardware_attempt = p_encoder_mode == ENCODER_MODE_AUTO && p_codec.is_empty() && _ffmpeg_find_hardware_encoder(output.format->oformat);
+	err = _create_video_stream(p_codec, p_video_bitrate, p_preset, p_keyframe_interval, p_encoder_mode);
+	if (err != OK && automatic_hardware_attempt && output.format->nb_streams == 0) {
+		sws_context.reset();
+		hardware_video_frame.reset();
+		video_frame.reset();
+		video_codec_context.reset();
+		hardware_frames_context.reset();
+		hardware_device_context.reset();
+		video_stream = nullptr;
+		codec_name = String();
+		hardware_encoding = false;
+		encoder_backend = "software";
+		last_error_message = String();
+		err = _create_video_stream(p_codec, p_video_bitrate, p_preset, p_keyframe_interval, ENCODER_MODE_SOFTWARE);
+	}
 	if (err != OK) {
 		_clear();
 		return err;
@@ -508,7 +742,24 @@ Error FFmpegVideoEncoder::add_frame(const Ref<Image> &p_image, const int32_t *p_
 	}
 	video_frame->pts = frame_count;
 	video_frame->duration = 1;
-	Error err = _encode_frame(video_codec_context.get(), video_stream, video_frame.get());
+	AVFrame *frame_to_encode = video_frame.get();
+	if (hardware_video_frame) {
+		av_frame_unref(hardware_video_frame.get());
+		response = av_hwframe_get_buffer(hardware_frames_context.get(), hardware_video_frame.get(), 0);
+		if (response < 0) {
+			return _set_error(ERR_CANT_CREATE, "FFmpeg failed to acquire a hardware video frame", response);
+		}
+		response = av_hwframe_transfer_data(hardware_video_frame.get(), video_frame.get(), 0);
+		if (response < 0) {
+			return _set_error(ERR_CANT_CREATE, "FFmpeg failed to upload the video frame to the hardware encoder", response);
+		}
+		response = av_frame_copy_props(hardware_video_frame.get(), video_frame.get());
+		if (response < 0) {
+			return _set_error(ERR_CANT_CREATE, "FFmpeg failed to copy the hardware video frame properties", response);
+		}
+		frame_to_encode = hardware_video_frame.get();
+	}
+	Error err = _encode_frame(video_codec_context.get(), video_stream, frame_to_encode);
 	if (err != OK) {
 		return err;
 	}

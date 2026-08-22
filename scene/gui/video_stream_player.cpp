@@ -142,6 +142,10 @@ void VideoStreamPlayer::_apply_playback_settings() {
 
 	playback->set_audio_track(audio_track);
 	playback->set_video_track(video_track);
+	if (!playback->set_decoder_mode(decoder_mode)) {
+		decoder_mode = DECODER_MODE_AUTO;
+		playback->set_decoder_mode(decoder_mode);
+	}
 	playback->set_audio_enabled(audio_enabled);
 	playback->set_audio_speed_to_sync(audio_speed_to_sync);
 	playback->set_audio_buffering_msec(buffering_ms);
@@ -580,6 +584,31 @@ bool VideoStreamPlayer::is_apply_rotation_metadata_enabled() const {
 	return apply_rotation_metadata;
 }
 
+void VideoStreamPlayer::set_decoder_mode(DecoderMode p_mode) {
+	ERR_FAIL_INDEX(p_mode, DECODER_MODE_HARDWARE + 1);
+	if (decoder_mode == p_mode) {
+		return;
+	}
+
+	if (playback.is_valid() && !playback->set_decoder_mode(p_mode)) {
+		WARN_PRINT("The current video stream could not switch to the requested decoder mode.");
+		return;
+	}
+	decoder_mode = p_mode;
+}
+
+VideoStreamPlayer::DecoderMode VideoStreamPlayer::get_decoder_mode() const {
+	return decoder_mode;
+}
+
+bool VideoStreamPlayer::is_using_hardware_decoder() const {
+	return playback.is_valid() && playback->is_using_hardware_decoder();
+}
+
+String VideoStreamPlayer::get_decoder_backend() const {
+	return playback.is_valid() ? playback->get_decoder_backend() : "software";
+}
+
 void VideoStreamPlayer::set_loop_start(double p_time) {
 	ERR_FAIL_COND(p_time < 0.0);
 	loop_start = p_time;
@@ -791,6 +820,11 @@ void VideoStreamPlayer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_apply_rotation_metadata_enabled", "enabled"), &VideoStreamPlayer::set_apply_rotation_metadata_enabled);
 	ClassDB::bind_method(D_METHOD("is_apply_rotation_metadata_enabled"), &VideoStreamPlayer::is_apply_rotation_metadata_enabled);
 
+	ClassDB::bind_method(D_METHOD("set_decoder_mode", "mode"), &VideoStreamPlayer::set_decoder_mode);
+	ClassDB::bind_method(D_METHOD("get_decoder_mode"), &VideoStreamPlayer::get_decoder_mode);
+	ClassDB::bind_method(D_METHOD("is_using_hardware_decoder"), &VideoStreamPlayer::is_using_hardware_decoder);
+	ClassDB::bind_method(D_METHOD("get_decoder_backend"), &VideoStreamPlayer::get_decoder_backend);
+
 	ClassDB::bind_method(D_METHOD("set_loop_start", "time"), &VideoStreamPlayer::set_loop_start);
 	ClassDB::bind_method(D_METHOD("get_loop_start"), &VideoStreamPlayer::get_loop_start);
 
@@ -853,6 +887,9 @@ void VideoStreamPlayer::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "key_frame_only"), "set_key_frame_only_enabled", "is_key_frame_only_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "accurate_seek"), "set_accurate_seek_enabled", "is_accurate_seek_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "apply_rotation_metadata"), "set_apply_rotation_metadata_enabled", "is_apply_rotation_metadata_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "decoder_mode", PROPERTY_HINT_ENUM, "Auto,Software,Hardware"), "set_decoder_mode", "get_decoder_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "using_hardware_decoder", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY), "", "is_using_hardware_decoder");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "decoder_backend", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY), "", "get_decoder_backend");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "enable_audio"), "set_audio_enabled", "is_audio_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "audio_speed_to_sync"), "set_audio_speed_to_sync", "is_audio_speed_to_sync_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "pitch_adjust"), "set_pitch_adjust_enabled", "is_pitch_adjust_enabled");
@@ -868,6 +905,10 @@ void VideoStreamPlayer::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "stream_position", PROPERTY_HINT_RANGE, "0,1280000,0.1", PROPERTY_USAGE_NONE), "set_stream_position", "get_stream_position");
 
 	ADD_PROPERTY(PropertyInfo(Variant::STRING_NAME, "bus", PROPERTY_HINT_ENUM, ""), "set_bus", "get_bus");
+
+	BIND_ENUM_CONSTANT(DECODER_MODE_AUTO);
+	BIND_ENUM_CONSTANT(DECODER_MODE_SOFTWARE);
+	BIND_ENUM_CONSTANT(DECODER_MODE_HARDWARE);
 
 	BIND_ENUM_CONSTANT(COLOR_PROFILE_AUTO);
 	BIND_ENUM_CONSTANT(COLOR_PROFILE_BT470);

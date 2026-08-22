@@ -59,7 +59,8 @@ Error MovieWriterFFmpeg::write_begin(const Size2i &p_movie_size, uint32_t p_fps,
 	if (output_path.is_relative_path()) {
 		output_path = "res://" + output_path;
 	}
-	Error err = encoder.begin(output_path, p_movie_size, fps, video_bitrate, codec, preset, keyframe_interval, true, mix_rate, audio_bitrate);
+	const FFmpegVideoEncoder::EncoderMode encoder_mode = codec.is_empty() ? FFmpegVideoEncoder::ENCODER_MODE_SOFTWARE : FFmpegVideoEncoder::ENCODER_MODE_AUTO;
+	Error err = encoder.begin(output_path, p_movie_size, fps, video_bitrate, codec, preset, keyframe_interval, true, mix_rate, audio_bitrate, encoder_mode);
 	write_failed = err != OK;
 	return err;
 }

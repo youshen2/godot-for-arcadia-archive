@@ -260,7 +260,7 @@ bool PackedSourceAssetBundle::try_open_pack(const String &p_path, bool p_replace
 	ERR_FAIL_COND_V_MSG(p_offset != 0, false, "AssetBundle directories do not support non-zero offsets.");
 
 	String manifest_path = _asset_bundle_normalize_portable_path(p_path);
-	if (!manifest_path.ends_with(BUNDLE_MANIFEST_FILE)) {
+	if (manifest_path.get_extension().to_lower() != "json" || DirAccess::exists(manifest_path)) {
 		manifest_path = manifest_path.path_join(BUNDLE_MANIFEST_FILE);
 	}
 

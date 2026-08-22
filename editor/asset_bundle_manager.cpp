@@ -72,6 +72,53 @@ static String _asset_bundle_manager_normalize_portable_path(const String &p_path
 	return p_path.replace("\\", "/").simplify_path();
 }
 
+static Error _asset_bundle_manager_remove_flat_bundle_files(const String &p_bundle_manifest_path) {
+	if (!FileAccess::exists(p_bundle_manifest_path)) {
+		return OK;
+	}
+
+	Error read_error = OK;
+	const String manifest_text = FileAccess::get_file_as_string(p_bundle_manifest_path, &read_error);
+	ERR_FAIL_COND_V(read_error != OK, read_error);
+	const Variant parsed = JSON::parse_string(manifest_text);
+	ERR_FAIL_COND_V(parsed.get_type() != Variant::DICTIONARY, ERR_PARSE_ERROR);
+
+	const Dictionary manifest = parsed;
+	if (manifest.has("chunks") && manifest["chunks"].get_type() == Variant::ARRAY) {
+		const String base_dir = p_bundle_manifest_path.get_base_dir();
+		const String base_prefix = base_dir.ends_with("/") ? base_dir : base_dir + "/";
+		HashSet<String> chunk_files;
+		const Array chunks = manifest["chunks"];
+		for (int i = 0; i < chunks.size(); i++) {
+			if (chunks[i].get_type() != Variant::DICTIONARY) {
+				continue;
+			}
+			const Dictionary chunk = chunks[i];
+			if (!chunk.has("chunk") || chunk["chunk"].get_type() != Variant::STRING) {
+				continue;
+			}
+
+			const String relative_path = _asset_bundle_manager_normalize_portable_path(chunk["chunk"]);
+			if (relative_path.is_empty() || relative_path.contains("://") || relative_path.is_absolute_path()) {
+				continue;
+			}
+			const String chunk_path = base_dir.path_join(relative_path);
+			if (chunk_path.begins_with(base_prefix)) {
+				chunk_files.insert(chunk_path);
+			}
+		}
+
+		for (const String &chunk_path : chunk_files) {
+			if (FileAccess::exists(chunk_path)) {
+				const Error err = DirAccess::remove_absolute(chunk_path);
+				ERR_FAIL_COND_V(err != OK, err);
+			}
+		}
+	}
+
+	return DirAccess::remove_absolute(p_bundle_manifest_path);
+}
+
 static bool _asset_bundle_manager_is_file_only_resource(const String &p_path) {
 	const String extension = p_path.get_extension().to_lower();
 	return extension == "txt" || extension == "json" || p_path.ends_with(".import");
@@ -354,6 +401,7 @@ void AssetBundleManagerDialog::_load_config() {
 		manifest.name = config->get_value(section, "name", section.trim_prefix("manifest/"));
 		manifest.version = config->get_value(section, "version", "1.0.0");
 		manifest.output_path = config->get_value(section, "output_path", "res://asset_bundles");
+		manifest.flat_layout = config->get_value(section, "flat_layout", false);
 		manifest.encryption_enabled = config->get_value(section, "encryption_enabled", false);
 		manifest.encryption_key = credentials->get_value(section, "encryption_key", config->get_value(section, "encryption_key", String()));
 		manifest.resources = config->get_value(section, "resources", PackedStringArray());
@@ -380,6 +428,7 @@ void AssetBundleManagerDialog::_save_config() {
 		config->set_value(section, "name", manifest.name);
 		config->set_value(section, "version", manifest.version);
 		config->set_value(section, "output_path", manifest.output_path);
+		config->set_value(section, "flat_layout", manifest.flat_layout);
 		config->set_value(section, "encryption_enabled", manifest.encryption_enabled);
 		config->set_value(section, "resources", manifest.resources);
 		credentials->set_value(section, "encryption_key", manifest.encryption_key);
@@ -421,6 +470,7 @@ void AssetBundleManagerDialog::_edit_manifest(int p_index) {
 	name_edit->set_text(manifest.name);
 	version_edit->set_text(manifest.version);
 	output_path_edit->set_text(manifest.output_path);
+	flat_layout_check->set_pressed(manifest.flat_layout);
 	encryption_enabled_check->set_pressed(manifest.encryption_enabled);
 	encryption_key_edit->set_text(manifest.encryption_key);
 	encryption_key_edit->set_editable(manifest.encryption_enabled);
@@ -454,6 +504,7 @@ void AssetBundleManagerDialog::_store_current_manifest() {
 	if (manifest.output_path.is_empty()) {
 		manifest.output_path = "res://asset_bundles";
 	}
+	manifest.flat_layout = flat_layout_check->is_pressed();
 	manifest.encryption_enabled = encryption_enabled_check->is_pressed();
 	manifest.encryption_key = encryption_key_edit->get_text().strip_edges();
 }
@@ -614,6 +665,14 @@ void AssetBundleManagerDialog::_manifest_version_changed(const String &p_text) {
 }
 
 void AssetBundleManagerDialog::_manifest_output_changed(const String &p_text) {
+	if (updating) {
+		return;
+	}
+	_store_current_manifest();
+	_save_config();
+}
+
+void AssetBundleManagerDialog::_manifest_flat_layout_toggled(bool) {
 	if (updating) {
 		return;
 	}
@@ -838,9 +897,18 @@ Error AssetBundleManagerDialog::_export_manifest(const ManifestInfo &p_manifest)
 	const String safe_name = _sanitize_name(p_manifest.name);
 	const String output_root = ProjectSettings::get_singleton()->globalize_path(p_manifest.output_path.path_join(safe_name));
 	const String bundle_id = "ab_" + safe_name.sha256_text().substr(0, 16);
-	const String bundle_dir = output_root.path_join(bundle_id);
+	const String nested_bundle_dir = output_root.path_join(bundle_id);
+	const String flat_bundle_manifest_path = output_root.path_join(bundle_id + ".json");
+	const String bundle_dir = p_manifest.flat_layout ? output_root : nested_bundle_dir;
+	const String bundle_manifest_filename = p_manifest.flat_layout ? bundle_id + ".json" : "bundle.json";
 
-	Error err = _remove_recursive(bundle_dir);
+	Error err = _asset_bundle_manager_remove_flat_bundle_files(flat_bundle_manifest_path);
+	ERR_FAIL_COND_V(err != OK, err);
+	if (p_manifest.flat_layout) {
+		err = _remove_recursive(nested_bundle_dir);
+	} else {
+		err = _remove_recursive(bundle_dir);
+	}
 	ERR_FAIL_COND_V(err != OK, err);
 	err = DirAccess::make_dir_recursive_absolute(bundle_dir);
 	ERR_FAIL_COND_V(err != OK, err);
@@ -858,7 +926,9 @@ Error AssetBundleManagerDialog::_export_manifest(const ManifestInfo &p_manifest)
 			chunk_hash_source += "\n" + file.resource_path + "\n" + file.hash;
 		}
 		const String chunk_hash = chunk_hash_source.sha256_text();
-		const String chunk_rel_path = _asset_bundle_manager_normalize_portable_path(chunk_hash.substr(0, 2).path_join(chunk_hash.substr(2, 2)).path_join(chunk_hash.substr(4, 28) + ".ab"));
+		const String chunk_rel_path = p_manifest.flat_layout ?
+				chunk_hash + ".ab" :
+				_asset_bundle_manager_normalize_portable_path(chunk_hash.substr(0, 2).path_join(chunk_hash.substr(2, 2)).path_join(chunk_hash.substr(4, 28) + ".ab"));
 		const String chunk_abs_path = bundle_dir.path_join(chunk_rel_path);
 		err = DirAccess::make_dir_recursive_absolute(chunk_abs_path.get_base_dir());
 		ERR_FAIL_COND_V(err != OK, err);
@@ -918,6 +988,7 @@ Error AssetBundleManagerDialog::_export_manifest(const ManifestInfo &p_manifest)
 	bundle_manifest["format_version"] = 1;
 	bundle_manifest["name"] = p_manifest.name;
 	bundle_manifest["version"] = p_manifest.version;
+	bundle_manifest["flat_layout"] = p_manifest.flat_layout;
 	bundle_manifest["encrypted"] = p_manifest.encryption_enabled;
 	bundle_manifest["chunks"] = chunks;
 
@@ -927,15 +998,16 @@ Error AssetBundleManagerDialog::_export_manifest(const ManifestInfo &p_manifest)
 	bundle_manifest["size"] = total_size;
 
 	progress.step(TTR("Writing bundle manifest"), export_chunks.size());
-	err = _write_text_file(bundle_dir.path_join("bundle.json"), JSON::stringify(bundle_manifest, "\t", true));
+	err = _write_text_file(bundle_dir.path_join(bundle_manifest_filename), JSON::stringify(bundle_manifest, "\t", true));
 	ERR_FAIL_COND_V(err != OK, err);
 
 	Dictionary bundle_entry;
 	bundle_entry["name"] = p_manifest.name;
-	bundle_entry["path"] = bundle_id;
+	bundle_entry["path"] = p_manifest.flat_layout ? bundle_manifest_filename : bundle_id;
 	bundle_entry["version"] = p_manifest.version;
 	bundle_entry["hash"] = bundle_hash;
 	bundle_entry["size"] = total_size;
+	bundle_entry["flat_layout"] = p_manifest.flat_layout;
 	bundle_entry["encrypted"] = p_manifest.encryption_enabled;
 	bundle_entry["chunks"] = chunks;
 
@@ -946,6 +1018,7 @@ Error AssetBundleManagerDialog::_export_manifest(const ManifestInfo &p_manifest)
 	root_manifest["format"] = "GodotAssetBundleManifest";
 	root_manifest["format_version"] = 1;
 	root_manifest["version"] = p_manifest.version;
+	root_manifest["flat_layout"] = p_manifest.flat_layout;
 	root_manifest["bundles"] = bundles;
 
 	progress.step(TTR("Writing manifest"), export_chunks.size() + 1);
@@ -1038,6 +1111,12 @@ AssetBundleManagerDialog::AssetBundleManagerDialog() {
 	output_path_browse_button->set_tooltip_text(TTRC("Browse Output Folder"));
 	output_path_container->add_child(output_path_browse_button);
 	output_path_browse_button->connect("pressed", callable_mp(this, &AssetBundleManagerDialog::_browse_output_path));
+
+	flat_layout_check = memnew(CheckBox);
+	flat_layout_check->set_text(TTRC("Store AssetBundle Files in One Folder"));
+	flat_layout_check->set_tooltip_text(TTRC("Store the bundle manifest and full-hash chunk files directly in the manifest output folder."));
+	right->add_child(flat_layout_check);
+	flat_layout_check->connect("toggled", callable_mp(this, &AssetBundleManagerDialog::_manifest_flat_layout_toggled));
 
 	encryption_enabled_check = memnew(CheckBox);
 	encryption_enabled_check->set_text(TTRC("Encrypt AssetBundle Chunks"));

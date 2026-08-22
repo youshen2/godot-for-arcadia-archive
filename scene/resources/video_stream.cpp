@@ -58,6 +58,9 @@ void VideoStreamPlayback::_bind_methods() {
 	GDVIRTUAL_BIND(_set_key_frame_only_enabled, "enabled");
 	GDVIRTUAL_BIND(_set_accurate_seek_enabled, "enabled");
 	GDVIRTUAL_BIND(_set_apply_rotation_metadata_enabled, "enabled");
+	GDVIRTUAL_BIND(_set_decoder_mode, "mode");
+	GDVIRTUAL_BIND(_is_using_hardware_decoder);
+	GDVIRTUAL_BIND(_get_decoder_backend);
 	GDVIRTUAL_BIND(_get_texture);
 	GDVIRTUAL_BIND(_update, "delta");
 	GDVIRTUAL_BIND(_get_channels);
@@ -172,6 +175,30 @@ void VideoStreamPlayback::set_accurate_seek_enabled(bool p_enabled) {
 
 void VideoStreamPlayback::set_apply_rotation_metadata_enabled(bool p_enabled) {
 	GDVIRTUAL_CALL(_set_apply_rotation_metadata_enabled, p_enabled);
+}
+
+bool VideoStreamPlayback::set_decoder_mode(int p_mode) {
+	bool ret;
+	if (GDVIRTUAL_CALL(_set_decoder_mode, p_mode, ret)) {
+		return ret;
+	}
+	return p_mode == 0 || p_mode == 1;
+}
+
+bool VideoStreamPlayback::is_using_hardware_decoder() const {
+	bool ret;
+	if (GDVIRTUAL_CALL(_is_using_hardware_decoder, ret)) {
+		return ret;
+	}
+	return false;
+}
+
+String VideoStreamPlayback::get_decoder_backend() const {
+	String ret;
+	if (GDVIRTUAL_CALL(_get_decoder_backend, ret)) {
+		return ret;
+	}
+	return "software";
 }
 
 Ref<Texture2D> VideoStreamPlayback::get_texture() const {

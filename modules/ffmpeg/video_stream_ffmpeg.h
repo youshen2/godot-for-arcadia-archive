@@ -15,13 +15,21 @@
 class VideoStreamPlaybackFFmpeg : public VideoStreamPlayback {
 	GDCLASS(VideoStreamPlaybackFFmpeg, VideoStreamPlayback);
 
+	enum DecoderMode {
+		DECODER_MODE_AUTO,
+		DECODER_MODE_SOFTWARE,
+		DECODER_MODE_HARDWARE,
+	};
+
 	FFmpegInputContext video_input;
 	FFmpegCodecContextPtr video_codec_context;
 	AVStream *video_stream = nullptr;
 	FFmpegPacketPtr video_packet;
 	FFmpegFramePtr video_frame;
+	FFmpegFramePtr software_video_frame;
 	FFmpegFramePtr rgba_frame;
 	FFmpegSwsContextPtr sws_context;
+	FFmpegAVBufferRefPtr hardware_device_context;
 
 	FFmpegInputContext audio_input;
 	FFmpegCodecContextPtr audio_codec_context;
@@ -47,6 +55,7 @@ class VideoStreamPlaybackFFmpeg : public VideoStreamPlayback {
 	bool playing = false;
 	bool paused = false;
 	bool video_eof = false;
+	bool video_decode_error = false;
 	bool audio_eof = false;
 	bool has_pending_frame = false;
 	bool audio_enabled = true;
@@ -55,6 +64,7 @@ class VideoStreamPlaybackFFmpeg : public VideoStreamPlayback {
 	bool debug = false;
 	bool accurate_seek = true;
 	bool apply_rotation_metadata = true;
+	bool hardware_decoding = false;
 
 	double time = 0.0;
 	double length = 0.0;
@@ -76,12 +86,19 @@ class VideoStreamPlaybackFFmpeg : public VideoStreamPlayback {
 	bool frame_dropping = false;
 	bool key_frame_only = false;
 	int display_rotation = 0;
+	int decoder_mode = DECODER_MODE_AUTO;
+	AVPixelFormat hardware_pixel_format = AV_PIX_FMT_NONE;
+	String decoder_backend = "software";
 
-	Error open_video();
+	Error open_video(bool p_force_software = false);
 	void close_video();
 	Error open_audio();
 	void close_audio();
-	Error open_codec_context(AVStream *p_stream, FFmpegCodecContextPtr &r_codec_context);
+	Error open_codec_context(AVStream *p_stream, FFmpegCodecContextPtr &r_codec_context, bool p_try_hardware = false);
+	Error open_hardware_codec_context(AVStream *p_stream, FFmpegCodecContextPtr &r_codec_context);
+	Error open_software_codec_context(AVStream *p_stream, FFmpegCodecContextPtr &r_codec_context);
+	bool fallback_to_software_decoder();
+	static AVPixelFormat select_hardware_pixel_format(AVCodecContext *p_context, const AVPixelFormat *p_formats);
 	int find_video_stream_index() const;
 	bool read_next_video_frame();
 	void upload_pending_frame();
@@ -126,6 +143,9 @@ public:
 	virtual void set_key_frame_only_enabled(bool p_enabled) override;
 	virtual void set_accurate_seek_enabled(bool p_enabled) override;
 	virtual void set_apply_rotation_metadata_enabled(bool p_enabled) override;
+	virtual bool set_decoder_mode(int p_mode) override;
+	virtual bool is_using_hardware_decoder() const override;
+	virtual String get_decoder_backend() const override;
 
 	void set_file(const String &p_file);
 	void set_headers(const String &p_headers);

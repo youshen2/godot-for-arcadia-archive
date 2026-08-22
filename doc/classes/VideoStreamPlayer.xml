@@ -12,6 +12,18 @@
 		<link title="Playing videos">$DOCS_URL/tutorials/animation/playing_videos.html</link>
 	</tutorials>
 	<methods>
+		<method name="get_decoder_backend" qualifiers="const">
+			<return type="String" />
+			<description>
+				返回当前实际使用的解码后端名称，例如 [code]"videotoolbox"[/code]、[code]"d3d11va"[/code]、[code]"mediacodec"[/code]、[code]"vaapi"[/code] 或 [code]"software"[/code]。该值描述实际结果；使用 [constant DECODER_MODE_AUTO] 时，即使请求了硬件解码，也可能因编解码器、驱动或设备能力限制而返回 [code]"software"[/code]。
+			</description>
+		</method>
+		<method name="get_decoder_mode" qualifiers="const">
+			<return type="int" enum="VideoStreamPlayer.DecoderMode" />
+			<description>
+				返回当前请求的解码模式。实际是否正在使用硬件解码应通过 [method is_using_hardware_decoder] 或 [method get_decoder_backend] 判断。
+			</description>
+		</method>
 		<method name="get_stream_length" qualifiers="const">
 			<return type="float" />
 			<description>
@@ -37,10 +49,23 @@
 				[b]Note:[/b] The video is still considered playing if paused during playback.
 			</description>
 		</method>
+		<method name="is_using_hardware_decoder" qualifiers="const">
+			<return type="bool" />
+			<description>
+				如果当前播放实例实际使用硬件视频解码器，则返回 [code]true[/code]。硬件解码后的帧仍可能需要回读和颜色转换后才能上传为 Godot 纹理，因此该返回值不表示整个显示链路都是零拷贝。
+			</description>
+		</method>
 		<method name="play">
 			<return type="void" />
 			<description>
 				Starts the video playback from the beginning. If the video is paused, this will not unpause the video.
+			</description>
+		</method>
+		<method name="set_decoder_mode">
+			<return type="void" />
+			<param index="0" name="mode" type="int" enum="VideoStreamPlayer.DecoderMode" />
+			<description>
+				设置视频解码模式。播放期间切换会重新打开视频解码器，并尽量恢复原播放位置和播放/暂停状态。强制硬件模式不可用时会保留先前模式；重新定位可能从关键帧开始，并产生短暂的画面或音频缓冲变化。
 			</description>
 		</method>
 		<method name="stop">
@@ -75,6 +100,12 @@
 		</member>
 		<member name="color_profile" type="int" setter="set_color_profile" getter="get_color_profile" enum="VideoStreamPlayer.ColorProfile" default="0">
 			指定视频颜色转换使用的色彩配置。使用 [constant COLOR_PROFILE_AUTO] 时由播放实现根据视频元数据自动选择；如果视频元数据缺失或颜色明显不正确，可以手动指定 BT.601、BT.709 或 BT.2020 等配置。
+		</member>
+		<member name="decoder_backend" type="String" setter="" getter="get_decoder_backend" default="&quot;software&quot;">
+			当前实际解码后端的只读名称。无播放实例、使用软解或自动模式回退到软解时为 [code]"software"[/code]。具体硬件后端和支持的编码格式取决于平台、FFmpeg 构建、系统驱动与设备能力。
+		</member>
+		<member name="decoder_mode" type="int" setter="set_decoder_mode" getter="get_decoder_mode" enum="VideoStreamPlayer.DecoderMode" default="0">
+			请求的视频解码模式。自动模式优先尝试平台硬件解码，并在初始化或解码失败时透明回退到软件解码；软件模式始终使用 CPU 解码；硬件模式要求可用的硬件解码器，切换失败时不会替换当前解码器。
 		</member>
 		<member name="debug" type="bool" setter="set_debug_enabled" getter="is_debug_enabled" default="false">
 			如果为 [code]true[/code]，允许底层播放实现输出调试信息。调试输出可能较多，不建议在正式版本中开启。
@@ -124,6 +155,9 @@
 		<member name="stream_position" type="float" setter="set_stream_position" getter="get_stream_position">
 			The current position of the stream, in seconds.
 		</member>
+		<member name="using_hardware_decoder" type="bool" setter="" getter="is_using_hardware_decoder" default="false">
+			如果当前播放实例实际使用硬件视频解码器，则为 [code]true[/code]。这是只读的运行时状态，不等同于 [member decoder_mode] 的请求值。
+		</member>
 		<member name="volume" type="float" setter="set_volume" getter="get_volume">
 			Audio volume as a linear value.
 		</member>
@@ -142,6 +176,15 @@
 		</signal>
 	</signals>
 	<constants>
+		<constant name="DECODER_MODE_AUTO" value="0" enum="DecoderMode">
+			优先尝试当前平台的硬件解码器；硬件初始化、格式协商、首帧解码或硬件帧回读失败时自动改用软件解码。适合作为通常情况下的默认值。
+		</constant>
+		<constant name="DECODER_MODE_SOFTWARE" value="1" enum="DecoderMode">
+			强制使用 FFmpeg 软件解码器。适合排查驱动问题、保证离线结果一致性，或硬件解码输出不符合预期的情况。
+		</constant>
+		<constant name="DECODER_MODE_HARDWARE" value="2" enum="DecoderMode">
+			强制使用当前平台可用的硬件解码器。若所选编码格式、系统版本、驱动或设备不支持硬件解码，设置会失败并保留先前模式；Web 平台不提供该后端。
+		</constant>
 		<constant name="COLOR_PROFILE_AUTO" value="0" enum="ColorProfile">
 			由播放实现根据视频元数据自动选择色彩配置。
 		</constant>

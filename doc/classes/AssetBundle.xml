@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="AssetBundle" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
 	<brief_description>
-		读取资源包清单并按清单挂载、热替换和加载资源。
+		读取资源包清单并按清单挂载、卸载、删除、热替换和加载资源。
 	</brief_description>
 	<description>
-		[AssetBundle] 是运行时资源包加载器，用于读取 JSON manifest，查询其中声明的 bundle、版本、依赖和资源路径，并按清单挂载目录型 AssetBundle。AssetBundle 不是 PCK 文件，而是一个包含 [code]bundle.json[/code] 与若干随机名 chunk 文件的目录；每个 chunk 在 [code]bundle.json[/code] 中映射回一个或多个 [code]res://[/code] 资源路径。挂载后资源仍通过普通 [ResourceLoader] 读取。
-		manifest 顶层应包含 [code]version[/code] 以及 [code]bundles[/code] 或 [code]packages[/code]。每个 bundle 至少需要 [code]name[/code] 和 [code]path[/code]，[code]path[/code] 通常指向包含 [code]bundle.json[/code] 的目录；可选字段包括 [code]version[/code]、[code]hash[/code]、[code]size[/code]、[code]dependencies[/code] 和 [code]chunks[/code]。相对 [code]path[/code] 会按 manifest 文件所在目录解析。
+		[AssetBundle] 是运行时资源包加载器，用于读取 JSON manifest，查询其中声明的 bundle、版本、依赖和资源路径，并按清单挂载目录型 AssetBundle。AssetBundle 不是 PCK 文件。默认布局为每个 bundle 使用一个包含 [code]bundle.json[/code] 与若干哈希 chunk 文件的独立目录；平铺布局则把名称唯一的 bundle JSON 和使用完整 SHA-256 命名的 [code].ab[/code] chunk 全部放在根 manifest 所在目录。每个 chunk 在 bundle JSON 中映射回一个或多个 [code]res://[/code] 资源路径，挂载后资源仍通过普通 [ResourceLoader] 读取。
+		manifest 顶层应包含 [code]version[/code] 以及 [code]bundles[/code] 或 [code]packages[/code]。每个 bundle 至少需要 [code]name[/code] 和 [code]path[/code]；[code]path[/code] 可以指向包含 [code]bundle.json[/code] 的目录，也可以直接指向平铺目录中的任意 [code].json[/code] bundle 清单。可选字段包括 [code]version[/code]、[code]hash[/code]、[code]size[/code]、[code]dependencies[/code] 和 [code]chunks[/code]。相对 [code]path[/code] 会按 manifest 文件所在目录解析。
 		[codeblock]
 		{
 		    "version": "1",
@@ -84,8 +84,9 @@
 		加载 bundle 时会先挂载请求 bundle 及其 manifest 依赖。批量加载时会先完成所有 bundle 挂载，再统一热替换已缓存资源，因此某个资源引用的依赖不必和它放在同一个 bundle 中；只要依赖已经缓存，或位于基础包、已挂载包、同次批量加载的其它包中，就能被普通 [ResourceLoader] 解析。目录型 AssetBundle 使用自定义 pack source 挂载，不受原始 PCK 打包时“包内必须包含完整依赖链”的导出限制影响。
 		当 [code]hot_replace_cached[/code] 为 [code]true[/code] 时，[AssetBundle] 只会对 manifest [code]chunks[/code] 或 [code]resources[/code] 中已经存在于 [code]ResourceCache[/code] 且未标记 [code]file_only[/code] 的路径执行 [constant CACHE_MODE_REPLACE] 重新加载。该模式会保留旧 [Resource] 对象并把新 bundle 中的数据拷贝进去，因此其它资源或节点持有的引用可以继续指向同一个对象并收到资源的 [code]changed[/code] 通知。外部依赖默认使用复用模式，不会强制深度替换依赖链。未缓存的资源不会被提前加载。若 bundle 以 [code]replace_files[/code] 为 [code]true[/code] 挂载并覆盖了脚本型 Autoload 单例路径，运行中的单例节点会重新加载脚本并重建脚本实例；引擎会尽量恢复脚本存储属性，但不会重新创建节点本身。
 		同一个 manifest 通过编辑器 AssetBundle 管理器重复导出时，资源列表、chunk 文件名和 JSON 字段顺序会保持稳定：同一路径且内容未变化的资源会得到同一个 chunk 路径，内容变化的资源会得到新的 chunk 路径。项目可使用 [method get_manifest_diff] 比较本地 manifest 与云端或其它 manifest，获取需要下载的 bundle 元数据、chunk 列表、移除列表与总下载大小。
+		编辑器 AssetBundle 管理器的“Store AssetBundle Files in One Folder”选项可切换平铺布局。平铺布局使用完整 SHA-256 作为 chunk 文件名，不依赖分层目录保存哈希前缀，因此多个 chunk 可安全共存于同一目录；未启用时继续生成兼容旧版本的哈希分层目录。
 		校验相关方法内部使用 [HashCalculator] 计算 SHA-256 和 MD5。若需要显示字节级校验进度，可以先用 [method get_bundle_chunk_file_paths] 取出实际 chunk 文件路径，再由项目代码调用 [method HashCalculator.start_files] 分帧读取 [method HashCalculator.get_progress]。manifest 和 chunk 路径在读取时会把反斜杠统一为正斜杠，再交给 Godot 的 [FileAccess] 解析，因此 Windows、macOS、Linux 和移动平台可以使用同一份 manifest。建议 manifest 内的相对 chunk 路径始终使用 [code]/[/code]。
-		[b]注意：[/b]Godot 当前没有公开的单个 pack 卸载接口，[method clear] 只清空此 [AssetBundle] 实例的 manifest 和状态，不会卸载已经挂载的 bundle。热替换 [PackedScene] 资源会更新已缓存的 [PackedScene] 对象，但已经实例化到场景树中的节点不会自动重建；场景型 Autoload 也不会自动重建。后续新的实例化会使用更新后的场景资源。
+		通过 [method unload_bundle]、[method unload_bundles] 和 [method unload_all_bundles] 可卸载由当前实例根据 manifest 挂载的单个、多个或全部 bundle，并在它们覆盖其它资源时恢复上一层文件映射；对应的 [method delete_bundle]、[method delete_bundles] 和 [method delete_all_bundles] 用于物理删除 bundle JSON 与 chunk。卸载和删除是相互独立的操作：卸载不删除文件，删除也不隐式卸载；全量删除仍会保留根 manifest，便于后续校验、差分或重新下载。热替换 [PackedScene] 资源会更新已缓存的 [PackedScene] 对象，但已经实例化到场景树中的节点不会自动重建；场景型 Autoload 也不会自动重建。后续新的实例化会使用更新后的场景资源。
 		[codeblocks]
 		[gdscript]
 		var bundles := AssetBundle.new()
@@ -128,10 +129,32 @@
 				清空当前实例读取到的 manifest、加载队列、进度、错误信息和已加载 bundle 记录。已经挂载到引擎中的 bundle 不会被卸载，也不会回滚已热替换的资源。
 			</description>
 		</method>
+		<method name="delete_bundle">
+			<return type="int" enum="Error" />
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				物理删除 [param bundle_name] 对应的 bundle JSON 和 manifest 中声明的 chunk 文件，但不修改根 manifest，也不卸载已经挂载的文件映射。缺失的目标文件会被忽略，因此可重复用于清理未完整下载的 bundle；若 bundle 不存在于当前 manifest，返回 [constant ERR_DOES_NOT_EXIST]。
+				若同一 manifest 中其它 bundle 引用了相同的 bundle JSON 或 chunk 实际路径，共用文件会被保留。默认哈希分层布局下会顺带尝试删除已经变空的 chunk 子目录和平级 bundle 目录；平铺布局的根目录以及其中的 [code]manifest.json[/code] 不会被删除。删除已挂载 bundle 可能使尚未缓存、之后才读取的资源失败，通常应先调用 [method unload_bundle]。任一文件因权限、占用或平台限制无法删除时返回对应 [enum Error]，此前成功删除的文件不会回滚。
+			</description>
+		</method>
+		<method name="delete_bundles">
+			<return type="int" enum="Error" />
+			<param index="0" name="bundle_names" type="PackedStringArray" />
+			<description>
+				按当前已读取的 manifest 物理删除 [param bundle_names] 指定的多个 bundle。调用前会先确认所有名称均存在；数组为空时返回 [constant ERR_INVALID_PARAMETER]。本次删除集合内部共用的 chunk 会一并删除，只有仍被当前 manifest 中未选中 bundle 引用的实际文件才会保留。根 manifest 不会被删除，运行时挂载状态也不会改变。
+				文件删除失败时会继续尝试其余目标并返回遇到的第一个错误；已经删除的文件不会回滚。若目标可能已挂载，通常应先调用 [method unload_bundles]。
+			</description>
+		</method>
+		<method name="delete_all_bundles">
+			<return type="int" enum="Error" />
+			<description>
+				物理删除当前 manifest 中所有 bundle JSON 和 chunk 文件，包括多个 bundle 共用的 chunk，但保留 [method get_manifest_path] 指向的根 manifest。manifest 未声明任何 bundle 时直接返回 [constant OK]。该方法不隐式卸载运行时映射；需要完整清理时应先调用 [method unload_all_bundles]。
+			</description>
+		</method>
 		<method name="get_bundle_count" qualifiers="const">
 			<return type="int" />
 			<description>
-				返回当前 manifest 中声明的 bundle 数量。若尚未成功调用 [method load_manifest]，返回 [code]0[/code]。
+				返回当前 manifest 中声明的 bundle 数量。若尚未成功调用 [method load_manifest] 或 [method load_manifest_from_string]，返回 [code]0[/code]。
 			</description>
 		</method>
 		<method name="get_bundle_dependencies" qualifiers="const">
@@ -159,14 +182,14 @@
 			<return type="String" />
 			<param index="0" name="bundle_name" type="String" />
 			<description>
-				返回 [param bundle_name] 对应的 [code]bundle.json[/code] 实际路径。若 manifest 中的 bundle [code]path[/code] 指向目录，则返回该目录下的 [code]bundle.json[/code]；若已经指向 [code]bundle.json[/code]，则直接返回解析后的路径。不存在该 bundle 时返回空字符串。
+				返回 [param bundle_name] 对应的 bundle JSON 实际路径。若 manifest 中的 bundle [code]path[/code] 指向目录，则返回该目录下的 [code]bundle.json[/code]；若已经指向任意扩展名为 [code].json[/code] 的平铺 bundle 清单，则直接返回解析后的路径。不存在该 bundle 时返回空字符串。
 			</description>
 		</method>
 		<method name="get_bundle_path" qualifiers="const">
 			<return type="String" />
 			<param index="0" name="bundle_name" type="String" />
 			<description>
-				返回 [param bundle_name] 的 bundle 目录或 [code]bundle.json[/code] 路径。若 manifest 中使用相对路径，返回值是按 manifest 所在目录解析后的路径。不存在该 bundle 时返回空字符串。
+				返回 [param bundle_name] 的 bundle 目录或 bundle JSON 路径。若 manifest 中使用相对路径，返回值是按 manifest 所在目录解析后的路径。不存在该 bundle 时返回空字符串。
 			</description>
 		</method>
 		<method name="get_bundle_chunks" qualifiers="const">
@@ -275,7 +298,7 @@
 		<method name="get_manifest_path" qualifiers="const">
 			<return type="String" />
 			<description>
-				返回最近一次成功读取的 manifest 路径。尚未读取 manifest 时返回空字符串。
+				返回最近一次通过 [method load_manifest] 成功读取的 manifest 路径。通过 [method load_manifest_from_string] 读取或尚未读取 manifest 时返回空字符串；字符串 manifest 的相对路径基准目录可从 [method get_manifest_info] 返回字典的 [code]base_dir[/code] 字段获取。
 			</description>
 		</method>
 		<method name="get_manifest_version" qualifiers="const">
@@ -323,14 +346,14 @@
 			<return type="bool" />
 			<param index="0" name="bundle_name" type="String" />
 			<description>
-				返回 [param bundle_name] 的 [code]bundle.json[/code] 和所有已声明 chunk 文件是否都存在于本地。该方法不计算哈希，因此只能判断下载文件是否齐全，不能判断文件内容是否损坏。
+				返回 [param bundle_name] 的 bundle JSON 和所有已声明 chunk 文件是否都存在于本地。默认分层布局与平铺布局均可检查。该方法不计算哈希，因此只能判断下载文件是否齐全，不能判断文件内容是否损坏。
 			</description>
 		</method>
 		<method name="is_bundle_loaded" qualifiers="const">
 			<return type="bool" />
 			<param index="0" name="bundle_name" type="String" />
 			<description>
-				返回 [param bundle_name] 是否已由当前实例成功挂载。该方法不检查 bundle 是否仍然存在于底层 [code]PackedData[/code] 中，因为引擎当前没有公开的单包卸载查询接口。
+				返回 [param bundle_name] 是否已由当前实例成功挂载且尚未通过 [method unload_bundle] 卸载。调用 [method delete_bundle] 不会改变该状态；调用 [method clear] 会清空本实例的记录，但不会执行卸载。
 			</description>
 		</method>
 		<method name="is_loading" qualifiers="const">
@@ -344,7 +367,7 @@
 			<param index="0" name="hot_replace_cached" type="bool" default="true" />
 			<param index="1" name="replace_files" type="bool" default="true" />
 			<description>
-				同步加载 manifest 中声明的所有 bundle。该方法会循环调用 [method poll_load] 直到完成或失败。[param hot_replace_cached] 为 [code]true[/code] 时会在所有 bundle 挂载后热替换已缓存资源；[param replace_files] 决定同路径文件是否由新挂载的 bundle 覆盖。
+				同步加载 manifest 中声明的所有 bundle。[param hot_replace_cached] 为 [code]true[/code] 时会在所有 bundle 挂载后热替换已缓存资源；工作线程可用时，多个已缓存资源会并行解析和替换，并按 manifest 顺序发出进度与热替换信号。[param replace_files] 决定同路径文件是否由新挂载的 bundle 覆盖。并行阶段发生错误时，方法会等待已提交的任务结束并按 manifest 顺序报告最早错误；排在错误项之后的部分资源可能已经完成底层替换，但不会发出成功信号。需要逐帧控制加载节奏或严格控制单步失败边界时，请改用 [method start_load_all_bundles] 与 [method poll_load]。
 			</description>
 		</method>
 		<method name="load_bundle">
@@ -362,7 +385,7 @@
 			<param index="1" name="hot_replace_cached" type="bool" default="true" />
 			<param index="2" name="replace_files" type="bool" default="true" />
 			<description>
-				同步加载 [param bundle_names] 指定的多个 bundle 及其 manifest 依赖。该方法会先挂载所有需要的 bundle，再进行热替换，因此一个 bundle 中的资源可以引用同次加载的其它 bundle 中的依赖。
+				同步加载 [param bundle_names] 指定的多个 bundle 及其 manifest 依赖。该方法会先按依赖顺序挂载所有需要的 bundle，再进行热替换，因此一个 bundle 中的资源可以引用同次加载的其它 bundle 中的依赖。工作线程可用时，多个已缓存资源会并行解析和替换，并按 manifest 顺序发出进度与热替换信号。并行阶段发生错误时，方法会等待已提交的任务结束并按 manifest 顺序报告最早错误；排在错误项之后的部分资源可能已经完成底层替换，但不会发出成功信号。需要逐帧控制加载节奏或严格控制单步失败边界时，请改用 [method start_load_bundles] 与 [method poll_load]。
 			</description>
 		</method>
 		<method name="load_manifest">
@@ -370,6 +393,15 @@
 			<param index="0" name="manifest_path" type="String" />
 			<description>
 				读取并解析 [param manifest_path] 指向的 JSON manifest。成功后可通过查询方法获取 bundle、版本、依赖和资源列表。若 manifest 中的 bundle 路径是相对路径，会以 [param manifest_path] 所在目录为基准解析。调用本方法不会自动挂载任何 bundle。
+			</description>
+		</method>
+		<method name="load_manifest_from_string">
+			<return type="int" enum="Error" />
+			<param index="0" name="manifest_string" type="String" />
+			<param index="1" name="base_dir" type="String" default="&quot;&quot;" />
+			<description>
+				直接解析 [param manifest_string] 中的 JSON manifest，不要求先把根 manifest 写入文件。成功后可使用与 [method load_manifest] 相同的查询、校验、加载、卸载和删除接口；调用本方法本身不会挂载任何 bundle。
+				[param base_dir] 用于解析 manifest 中的相对 bundle 路径，通常应设为已下载 bundle 文件所在目录。省略或传入空字符串时，相对路径保持相对形式，只有 manifest 使用绝对路径或带 [code]res://[/code]、[code]user://[/code] 等协议路径时才建议这样做。通过字符串读取后 [method has_manifest] 返回 [code]true[/code]，但 [method get_manifest_path] 返回空字符串。[param manifest_string] 不是有效 JSON 对象或 manifest 结构无效时返回相应的 [enum Error]，并可通过 [method get_last_error] 查看说明。
 			</description>
 		</method>
 		<method name="load_resource">
@@ -387,6 +419,31 @@
 				推进一次由 [method start_load_bundle]、[method start_load_bundles] 或 [method start_load_all_bundles] 启动的加载请求。每次调用最多挂载一个 bundle 或扫描一个待热替换资源。返回非 [constant OK] 表示加载失败，可通过 [method get_last_error] 获取说明。
 			</description>
 		</method>
+		<method name="unload_bundle">
+			<return type="int" enum="Error" />
+			<param index="0" name="bundle_name" type="String" />
+			<param index="1" name="hot_replace_cached" type="bool" default="true" />
+			<description>
+				卸载由当前 [AssetBundle] 实例成功挂载的 [param bundle_name]，只移除运行时文件映射，不删除 bundle JSON 或 chunk 文件。若该 bundle 覆盖了基础包或更早挂载包中的同路径文件，会恢复上一层映射；即使 bundle 没有按挂载逆序卸载，剩余包后续卸载时仍会恢复正确的上一层资源。没有上一层映射的路径会从运行时文件目录中移除。
+				当 [param hot_replace_cached] 为 [code]true[/code] 时，映射发生变化且已经缓存的资源会使用 [constant CACHE_MODE_REPLACE] 重新读取上一层内容；若路径已经不存在，则只从 [ResourceCache] 解除该路径，调用方仍持有的 [Resource] 对象不会被强制销毁。已经实例化的场景节点不会自动重建。当前存在加载请求时返回 [constant ERR_BUSY]；bundle 未由本实例加载时返回 [constant ERR_DOES_NOT_EXIST]；若本实例中另一个已加载 bundle 直接依赖它，也会返回 [constant ERR_BUSY]，应先卸载依赖方。卸载成功后发出 [signal bundle_unloaded]。
+			</description>
+		</method>
+		<method name="unload_bundles">
+			<return type="int" enum="Error" />
+			<param index="0" name="bundle_names" type="PackedStringArray" />
+			<param index="1" name="hot_replace_cached" type="bool" default="true" />
+			<description>
+				按当前已读取的 manifest 卸载 [param bundle_names] 指定的多个 bundle。方法会自动按依赖方优先、依赖包靠后的顺序处理，因此可以在同一次调用中卸载相互依赖的一组 bundle；未由当前实例加载的选中 bundle 会被跳过。若选中集合外仍有已加载 bundle 依赖某个目标，则在修改任何映射前返回 [constant ERR_BUSY]。数组为空时返回 [constant ERR_INVALID_PARAMETER]。
+				[param hot_replace_cached] 的行为与 [method unload_bundle] 相同。缓存恢复失败但底层 bundle 已成功卸载时，方法会继续处理其余选中 bundle，最后返回第一个缓存恢复错误；底层映射卸载失败或依赖出现循环时可能只完成前面的部分操作。
+			</description>
+		</method>
+		<method name="unload_all_bundles">
+			<return type="int" enum="Error" />
+			<param index="0" name="hot_replace_cached" type="bool" default="true" />
+			<description>
+				卸载当前 [AssetBundle] 实例根据 manifest 挂载且尚未卸载的全部 bundle，并自动按依赖关系选择安全顺序。当前没有已加载 bundle 时返回 [constant OK]。[param hot_replace_cached] 为 [code]true[/code] 时，会在每个 bundle 卸载后把受影响的已缓存资源恢复为当时可见的上一层内容。该方法不删除任何物理文件；需要删除 manifest 描述的全部资源包文件时请另行调用 [method delete_all_bundles]。
+			</description>
+		</method>
 		<method name="verify_all_bundles" qualifiers="const">
 			<return type="Dictionary" />
 			<param index="0" name="verify_hash" type="bool" default="true" />
@@ -394,6 +451,7 @@
 			<description>
 				校验当前 manifest 中声明的所有 bundle，并返回汇总字典。返回值包含 [code]valid[/code]、[code]error[/code]、[code]error_message[/code]、[code]checked_bundles[/code]、[code]valid_bundles[/code]、[code]invalid_bundles[/code]、[code]missing_chunks[/code]、[code]invalid_chunks[/code]、[code]total_size[/code] 和 [code]bundles[/code]。[code]bundles[/code] 数组中的每一项与 [method verify_bundle] 的返回结构相同。
 				当 [param verify_hash] 为 [code]true[/code] 时会使用 [HashCalculator] 计算 SHA-256 并和 manifest 的 [code]hash[/code] 字段比较；当 [param verify_md5] 为 [code]true[/code] 时会额外计算 MD5 并和 [code]md5[/code] 字段比较。MD5 主要用于兼容旧流程或快速辅助检查，完整性校验建议保留 SHA-256。
+				工作线程池可用时，资源条目会并行校验；同时启用 SHA-256 和 MD5 时，每个资源的数据只读取一次并同步更新两种哈希。该方法仍会同步等待全部任务结束后再返回，调用期间应避免修改或删除正在校验的 bundle 文件。
 			</description>
 		</method>
 		<method name="verify_bundle" qualifiers="const">
@@ -440,6 +498,12 @@
 				当 [param bundle_name] 对应的 bundle 已成功挂载时发出。该信号不表示该 bundle 中声明的资源已经全部热替换完成。
 			</description>
 		</signal>
+		<signal name="bundle_unloaded">
+			<param index="0" name="bundle_name" type="String" />
+			<description>
+				当 [param bundle_name] 的运行时文件映射已经成功卸载并恢复上一层映射后发出。若随后进行缓存资源恢复时发生错误，该信号仍会发出，因为底层卸载已经完成。
+			</description>
+		</signal>
 		<signal name="load_failed">
 			<param index="0" name="bundle_name" type="String" />
 			<param index="1" name="error" type="int" />
@@ -463,7 +527,7 @@
 		<signal name="resource_hot_replaced">
 			<param index="0" name="path" type="String" />
 			<description>
-				当已缓存的资源 [param path] 通过 [constant CACHE_MODE_REPLACE] 从新挂载的 bundle 中完成热替换时发出。未缓存资源会被跳过，不会触发该信号。
+				当已缓存的资源 [param path] 通过 [constant CACHE_MODE_REPLACE] 从新挂载的 bundle 或卸载后恢复的上一层映射中完成热替换时发出。未缓存资源以及卸载后已不存在、只从路径缓存解除的资源不会触发该信号。
 			</description>
 		</signal>
 	</signals>

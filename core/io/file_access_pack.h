@@ -69,15 +69,16 @@ class PackedData {
 public:
 	struct PackedFile {
 		String pack;
-		uint64_t offset; //if offset is ZERO, the file was ERASED
-		uint64_t size;
-		uint8_t md5[16];
+		uint64_t offset = 0; //if offset is ZERO, the file was ERASED
+		uint64_t size = 0;
+		uint8_t md5[16] = {};
 		PackSource *src = nullptr;
-		bool encrypted;
-		bool bundle;
-		bool delta;
+		bool encrypted = false;
+		bool bundle = false;
+		bool delta = false;
 		bool skip_pack = false;
 		String salt;
+		uint64_t tracked_pack_id = 0;
 	};
 
 private:
@@ -108,10 +109,28 @@ private:
 		}
 	};
 
+	struct TrackedPackChange {
+		PathMD5 path_md5;
+		String resource_path;
+		bool had_previous = false;
+		PackedFile previous;
+		Vector<PackedFile> previous_delta_patches;
+	};
+
+	struct TrackedPack {
+		uint64_t id = 0;
+		String path;
+		Vector<TrackedPackChange> changes;
+	};
+
 	HashMap<PathMD5, PackedFile, PathMD5> files;
 	HashMap<PathMD5, Vector<PackedFile>, PathMD5> delta_patches;
 	HashSet<String> last_added_files;
 	bool collecting_pack_files = false;
+	Vector<TrackedPack> tracked_packs;
+	TrackedPack current_tracked_pack;
+	bool tracking_pack = false;
+	uint64_t next_tracked_pack_id = 1;
 
 	Vector<PackSource *> sources;
 
@@ -122,6 +141,10 @@ private:
 
 	void _free_packed_dirs(PackedDir *p_dir);
 	void _get_file_paths(PackedDir *p_dir, const String &p_parent_dir, HashSet<String> &r_paths) const;
+	void _remove_current_path(const PathMD5 &p_path_md5, const String &p_resource_path);
+	void _restore_tracked_pack_change(const TrackedPackChange &p_change);
+	void _rollback_current_tracked_pack();
+	static String _normalize_pack_path(const String &p_path);
 
 	_FORCE_INLINE_ PathMD5 _get_simplified_path(const String &p_path) {
 		String simplified_path = p_path;
@@ -146,7 +169,9 @@ public:
 	_FORCE_INLINE_ bool is_disabled() const { return disabled; }
 
 	static PackedData *get_singleton() { return singleton; }
-	Error add_pack(const String &p_path, bool p_replace_files, uint64_t p_offset, const Vector<uint8_t> &p_decryption_key = Vector<uint8_t>());
+	Error add_pack(const String &p_path, bool p_replace_files, uint64_t p_offset,
+			const Vector<uint8_t> &p_decryption_key = Vector<uint8_t>(), bool p_track_for_unload = false);
+	Error unload_pack(const String &p_path, PackedStringArray *r_changed_files = nullptr);
 
 	void clear();
 

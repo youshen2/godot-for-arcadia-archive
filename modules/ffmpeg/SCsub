@@ -74,10 +74,12 @@ def get_ffmpeg_libraries(lib_dir):
 
 
 def get_ffmpeg_system_libraries():
+    if env["platform"] == "android":
+        return ["mediandk"]
     if env["platform"] != "windows":
         return []
 
-    libraries = ["ws2_32", "bcrypt", "user32", "ole32"]
+    libraries = ["ws2_32", "bcrypt", "user32", "ole32", "dxgi", "d3d11", "mfuuid", "strmiids"]
     compiler_tools = " ".join(str(env.get(tool, "")) for tool in ["CC", "CXX", "LINK", "AR"]).lower()
     is_llvm_mingw = env.get("use_llvm", False) or "clang" in compiler_tools or "lld" in compiler_tools
     if env.get("use_mingw", True) and not is_llvm_mingw:
@@ -160,6 +162,29 @@ def ffmpeg_platform_flags():
     if platform == "web":
         return ["--target-os=none", "--arch=wasm32", "--enable-cross-compile"]
     return ["--arch=%s" % arch]
+
+
+def linux_vaapi_available():
+    if env["platform"] != "linuxbsd" or not shutil.which("pkg-config"):
+        return False
+    return subprocess.call(
+        ["pkg-config", "--exists", "libva", "libva-drm"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ) == 0
+
+
+def ffmpeg_hardware_acceleration_flags():
+    platform = env["platform"]
+    if platform in ["macos", "ios", "visionos"]:
+        return ["--enable-videotoolbox"]
+    if platform == "windows":
+        return ["--enable-d3d11va", "--enable-dxva2", "--enable-mediafoundation"]
+    if platform == "android":
+        return ["--enable-jni", "--enable-mediacodec"]
+    if linux_vaapi_available():
+        return ["--enable-vaapi"]
+    return []
 
 
 def ffmpeg_subst(value):
@@ -390,6 +415,7 @@ def make_configure_flags():
     if ffmpeg_arch() in ["x86", "x86_64"]:
         configure_flags.append("--disable-inline-asm")
     configure_flags += ffmpeg_platform_flags()
+    configure_flags += ffmpeg_hardware_acceleration_flags()
     configure_flags += ffmpeg_macos_toolchain_flags()
     configure_flags += ffmpeg_apple_embedded_toolchain_flags()
     configure_flags += ffmpeg_android_toolchain_flags()
@@ -492,6 +518,11 @@ env.Prepend(CPPPATH=[ffmpeg_include_dir])
 env.Append(LIBPATH=[ffmpeg_lib_dir])
 env.Append(LIBS=[env.File(lib) for lib in ffmpeg_libraries])
 env.Append(LIBS=get_ffmpeg_system_libraries())
+
+if env["platform"] in ["macos", "ios", "visionos"]:
+    env.Append(LINKFLAGS=["-framework", "VideoToolbox", "-framework", "CoreMedia", "-framework", "CoreVideo", "-framework", "QuartzCore"])
+elif linux_vaapi_available():
+    env.ParseConfig("pkg-config libva libva-drm --cflags --libs")
 
 extra_libs = env.get("ffmpeg_extra_libs", "")
 if extra_libs:

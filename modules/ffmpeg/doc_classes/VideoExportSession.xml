@@ -6,7 +6,7 @@
 	<description>
 		提供应用内音视频导出会话。调用 [method start] 配置输出路径、分辨率、帧率和编码参数后，可以使用 [method add_frame] 写入应用生成的 [Image]，也可以先设置 [member viewport]，再调用 [method capture_frame] 或 [method render_frame] 抓取主视口或离屏 [SubViewport]。启用音频时，这些写帧方法还会同时接收一个立体声 PCM 数据块并写入同一容器。
 		每次成功写入都代表输出时间线上的一帧，时间戳严格按 [member fps] 递增，与写入这帧实际花费的时间无关。因此应用可以先把动画、特效或自定义时间线定位到指定时间，再连续调用 [method render_frame]，以非实时速度生成长视频；实际速度仍受场景复杂度、GPU 回读、编码器和磁盘性能限制，不保证一定快于视频时长。
-		输出扩展名决定容器，当前支持 [code].mp4[/code]、[code].mov[/code] 和 [code].mkv[/code]。可用编码器取决于编译 FFmpeg 模块时启用的功能。未指定编码器时优先采用容器的默认编码器；若默认编码器不可用，会尝试 FFmpeg 内置的 MPEG-4 视频编码器。若必须使用 H.264 等特定编码器，应在构建 FFmpeg 时启用对应编码器，并把其 FFmpeg 名称传给 [method start]。
+		输出扩展名决定容器，当前支持 [code].mp4[/code]、[code].mov[/code] 和 [code].mkv[/code]。可用编码器取决于编译 FFmpeg 模块时启用的功能。[member encoder_mode] 默认为自动模式：未明确指定编码器时，会先尝试平台硬件编码后端，并在初始化失败时回退软件编码。可以改为强制软件或强制硬件模式，并通过 [member using_hardware_encoder] 与 [member encoder_backend] 检查实际结果。
 		启用音频后，每个 [PackedVector2Array] 元素表示一个立体声音频帧，其中 [member Vector2.x] 和 [member Vector2.y] 分别是左右声道的归一化样本，建议范围为 [code]-1.0[/code] 到 [code]1.0[/code]，超出范围的值会被裁切。每个视频帧必须提交 [member required_audio_frame_count] 指定的音频帧数；该数量使用累计时间边界计算，即使采样率不能被视频帧率整除也不会产生累计取整误差。应用可从 [AudioEffectCapture]、[AudioStreamPlayback.mix_audio] 或自己的离线混音器取得这种数据。
 		该类不会自动推进场景树或替应用混合音频。需要让整棵场景树按固定 [code]delta[/code] 自动推进、通过引擎音频总线混音并同步导出音频时，请使用 [MovieWriter] 的 Movie Maker 模式并把输出文件扩展名设为本类支持的容器格式。
 		[b]注意：[/b]编码器会把输入图像转换为不含透明通道的 8 位 BT.709 YUV；抓取启用了二维 HDR 的视口时会先把线性颜色转换为 sRGB。输入宽高比与输出不同时会居中裁切后缩放，输出宽高必须为偶数。GPU 纹理回读是同步操作，不应与正常实时游戏录屏混为一谈；实时玩家录屏仍适合使用平台录屏 API 或专用录屏软件。
@@ -48,6 +48,18 @@
 				返回应用提交 PCM 数据时使用的采样率，单位为 Hz。未启用音频时返回 [code]0[/code]；也可通过 [member audio_mix_rate] 读取。
 			</description>
 		</method>
+		<method name="get_encoder_backend" qualifiers="const">
+			<return type="String" />
+			<description>
+				返回当前或最近一次成功开始的会话实际使用的视频编码后端，例如 [code]"videotoolbox"[/code]、[code]"mediafoundation"[/code]、[code]"mediacodec"[/code]、[code]"vaapi"[/code] 或 [code]"software"[/code]。使用自动模式时应读取该值确认是否成功启用了硬件编码；也可通过 [member encoder_backend] 读取。
+			</description>
+		</method>
+		<method name="get_encoder_mode" qualifiers="const">
+			<return type="int" enum="VideoExportSession.EncoderMode" />
+			<description>
+				返回后续导出会话请求的编码模式。该值描述选择策略，不代表硬件编码器一定初始化成功；实际结果应通过 [method is_using_hardware_encoder] 或 [method get_encoder_backend] 判断。
+			</description>
+		</method>
 		<method name="get_required_audio_frame_count" qualifiers="const">
 			<return type="int" />
 			<description>
@@ -60,12 +72,25 @@
 				返回当前或最近一次成功开始的会话是否配置了音频流；也可通过 [member audio_enabled] 读取。
 			</description>
 		</method>
+		<method name="is_using_hardware_encoder" qualifiers="const">
+			<return type="bool" />
+			<description>
+				返回当前或最近一次成功开始的会话是否实际使用了硬件视频编码器。自动模式回退软件编码后返回 [code]false[/code]；也可通过 [member using_hardware_encoder] 读取。
+			</description>
+		</method>
 		<method name="render_frame">
 			<return type="int" enum="Error" />
 			<param index="0" name="audio_frames" type="PackedVector2Array" default="PackedVector2Array()" />
 			<description>
 				以 [code]1.0 / fps[/code] 为渲染步长执行一次不交换窗口缓冲的强制绘制，然后抓取 [member viewport]。启用音频时，[param audio_frames] 的要求与 [method add_frame] 相同。它适合在应用先更新或定位自定义时间线后立即离屏出帧。
 				[b]注意：[/b]该方法只提交渲染服务器命令，不会替应用调用节点的 [method Node._process]、物理处理或自动推进 [AnimationPlayer]。批量导出时应由应用按帧索引显式更新需要的状态，以保持确定性。
+			</description>
+		</method>
+		<method name="set_encoder_mode">
+			<return type="void" />
+			<param index="0" name="mode" type="int" enum="VideoExportSession.EncoderMode" />
+			<description>
+				设置后续 [method start] 使用的编码器选择策略。会话激活期间不能修改。自动模式会在未明确传入编码器名称时优先尝试当前平台的硬件后端；强制硬件模式在硬件编码器不可用、容器不兼容或设备初始化失败时让 [method start] 返回错误，而不会静默使用软件编码。
 			</description>
 		</method>
 		<method name="start">
@@ -83,7 +108,7 @@
 			<param index="10" name="audio_bitrate" type="int" default="192000" />
 			<description>
 				开始新的导出会话。[param output_path] 建议使用可写的 [code]user://[/code] 路径，扩展名用于选择容器；[param output_size] 是最终像素尺寸，宽和高都必须为正偶数；[param fps] 是输出时间线帧率；[param video_bitrate] 是目标视频码率，单位为 bit/s。
-				[param codec] 为空时自动选择编码器，否则应填写当前 FFmpeg 构建中的编码器名称，例如启用 libx264 的构建可填写 [code]libx264[/code]。[param encoding_preset] 会传递给支持 [code]preset[/code] 的编码器，不支持时由编码器忽略；通常越快的预设压缩效率越低。[param keyframe_interval] 以帧为单位，[code]0[/code] 表示自动使用约两秒的间隔。[param frame_limit] 可限制本次会话最多写入的总帧数并启用 [member progress] 进度计算，[code]0[/code] 表示不限制。
+				[param codec] 为空时按照 [member encoder_mode] 自动选择编码器；明确填写 FFmpeg 编码器名称时会使用该编码器，并校验它是否符合强制软件或强制硬件模式。例如软件构建可填写 [code]libx264[/code]，平台硬件编码器可能是 [code]h264_videotoolbox[/code]、[code]h264_mf[/code]、[code]h264_mediacodec[/code] 或 [code]h264_vaapi[/code]。[param encoding_preset] 会传递给支持 [code]preset[/code] 的编码器，不支持时由编码器忽略；通常越快的预设压缩效率越低。[param keyframe_interval] 以帧为单位，[code]0[/code] 表示自动使用约两秒的间隔。[param frame_limit] 可限制本次会话最多写入的总帧数并启用 [member progress] 进度计算，[code]0[/code] 表示不限制。
 				[param include_audio] 为 [code]true[/code] 时创建立体声音频流。[param audio_mix_rate] 是传入 PCM 数据的采样率，单位为 Hz，有效范围为 [code]8000[/code] 到 [code]192000[/code]；编码器会在需要时重采样到实际音频编码器支持的采样率。[param audio_bitrate] 是目标音频码率，单位为 bit/s。当前优先使用 AAC；若 AAC 不可用，则尝试容器的默认音频编码器。音频编码器是否可用取决于 FFmpeg 构建配置。
 				返回 [constant OK] 表示输出文件和编码器均已准备完成。同一个对象完成或失败前不能重复开始会话。
 			</description>
@@ -108,6 +133,12 @@
 		<member name="duration" type="float" setter="" getter="get_duration" default="0.0">
 			已经成功写入的视频时长，等于 [member frame_count] 除以 [member fps]，单位为秒。该属性只读。
 		</member>
+		<member name="encoder_backend" type="String" setter="" getter="get_encoder_backend" default="&quot;software&quot;">
+			当前或最近一次成功开始的会话实际使用的视频编码后端。平台硬件后端通常返回 [code]"videotoolbox"[/code]、[code]"mediafoundation"[/code]、[code]"mediacodec"[/code] 或 [code]"vaapi"[/code]；软件编码返回 [code]"software"[/code]。该属性只读。
+		</member>
+		<member name="encoder_mode" type="int" setter="set_encoder_mode" getter="get_encoder_mode" enum="VideoExportSession.EncoderMode" default="0">
+			后续会话使用的编码器选择策略。默认自动尝试平台硬件编码器并在初始化失败时回退软件编码；需要可重复的软件输出或严格要求硬件加速时，可以分别选择 [constant ENCODER_MODE_SOFTWARE] 或 [constant ENCODER_MODE_HARDWARE]。会话激活期间不能修改。
+		</member>
 		<member name="fps" type="int" setter="" getter="get_fps" default="60">
 			当前会话的输出帧率。它控制时间戳，不限制编码的实际运行速度。该属性只读。
 		</member>
@@ -131,6 +162,9 @@
 		</member>
 		<member name="required_audio_frame_count" type="int" setter="" getter="get_required_audio_frame_count" default="0">
 			下一个视频帧必须附带的立体声音频帧数。为避免音画漂移，该值按累计时间边界计算，采样率不能被帧率整除时可能逐帧变化。会话未激活或未启用音频时为 [code]0[/code]。该属性只读。
+		</member>
+		<member name="using_hardware_encoder" type="bool" setter="" getter="is_using_hardware_encoder" default="false">
+			当前或最近一次成功开始的会话是否实际使用硬件视频编码器。自动模式因运行时设备、驱动、编解码器或容器限制而回退软件编码时为 [code]false[/code]。该属性只读。
 		</member>
 		<member name="viewport" type="Viewport" setter="set_viewport" getter="get_viewport">
 			要由 [method capture_frame] 和 [method render_frame] 抓取的主 [Viewport] 或离屏 [SubViewport]。对象释放后会自动视为未设置；也可以传入 [code]null[/code] 清除。
@@ -167,4 +201,15 @@
 			</description>
 		</signal>
 	</signals>
+	<constants>
+		<constant name="ENCODER_MODE_AUTO" value="0" enum="EncoderMode">
+			未明确指定编码器名称时优先尝试平台硬件视频编码器；硬件编码器不存在或初始化失败时自动回退软件编码。Apple 使用 VideoToolbox，Windows 使用 Media Foundation，Android 使用 MediaCodec，Linux/BSD 在构建和运行环境支持时使用 VAAPI。Web 平台没有硬件编码后端，会使用软件编码。
+		</constant>
+		<constant name="ENCODER_MODE_SOFTWARE" value="1" enum="EncoderMode">
+			只允许软件视频编码器。显式传入硬件编码器名称会使 [method start] 返回错误。适合需要跨设备行为一致、调试硬件驱动问题或硬件编码器不可用的场景。
+		</constant>
+		<constant name="ENCODER_MODE_HARDWARE" value="2" enum="EncoderMode">
+			只允许硬件视频编码器。硬件后端、目标编解码器、容器或运行时设备不可用时，[method start] 返回错误且不会回退软件编码。硬件编码通常能提高吞吐量，但离屏场景渲染和 GPU 纹理回读仍可能成为整体导出速度的瓶颈。
+		</constant>
+	</constants>
 </class>

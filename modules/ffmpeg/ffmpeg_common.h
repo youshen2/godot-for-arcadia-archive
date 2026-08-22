@@ -23,6 +23,7 @@ extern "C" {
 #include <libavutil/display.h>
 #include <libavutil/error.h>
 #include <libavutil/frame.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
@@ -100,6 +101,14 @@ struct FFmpegSwsContextDeleter {
 	}
 };
 
+struct FFmpegAVBufferRefDeleter {
+	void operator()(AVBufferRef *p_buffer) const {
+		if (p_buffer) {
+			av_buffer_unref(&p_buffer);
+		}
+	}
+};
+
 using FFmpegFormatContextPtr = std::unique_ptr<AVFormatContext, FFmpegAVFormatInputDeleter>;
 using FFmpegOutputFormatContextPtr = std::unique_ptr<AVFormatContext, FFmpegAVFormatOutputDeleter>;
 using FFmpegCodecContextPtr = std::unique_ptr<AVCodecContext, FFmpegAVCodecContextDeleter>;
@@ -108,6 +117,7 @@ using FFmpegPacketPtr = std::unique_ptr<AVPacket, FFmpegAVPacketDeleter>;
 using FFmpegAVIOContextPtr = std::unique_ptr<AVIOContext, FFmpegAVIOContextDeleter>;
 using FFmpegSwrContextPtr = std::unique_ptr<SwrContext, FFmpegSwrContextDeleter>;
 using FFmpegSwsContextPtr = std::unique_ptr<SwsContext, FFmpegSwsContextDeleter>;
+using FFmpegAVBufferRefPtr = std::unique_ptr<AVBufferRef, FFmpegAVBufferRefDeleter>;
 
 struct FFmpegInputContext {
 	FFmpegFormatContextPtr format;
